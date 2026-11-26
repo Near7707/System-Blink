@@ -2,7 +2,7 @@
 // quests and shop items. A connection profile can be picked; otherwise the current API is used.
 
 import { ctx, settings, room, currentChatId } from './store.js';
-import { bus, chatView, lastReply, openQuests, condsOf, lifeNow, ownerName, langOf, rollFor, needsEveryCheck, diffOf, suddenLimitFor } from './engine.js';
+import { bus, chatView, lastReply, openQuests, condsOf, lifeNow, ownerName, langOf, rollFor, needsEveryCheck, diffOf, suddenLimitFor, lockedSkills } from './engine.js';
 import { questPool, standingDefaults, dailyPool } from './data.js';
 import { ITEM_ICONS } from './icons.js';
 
@@ -11,7 +11,7 @@ export function getProfiles() {
 }
 
 // "What was sent": the last request of each kind, for the settings screen.
-export const sentLog = { check: null, quests: null, shop: null, goal: null };
+export const sentLog = { check: null, quests: null, shop: null, goal: null, skill: null };
 
 async function requestLLM(messages, { maxTokens = 500, signal } = {}) {
     const c = ctx();
@@ -137,7 +137,54 @@ async function makeQuests({ count = 3, avoid = [], diff = 'off', penalty = false
     return { quests: list.map(q => ({ ...q, conds: Array.isArray(q.conds) ? q.conds.map(String) : [] })), penalty: pen };
 }
 
-async function makeShop({ count = 4, kind = 'daily' }, signal) {
+// ---------- skills and gacha draws (2-C) ----------
+// The grade is rolled by the extension; the AI only writes a skill that fits it.
+const GRADE_HINT = {
+    F: 'F: a tiny, almost silly everyday knack.', E: 'E: a small everyday knack.', D: 'D: a modest, handy knack.', C: 'C: a useful knack.',
+    B: 'B: a strong, clearly useful ability.', A: 'A: an impressive ability.', S: 'S: a remarkable, rare ability.', SS: 'SS: an astonishing, one-of-a-kind ability.',
+};
+const SKILL_RULE = 'No numbers, no stat boosts, no cooldowns, no mana. "effect" is ONE short sentence; an active skill\'s effect says what happens when it is used. ';
+
+async function makeSkill({ grade = 'F', from = 'gacha', avoid = [] }, signal) {
+    const s = settings();
+    const lang = langOf();
+    const low = ['F', 'E'].includes(grade);
+    const system = 'You make ONE skill for a game-like "System" in a roleplay, in the style of Korean system novels. '
+        + 'A skill fits the user\'s character, the world and the recent story; it is "passive" (always on) or "active" (used now and then). '
+        + MOOD + 'Follow the WORLD NOTE if there is one. ' + SKILL_RULE
+        + (low ? 'This low-grade skill also has a hidden effect in "hidden": a surprising, better use found later (the classic "a trash skill that turns out amazing"), ONE short sentence. ' : '')
+        + `Reply with JSON only: {"name":"...","type":"passive|active","effect":"..."${low ? ',"hidden":"..."' : ''}}.`;
+    const parts = [background(), `GRADE ${GRADE_HINT[grade] || GRADE_HINT.F}`];
+    if (from === 'gacha') parts.push('It comes from a gacha draw: odd or funny skills are welcome.');
+    if (s.oddities) parts.push('It may be a little odd, if it fits.');
+    if (avoid.length) parts.push(`Not one of these: ${avoid.slice(-20).join('; ')}`);
+    parts.push(`Write name and effect${low ? ' and hidden' : ''} in ${LANG_NAME[lang]}.`);
+    const messages = [{ role: 'system', content: system }, { role: 'user', content: parts.join('\n\n') }];
+    sentLog.skill = { at: Date.now(), messages, answer: '' };
+    const raw = await requestLLM(messages, { maxTokens: 300, signal });
+    sentLog.skill.answer = raw;
+    const j = looseJson(cleanAnswer(raw));
+    if (typeof j?.name !== 'string' || !j.name.trim()) throw new Error('BAD_ANSWER');
+    return { name: j.name.trim(), type: j.type === 'active' ? 'active' : 'passive', effect: String(j.effect || ''), hidden: low ? String(j.hidden || '') : '' };
+}
+
+async function makeDrawItem({ rarity = 'common' }, signal) {
+    const lang = langOf();
+    const system = 'You make ONE item that comes out of a gacha draw of a game-like "System" in a roleplay, in the style of Korean system novels. '
+        + 'Gacha items are often odd, funny or oddly specific, but usable in the story. No stat boosts, no numbers in effects. '
+        + MOOD + 'Follow the WORLD NOTE if there is one. '
+        + `icon is one of: ${ITEM_ICONS.join(', ')}. `
+        + 'Reply with JSON only: {"name":"...","desc":"one short sentence","icon":"box"}.';
+    const messages = [{ role: 'system', content: system }, { role: 'user', content: `${background()}\n\nRarity: ${rarity}. Write name and desc in ${LANG_NAME[lang]}.` }];
+    sentLog.skill = { at: Date.now(), messages, answer: '' };
+    const raw = await requestLLM(messages, { maxTokens: 200, signal });
+    sentLog.skill.answer = raw;
+    const j = looseJson(cleanAnswer(raw));
+    if (typeof j?.name !== 'string' || !j.name.trim()) throw new Error('BAD_ANSWER');
+    return { name: j.name.trim(), desc: String(j.desc || ''), icon: ITEM_ICONS.includes(j.icon) ? j.icon : 'box' };
+}
+
+async function makeShop({ count = 4, kind = 'daily', book = null }, signal) {
     const s = settings();
     const lang = langOf();
     const system = 'You stock a personal shop for a game-like "System" in a roleplay, in the style of Korean system novels. '
@@ -146,7 +193,8 @@ async function makeShop({ count = 4, kind = 'daily' }, signal) {
         + 'Match the MOOD of the world and the recent story: bleak, hopeless or grim stories get grim, tense quests/items; light everyday comedy gets light, funny ones; romance gets warm ones. ' 
         + 'Rarity and price: common 20-80, rare 100-200, epic 300-500, legendary 800-1500 (legendary only rarely, at most one). '
         + `icon is one of: ${ITEM_ICONS.join(', ')}. `
-        + 'Reply with JSON only: {"items":[{"name":"...","desc":"one short sentence","rarity":"common|rare|epic|legendary","price":50,"icon":"box","limited":false}]}.';
+        + (book ? `Also write ONE skill book in "book": the skill it teaches (grade ${book}: ${GRADE_HINT[book] || ''}). ${SKILL_RULE}${['F', 'E'].includes(book) ? 'Add "hidden": a surprising, better use found later, ONE short sentence. ' : ''}` : '')
+        + `Reply with JSON only: {"items":[{"name":"...","desc":"one short sentence","rarity":"common|rare|epic|legendary","price":50,"icon":"box","limited":false}]${book ? ',"book":{"name":"skill name","type":"passive|active","effect":"..."' + (['F', 'E'].includes(book) ? ',"hidden":"..."' : '') + '}' : ''}}.`;
     const parts = [background()];
     if (s.useDefaults) {
         const pool = kind === 'daily' ? dailyPool(lang) : standingDefaults(lang).filter(x => x.kind === 'item');
@@ -164,7 +212,10 @@ async function makeShop({ count = 4, kind = 'daily' }, signal) {
     const j = looseJson(cleanAnswer(raw));
     const list = Array.isArray(j?.items) ? j.items.filter(x => x && typeof x.name === 'string' && x.name.trim()) : [];
     if (!list.length) throw new Error('BAD_ANSWER');
-    return list.map(x => ({ ...x, icon: ITEM_ICONS.includes(x.icon) ? x.icon : 'box' }));
+    const items = list.map(x => ({ ...x, icon: ITEM_ICONS.includes(x.icon) ? x.icon : 'box' }));
+    if (!book) return items;
+    const b = j.book && typeof j.book.name === 'string' && j.book.name.trim() ? { name: j.book.name.trim(), type: j.book.type === 'active' ? 'active' : 'passive', effect: String(j.book.effect || ''), hidden: String(j.book.hidden || '') } : null;
+    return { items, book: b };
 }
 
 // ---------- the main goal ----------
@@ -209,6 +260,8 @@ bus.ask = async (kind, opts) => {
     if (kind === 'goal') return makeGoal(opts);
     if (kind === 'stage') return makeStage(opts);
     if (kind === 'shop') return makeShop(opts);
+    if (kind === 'skill') return makeSkill(opts);
+    if (kind === 'drawItem') return makeDrawItem(opts);
     return null;
 };
 
@@ -248,14 +301,15 @@ export async function runCheck({ force = false } = {}) {
         }
     }
     const open = openQuests(r, view);
-    if (!open.length && !r.lifeMode && !roll.sudden && !roll.hidden) return null;
+    const skills = lockedSkills(r, view);
+    if (!open.length && !r.lifeMode && !roll.sudden && !roll.hidden && !skills.length) return null;
     tried.add(tag);
     r.sinceCheck = 0;
     busy = { chatId, key: last.key, ctl: new AbortController() };
     bus.emit('change');
     let result = null;
     try {
-        result = await askCheck(open, r, view, last, roll, busy.ctl.signal);
+        result = await askCheck(open, r, view, last, roll, busy.ctl.signal, skills);
     } catch (e) {
         if (e?.name !== 'AbortError') { console.warn('[System Blink] check', e); bus.emit('checkFailed', e); }
     } finally { busy = null; }
@@ -277,7 +331,7 @@ export function checkLines(open) {
     return lines;
 }
 
-async function askCheck(open, r, view, last, roll, signal) {
+async function askCheck(open, r, view, last, roll, signal, skills = []) {
     const lang = langOf();
     const count = settings().judgeEvery === 'three' ? 6 : 3;
     const recent = view.list.slice(0, last.i + 1).filter(m => m && !m.is_system).slice(-count - 1);
@@ -293,7 +347,8 @@ async function askCheck(open, r, view, last, roll, signal) {
         + 'Q1: YES - "<short quote from the story>"  or  Q1: NO   (one line per quest)\n'
         + 'TIME: <time of day now, 1-2 words, or ->\nWEATHER: <1-3 words, or ->\nPLACE: <1-4 words, or ->\nDATE: <story date if stated, or ->\n'
         + 'DAYS: <how many days passed from the start to the end of the NEW part: 0, 1, 2...> - "<short quote>"\nNEXT: <time of day at the end, or ->\n'
-        + 'Only when asked, also:\nSUDDEN: <quest> | <reward>\nHIDDEN: <quest> | <reward> | <why it was found>   or   HIDDEN: -';
+        + 'Only when asked, also:\nSUDDEN: <quest> | <reward>\nHIDDEN: <quest> | <reward> | <why it was found>   or   HIDDEN: -\n'
+        + 'SKILL1: YES - "<short quote>"  or  SKILL1: NO   (one line per skill)';
     const parts = [];
     if (from > 0) parts.push(`Earlier (context):\n${recent.slice(0, from).map(line).join('\n')}`);
     parts.push(`NEW:\n${recent.slice(from).map(line).join('\n')}`);
@@ -312,6 +367,7 @@ async function askCheck(open, r, view, last, roll, signal) {
         parts.push(`Also write SUDDEN: one sudden quest that fits exactly what is happening at the end of the NEW part, which ${who} could do within the next ${limit} ${limit === 1 ? 'reply' : 'replies'}. reward 30-100.${hint ? ` ${hint}` : ''}`);
     }
     if (roll.hidden) parts.push(`Also write HIDDEN: only if in the NEW part ${who} did something unusual, kind or curious by chance that could open a hidden quest (a bigger next step of that same thing). reward 50-200. "why" = what ${who} did, at most 12 words. If nothing fits, write HIDDEN: -`);
+    if (skills.length) parts.push(`Skills of ${who} — in the NEW part, did this skill clearly shine (it mattered in a striking, clever or lucky way, not just mentioned)? Say YES rarely.\n${skills.map((k, n) => `SKILL${n + 1}: [${k.name}] ${k.effect}`).join('\n')}`);
     parts.push(`Write TIME/WEATHER/PLACE/NEXT in ${LANG_NAME[lang]}. Quotes stay in the story's own language, at most 15 words. Use "-" when it did not change or is unknown.`);
     const messages = [{ role: 'system', content: system }, { role: 'user', content: parts.join('\n\n') }];
     sentLog.check = { at: Date.now(), messages, answer: '' };
@@ -325,6 +381,7 @@ async function askCheck(open, r, view, last, roll, signal) {
         quests: lines.map((x, n) => ({ x, a: parsed.q[n + 1] })).filter(o => o.a?.yes).map(o => ({ questId: o.x.q.id, cond: o.x.cond, reason: o.a.reason })),
         life: parsed.life, days: parsed.days, dayReason: parsed.dayReason, nextTime: parsed.next,
         sudden: roll.sudden ? parsed.sudden : null, hidden: roll.hidden ? parsed.hidden : null,
+        skills: skills.map((k, n) => ({ k, a: parsed.skill[n + 1] })).filter(o => o.a?.yes).map(o => ({ skillId: o.k.id, reason: o.a.reason })),
     };
 }
 
@@ -332,11 +389,13 @@ const unq = (s) => String(s || '').trim().replace(/^["'“”「」]+|["'“”�
 const field = (v) => { const x = unq(v); return !x || x === '-' || x === '?' || /^(none|unknown|n\/a|same)$/i.test(x) ? '' : x.slice(0, 40); };
 
 export function parseCheck(text) {
-    const out = { q: {}, life: {}, days: 0, dayReason: '', next: '', any: false, sudden: null, hidden: null };
+    const out = { q: {}, life: {}, days: 0, dayReason: '', next: '', any: false, sudden: null, hidden: null, skill: {} };
     for (const raw of String(text || '').split('\n')) {
         const ln = raw.replace(/^[\s*\-#>]+/, '').replace(/\*\*/g, '');
         let m = /^Q(\d+)\s*[:：.)]\s*(YES|NO)\b\s*[-–—:,.]?\s*(.*)$/i.exec(ln);
         if (m) { out.any = true; out.q[Number(m[1])] = { yes: m[2].toUpperCase() === 'YES', reason: unq(m[3]).slice(0, 120) }; continue; }
+        m = /^SKILL\s*(\d+)\s*[:：.)]\s*(YES|NO)\b\s*[-–—:,.]?\s*(.*)$/i.exec(ln);
+        if (m) { out.skill[Number(m[1])] = { yes: m[2].toUpperCase() === 'YES', reason: unq(m[3]).slice(0, 120) }; continue; }
         m = /^(TIME|WEATHER|PLACE|DATE|NEXT)\s*[:：]\s*(.*)$/i.exec(ln);
         if (m) {
             out.any = true;

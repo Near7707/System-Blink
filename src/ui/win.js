@@ -8,21 +8,24 @@ import {
     standingItems, dailyReady, stockDaily, restockStanding, buy, useItem, tutorialStep, skipTutorial, switchOn, rate, bus,
     goalNow, condsOf, suddenLeft, setGoal, editGoal, nextStage, isMakingStage,
     diffOf, penaltyFor, debuffsNow, priceOf, penaltyQuests,
+    skillsOf, hiddenOpen, seeSkill, useSkill, openGacha, isDrawing, gradeRarity,
 } from '../engine.js';
 import { runCheck, isChecking, cancelCheck } from '../ai.js';
 import { gearHtml, setValue, runButton, toggleGroup, ROWS, getValue } from '../prefs.js';
 import { icon, hexMark } from '../icons.js';
 import { esc, $id, viewport, safeInsets, isPhone, motionOn } from './util.js';
-import { notice, popup, diamonds } from './pop.js';
+import { notice, popup, diamonds, gachaShow } from './pop.js';
+import { skillTile, blankTile, honeycomb, gradeBadge, gradeClass, tag } from './skills.js';
 
 const TABS = ['status', 'shop', 'bag', 'quests'];
 const ui = {
     view: 'status', back: 'status', shopSide: 'daily', selShop: null, selBag: null, openQuest: null,
     modal: null, textKey: '', titlePick: false, stocking: false, restocking: false, checkingNow: false,
     goalDraft: null, goalMode: 'new', suggesting: false, makingStage: false,
+    skillFilter: 'all', selSkill: null, skillId: null,
 };
-const SUBS = ['gear', 'text', 'life', 'goal', 'goalEdit'];
-const SUB_CODE = { gear: 'CONFIG', life: 'DAY', text: 'TEXT', goal: 'GOAL', goalEdit: 'GOAL' };
+const SUBS = ['gear', 'text', 'life', 'goal', 'goalEdit', 'skill'];
+const SUB_CODE = { gear: 'CONFIG', life: 'DAY', text: 'TEXT', goal: 'GOAL', goalEdit: 'GOAL', skill: 'SKILL' };
 let hooks = { opened: () => {}, closed: () => {} };
 export function setWinHooks(h) { hooks = { ...hooks, ...h }; }
 
@@ -32,9 +35,10 @@ const RC = { common: 'sblink-r-common', rare: 'sblink-r-rare', epic: 'sblink-r-e
 const rarityTag = (r) => `<b class="sblink-rar ${RC[r] || ''}">${esc(t(`rarity_${r}`))}</b>`;
 
 // ---------- open / close ----------
-export function openWindow(tab) {
+export function openWindow(tab, opts = {}) {
     if (!settings().enabled) return openOffline();
     if (tab && TABS.includes(tab)) ui.view = tab;
+    if (opts.skill) { ui.skillFilter = 'all'; ui.selSkill = opts.skill; seeSkill(opts.skill); }
     if (!TABS.includes(ui.view) && !SUBS.includes(ui.view)) ui.view = 'status';
     let win = $id('sblink-win');
     if (!win) {
@@ -203,10 +207,96 @@ function statusTab(r) {
             + (debuffs.some(d => d.questId) ? `<div class="sblink-hint">${esc(t('debuff_lift_hint'))}</div>` : '');
     }
     body += `<button type="button" class="sblink-todayline" data-tab="quests"><span class="sblink-code">TODAY</span><span class="sblink-ell">${esc(t('today_quests', { done, all: list.length }))}</span><span>▸</span></button>`;
-    body += sec(t('skills')) + `<div class="sblink-hint sblink-lockline">${esc(t('skills_soon'))}</div>`;
+    body += skillsBlock(r, view);
     const foot = `${r.lifeMode ? `<button type="button" class="sblink-btn" data-act="lifeEdit"><span class="sblink-ell">${esc(t('edit'))}</span></button>` : ''}
       <button type="button" class="sblink-btn sblink-btn-main" data-act="nextDay"><span class="sblink-ell">${esc(t('next_day'))} ▸</span></button>`;
     return { body, foot };
+}
+
+// ----- skills (㉖-B honeycomb, ㉗ detail) -----
+const gradeWord = (g) => `${g} · ${t(`rarity_${gradeRarity(g)}`)}`;
+
+function skillsBlock(r, view) {
+    const all = skillsOf(r);
+    const nA = all.filter(k => k.type === 'active').length;
+    const f = ui.skillFilter;
+    const list = all.filter(k => f === 'all' || k.type === f);
+    let html = sec(t('skills'), `<span class="sblink-code">SYS.SKILL // GRID · ${all.length}</span>`);
+    if (all.length) {
+        const chip = (k, n) => `<button type="button" class="sblink-chip${f === k ? ' sblink-chip-on' : ''}" data-sfilter="${k}"><span class="sblink-ell">${esc(t(`skill_f_${k}`))} ${n}</span></button>`;
+        html += `<div class="sblink-chips sblink-skillchips">${chip('all', all.length)}${chip('passive', all.length - nA)}${chip('active', nA)}</div>`;
+    }
+    const tiles = list.map(k => skillTile(k, { on: k.id === ui.selSkill, locked: !!k.hidden && !hiddenOpen(k, view) }));
+    tiles.push(blankTile());
+    html += honeycomb(tiles);
+    if (!all.length) html += `<div class="sblink-hint sblink-center">${esc(t('skill_none'))}</div>`;
+    const sel = list.find(k => k.id === ui.selSkill);
+    if (sel) {
+        const open = hiddenOpen(sel, view);
+        html += `<div class="sblink-skillcard ${gradeClass(sel.grade)}">
+          <div class="sblink-skillcardhead"><b class="sblink-skillname sblink-ell">[${esc(sel.name)}]</b>${tag(gradeWord(sel.grade), 'sblink-stag-g')}${tag(t(`skill_${sel.type}`), 'sblink-stag-acc')}</div>
+          <div class="sblink-detaildesc">${esc(sel.effect)}</div>
+          ${open ? `<div class="sblink-hiddenfx"><b>${esc(t('skill_hidden'))} · </b>${esc(sel.hidden.effect)}</div>` : ''}
+          <div class="sblink-skillbtns"><button type="button" class="sblink-btn" data-act="skillMore"><span class="sblink-ell">${esc(t('skill_more'))}</span></button>
+          ${sel.type === 'active' ? `<button type="button" class="sblink-btn sblink-btn-main" data-act="skillUse"><span class="sblink-ell">${esc(t('use'))}</span></button>`
+            : `<button type="button" class="sblink-btn" disabled><span class="sblink-ell">${esc(t('skill_always'))}</span></button>`}</div>
+        </div>`;
+    }
+    return html;
+}
+
+function skillPage() {
+    const r = room();
+    const view = chatView();
+    const k = skillsOf(r).find(x => x.id === ui.skillId);
+    if (!k) return { body: `<div class="sblink-hint sblink-center">${esc(t('skill_gone'))}</div>`, foot: '' };
+    const open = hiddenOpen(k, view);
+    let body = `<div class="sblink-skillhero ${gradeClass(k.grade)}">${gradeBadge(k.grade, true)}
+        <div class="sblink-skillbig">[${esc(k.name)}]</div>
+        <div class="sblink-stags">${tag(gradeWord(k.grade), 'sblink-stag-g')}${tag(t(`skill_${k.type}`), 'sblink-stag-acc')}${tag(t(`skill_mode_${k.mode || 'life'}`))}${tag(t(`skill_from_${k.from || 'gacha'}`))}</div></div>`;
+    body += sec(t('skill_effect')) + `<div class="sblink-skilltext">${esc(k.effect)}</div>`;
+    if (k.hidden) {
+        body += sec(t('skill_hidden'), open ? '<span class="sblink-code sblink-goldtxt">UNLOCKED</span>' : '<span class="sblink-code">LOCKED</span>');
+        body += open
+            ? `<div class="sblink-hiddenfx"><b>✦ </b>${esc(k.hidden.effect)}</div>${k.hidden.reason ? `<div class="sblink-qwhy"><span class="sblink-code">${esc(t('evidence'))}</span> “${esc(k.hidden.reason)}”</div>` : ''}`
+            : `<div class="sblink-hiddenlock"><b class="sblink-hexq sblink-hexq-in">?</b><span>${esc(t('skill_hidden_locked'))}</span></div>`;
+    }
+    body += sec(t('skill_record'));
+    body += `<div class="sblink-recgrid"><div class="sblink-rec"><span>${esc(t('skill_got'))}</span><b>${esc(t('day_n', { n: k.day || 1 }))}</b></div>
+        <div class="sblink-rec"><span>${esc(t('skill_used'))}</span><b>${esc(k.type === 'active' ? t('times_n', { n: k.uses || 0 }) : '—')}</b></div></div>`;
+    body += `<div class="sblink-hint">${esc(k.type === 'active' ? t('skill_use_hint') : t('skill_passive_hint'))}</div>`;
+    const foot = k.type === 'active'
+        ? `<button type="button" class="sblink-btn sblink-btn-main sblink-btn-wide" data-act="skillUse"><span class="sblink-ell">${esc(t('use'))}</span></button>`
+        : `<button type="button" class="sblink-btn sblink-btn-wide" disabled><span class="sblink-ell">${esc(t('skill_always'))}</span></button>`;
+    return { body, foot };
+}
+
+function askUseSkill(id) {
+    const k = skillsOf().find(x => x.id === id);
+    if (!k || k.type !== 'active') return;
+    ui.modal = {
+        title: t('skill_use_q', { name: k.name }), body: t('skill_use_hint'), yes: t('use'), code: 'SYS.CONFIRM // SKILL',
+        run: async () => {
+            const u = useSkill(k.id);
+            if (!u) return;
+            popup({ variant: 'skill', tag: 'SKILL', code: 'SYS.LOG // SKILL', title: t('pop_skill_used'), lines: [`${gradeBadge(k.grade)}<span class="sblink-ell">[${esc(k.name)}]</span>`], body: esc(k.effect) });
+            render();
+        },
+    };
+    render();
+}
+
+async function runGacha(bagId) {
+    if (isDrawing()) return;
+    const show = gachaShow({
+        skill: (id) => openWindow('status', { skill: id }),
+        bag: () => openWindow('bag'),
+    });
+    let res = null;
+    try { res = await openGacha(bagId); } catch (e) { console.error('[System Blink] gacha', e); }
+    if (!room()?.bag.some(x => x.id === bagId)) ui.selBag = null;
+    refreshWin();
+    show.reveal(res);
 }
 
 // ----- shop -----
@@ -226,7 +316,7 @@ function shopTab(r) {
     const selPrice = sel ? priceOf(sel, r) : 0;
     const cells = items.map(x => `
       <button type="button" class="sblink-cell ${RC[x.rarity] || ''}${x.id === ui.selShop ? ' sblink-cell-on' : ''}${x.sold ? ' sblink-sold' : ''}" data-shop="${esc(x.id)}">
-        <span class="sblink-cellrar">${esc(t(`rarity_${x.rarity}`).slice(0, lang() === 'ko' ? 2 : 1))}</span>
+        <span class="sblink-cellrar">${x.kind === 'skillbook' ? esc(x.grade) : esc(t(`rarity_${x.rarity}`).slice(0, lang() === 'ko' ? 2 : 1))}</span>
         ${x.limited ? `<span class="sblink-limited">${esc(t('limited'))}</span>` : ''}
         ${icon(x.icon, 'sblink-cellico')}
         <span class="sblink-price${pricey ? ' sblink-neg' : ''}">${priceOf(x, r)}P${pricey ? '▴' : ''}</span>
@@ -246,7 +336,9 @@ function shopTab(r) {
         const after = pts - selPrice;
         detail = `<div class="sblink-detail">
           <div class="sblink-detailhead">${icon(sel.icon, 'sblink-bigico')}<div><div class="sblink-detailname">${esc(sel.name)}</div>${rarityTag(sel.rarity)}</div></div>
+          ${sel.kind === 'skillbook' ? `<div class="sblink-stags">${tag(`SKILL ${sel.grade}`, 'sblink-stag-g ' + gradeClass(sel.grade))}${tag(t(`skill_${sel.skill?.type || 'passive'}`), 'sblink-stag-acc')}</div>` : ''}
           <div class="sblink-detaildesc">${esc(sel.desc || '')}</div>
+          ${sel.kind === 'skillbook' ? `<div class="sblink-hint">${esc(t('book_hint'))}</div>` : ''}
           ${sel.sold ? `<div class="sblink-hint">${esc(t('sold_out'))}</div>` : `<div class="sblink-afterpts">${pts}P → <b class="${after < 0 ? 'sblink-neg' : ''}">${after}P</b></div>`}
         </div>`;
     } else if (items.length) detail = `<div class="sblink-hint sblink-center">${esc(t('pick_item'))}</div>`;
@@ -279,11 +371,11 @@ function bagTab(r) {
         body += `<div class="sblink-detail">
           <div class="sblink-detailhead">${icon(sel.icon, 'sblink-bigico')}<div><div class="sblink-detailname">${esc(sel.name)} <span class="sblink-times">×${sel.count}</span></div>${rarityTag(sel.rarity)}</div></div>
           <div class="sblink-detaildesc">${esc(sel.desc || '')}</div>
-          <div class="sblink-hint">${esc(sel.kind === 'gacha' ? t('gacha_soon') : sel.kind === 'reroll' ? t('reroll_hint') : t('use_hint'))}</div>
+          <div class="sblink-hint">${esc(sel.kind === 'gacha' ? t('gacha_hint') : sel.kind === 'reroll' ? t('reroll_hint') : t('use_hint'))}</div>
         </div>`;
     } else if (bag.length) body += `<div class="sblink-hint sblink-center">${esc(t('pick_item'))}</div>`;
-    const locked = sel?.kind === 'gacha';
-    const foot = `<button type="button" class="sblink-btn sblink-btn-main sblink-btn-wide" data-act="use"${sel && !locked ? '' : ' disabled'}><span class="sblink-ell">${esc(locked ? t('opens_soon') : t('use'))}</span></button>`;
+    const gacha = sel?.kind === 'gacha';
+    const foot = `<button type="button" class="sblink-btn sblink-btn-main sblink-btn-wide" data-act="use"${sel && !(gacha && isDrawing()) ? '' : ' disabled'}><span class="sblink-ell">${esc(gacha ? t('gacha_open') : t('use'))}</span></button>`;
     return { body, foot };
 }
 
@@ -495,6 +587,7 @@ function subBody() {
     if (ui.view === 'gear') return { body: gearHtml(), foot: '' };
     if (ui.view === 'goal') return goalPage();
     if (ui.view === 'goalEdit') return goalEditPage();
+    if (ui.view === 'skill') return skillPage();
     if (ui.view === 'text') {
         const k = ui.textKey;
         const row = ROWS[k];
@@ -541,6 +634,15 @@ async function onClick(e) {
     if (d.side) { ui.shopSide = d.side; ui.selShop = null; return render(); }
     if (d.shop) { ui.selShop = ui.selShop === d.shop ? null : d.shop; return render(); }
     if (d.bag) { ui.selBag = ui.selBag === d.bag ? null : d.bag; return render(); }
+    if (d.skill) {
+        ui.selSkill = ui.selSkill === d.skill ? null : d.skill;
+        if (ui.selSkill) seeSkill(d.skill);
+        render();
+        // the card opens under the grid: bring it into sight
+        $id('sblink-win')?.querySelector('.sblink-skillcard')?.scrollIntoView?.({ block: 'nearest' });
+        return;
+    }
+    if (d.sfilter) { ui.skillFilter = d.sfilter; ui.selSkill = null; return render(); }
     if (d.title !== undefined) { const r = room(); if (r) { r.title = d.title; save(); } ui.titlePick = false; bus.emit('change'); return render(); }
     if (d.sudden) { bus.emit('sudden', { id: d.id, yes: d.sudden === 'yes' }); return render(); }
     if (d.gtotal) { readDraft(); ui.goalDraft.total = Number(d.gtotal); return render(); }
@@ -562,6 +664,9 @@ async function onClick(e) {
         case 'close': return closeWindow();
         case 'gear': ui.back = TABS.includes(ui.view) ? ui.view : 'status'; ui.view = 'gear'; return render();
         case 'back': ui.view = ui.view === 'text' ? 'gear' : ui.view === 'goalEdit' && room()?.goal ? 'goal' : (ui.back || 'status'); ui.goalDraft = null; return render();
+        case 'skillMore': if (!ui.selSkill) return; ui.skillId = ui.selSkill; ui.back = 'status'; ui.view = 'skill'; return render();
+        case 'skillUse': return askUseSkill(ui.view === 'skill' ? ui.skillId : ui.selSkill);
+        case 'skillBlank': return notice(t('skill_none'));
         case 'goalOpen': ui.back = 'quests'; ui.view = 'goal'; ui.openQuest = null; return render();
         case 'goalEdit': { const r = room(); if (!r?.goal) return; ui.goalMode = 'edit'; ui.goalDraft = draftFromGoal(r); ui.freshDraft = true; ui.view = 'goalEdit'; return render(); }
         case 'goalNew': {
@@ -620,6 +725,10 @@ async function onClick(e) {
             const r = room();
             const b = r.bag.find(x => x.id === ui.selBag);
             if (!b) return;
+            if (b.kind === 'gacha') {
+                ui.modal = { title: t('gacha_q'), body: t('gacha_hint'), yes: t('gacha_open'), code: 'SYS.CONFIRM // GACHA', run: () => runGacha(b.id) };
+                return render();
+            }
             ui.modal = {
                 title: t('use_q', { name: b.name }), body: b.kind === 'reroll' ? t('reroll_hint') : t('use_hint'), yes: t('use'), code: 'SYS.CONFIRM // ITEM',
                 run: async () => {

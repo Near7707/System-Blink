@@ -3,7 +3,7 @@
 
 export const MODULE = 'systemBlink';
 export const FORMAT = 2;
-export const VERSION = '0.3.0';
+export const VERSION = '0.4.0';
 export const DIFFS = ['off', 'easy', 'normal', 'hard', 'hell'];
 
 const DEFAULTS = Object.freeze({
@@ -115,7 +115,11 @@ export function newRoom() {
         shop: { standing: [], dailyDay: 0, daily: [] },
         debuffs: [],            // { id, kind: 'pricey', day (the day it lasts), questId (its penalty quest) | null, at }
         lost: [],               // items taken from the bag as a Hell penalty: { id, name, icon, rarity, at, day }
-        goal: null,             // { id, title, total, done: false } — its stages are quests of kind 'goal'
+        goal: null,             // { id, title, total, done: false, skillGiven } — its stages are quests of kind 'goal'
+        // stage 2-C: { id, name, grade (F…S, SS), type: passive | active, effect, hidden: { effect, key (AI reply that opened it) | null, reason, at } | null,
+        //   from: gacha | book | goal | hidden, mode, day, at, uses, fresh (NEW until looked at) }
+        skills: [],
+        draws: [],              // gacha results, kept for the log: { id, at, kind: skill | item, grade | rarity, name }
         roll: { key: '', sudden: false, hidden: false }, // the dice for the newest reply
         suddenRest: 0,          // replies left before another sudden quest may come
         sinceCheck: 0,          // AI replies since the last check (for "every 3rd")
@@ -140,6 +144,9 @@ function fixRoom(r) {
     r.quests = r.quests.filter(q => q && typeof q === 'object');
     for (const q of r.quests) if (!['daily', 'sudden', 'hidden', 'goal', 'penalty'].includes(q.kind)) q.kind = 'daily';
     if (!DIFFS.includes(r.difficulty)) r.difficulty = 'off';
+    r.skills = r.skills.filter(x => x && typeof x === 'object' && x.id && x.name);
+    // 0.4: gacha tickets kept from before say they open "in stage 2"
+    for (const b of r.bag) if (b && b.kind === 'gacha' && /2단계|stage 2/i.test(String(b.desc || ''))) b.desc = /2단계/.test(b.desc) ? '한 번 뽑는다. 스킬이나 물건이 나온다. 엉뚱한 게 자주 나온다.' : 'One draw: a skill or an item. Often something odd.';
     return r;
 }
 

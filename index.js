@@ -5,7 +5,7 @@
 
 import { t, setLanguage, lang } from './src/i18n.js';
 import { ctx, settings, save, uiLang, room, currentChatId, onChatRenamed, onChatDeleted, copyFromParent, VERSION } from './src/store.js';
-import { bus, storeCheck, bindUses, markDelivered, active, checkRealDay, setLangGetter, skipTutorial, rate, lastReply, chatView, nextStage, tidy, answerSudden, penaltyFor } from './src/engine.js';
+import { bus, storeCheck, bindUses, markDelivered, active, checkRealDay, setLangGetter, skipTutorial, rate, lastReply, chatView, nextStage, tidy, answerSudden, penaltyFor, rewardSkill } from './src/engine.js';
 import { runCheck } from './src/ai.js';
 import { buildPrompt } from './src/prompt.js';
 import { panelHtml, panelChange, runButton, setPrefsHooks } from './src/prefs.js';
@@ -14,7 +14,7 @@ import { openWindow, closeWindow, isOpen, refreshWin, place as placeWin, setWinH
 import { mountFab, unmountFab, setFabHidden, setFabCount, setFabHooks, place as placeFab, endDrag } from './src/ui/fab.js';
 import {
     popup, notice, hold, waiting, setPopHooks, renderStrip, placeStrip, foldStrip, stripShown, renderCards, renderCardsSoon,
-    removeCards, clearPopups, questsPopup, suddenPopup, hiddenPopup, stagePopup, goalDonePopup, failPopup,
+    removeCards, clearPopups, questsPopup, suddenPopup, hiddenPopup, stagePopup, goalDonePopup, failPopup, skillPopup, unlockPopup,
 } from './src/ui/pop.js';
 import { esc } from './src/ui/util.js';
 
@@ -93,6 +93,8 @@ function answered(id, yes) {
 /** What a story check found, shown to me. */
 function afterCheck(out, chatId) {
     for (const c of out.cleared) if (c.q.kind !== 'goal') clearedNotice(c);
+    for (const c of out.cleared) if (c.q.kind === 'hidden') rewardSkill(chatId, 'hidden', c.q);
+    for (const sk of out.unlocked || []) unlockPopup(sk);
     for (const q of out.failed) {
         const pts = penaltyFor(q);
         // Off / Easy: a small notice; from Normal up the failure costs points and gets the big popup
@@ -109,7 +111,8 @@ function wireBus() {
     bus.on('change', redrawSoon);
     bus.on('checkNow', () => checkSoon(true));
     bus.on('checkFailed', () => notice(t('check_failed'), 'warn'));
-    bus.on('cleared', (list) => { for (const c of list) if (c.q.kind !== 'goal') clearedNotice(c); });
+    bus.on('cleared', (list) => { for (const c of list) { if (c.q.kind !== 'goal') clearedNotice(c); if (c.q.kind === 'hidden') rewardSkill(currentChatId(), 'hidden', c.q); } });
+    bus.on('skillGained', ({ skill, from }) => skillPopup(skill, from));
     bus.on('stageCleared', (q) => { stagePopup(q, rate(q.reward)); nextStage(); });
     bus.on('stageArrived', (q) => notice(t('toast_stage_new', { name: q.name })));
     bus.on('goalDone', (g) => goalDonePopup(g));
@@ -259,7 +262,7 @@ async function init() {
     setPrefsHooks({ redrawAll, turnedOff, turnedOn: redrawAll, lastPrompt: () => lastPrompt, langNow: uiLang, showText: showText });
     setWinHooks({ opened: () => { setFabHidden(true); renderStrip(); }, closed: () => { setFabHidden(false); renderStrip(); badge(); } });
     setFabHooks({ open: () => openWindow() });
-    setPopHooks({ openTab: (tab) => openWindow(tab), badge });
+    setPopHooks({ openTab: (tab) => openWindow(tab), openSkill: (id) => openWindow('status', { skill: id }), badge });
     mountPanel();
     if (!mountWand()) { let n = 0; const w = setInterval(() => { if (mountWand() || ++n > 30) clearInterval(w); }, 1000); }
     if (settings().enabled) mountFab();

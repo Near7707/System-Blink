@@ -2,7 +2,7 @@
 // requests other extensions make in the background ("quiet") get nothing.
 
 import { settings, room } from './store.js';
-import { active, chatView, lastMine, todays, questState, lifeNow, ownerName, goalNow, condsOf, suddenLeft } from './engine.js';
+import { active, chatView, lastMine, todays, questState, lifeNow, ownerName, goalNow, condsOf, suddenLeft, hiddenOpen } from './engine.js';
 
 const CHANCE = {
     off: 'Just know about them; do not push them into the story.',
@@ -56,6 +56,12 @@ export function buildPrompt(genType = 'normal') {
     const bag = r.bag.filter(b => b.count > 0 && b.kind === 'item');
     if (bag.length) lines.push(`- ${who} carries (from the System): ${bag.slice(0, 12).map(b => `${b.name}${b.count > 1 ? ` ×${b.count}` : ''}`).join(', ')}.`);
     if (r.title) lines.push(`- ${who}'s System title: "${r.title}".`);
+    // passive skills are always on (in the order they were gained, so the lines stay the same from turn to turn)
+    const passive = (r.skills || []).filter(k => k.type === 'passive').slice(0, 12);
+    if (passive.length) {
+        lines.push(`- ${who}'s System skills (always on): ${passive.map(k => `[${k.name} (${k.grade})] ${k.effect}${hiddenOpen(k, view) ? ` Hidden effect, now open: ${k.hidden.effect}` : ''}`).join(' / ')}`);
+        lines.push('- Let these skills show now and then when they fit; do not force them.');
+    }
     if (r.lifeMode && s.lifeToAI) {
         const l = lifeNow(r, view);
         const bits = [l.date && `date ${l.date}`, `day ${r.day}`, l.time && `time ${l.time}`, l.weather && `weather ${l.weather}`, l.place && `place ${l.place}`, l.plan && `plan for today: ${l.plan}`].filter(Boolean);
@@ -65,6 +71,12 @@ export function buildPrompt(genType = 'normal') {
     const mine = lastMine(view);
     const uses = r.uses.filter(u => u.kind === 'item' && (u.key == null || (mine && u.key === mine.key)));
     for (const u of uses) lines.push(`- Just now ${who} used the System item "${u.name}"${u.desc ? ` (${u.desc})` : ''}. Show its effect in the story.`);
+    const used = r.uses.filter(u => u.kind === 'skill' && (u.key == null || (mine && u.key === mine.key)));
+    for (const u of used) {
+        const k = (r.skills || []).find(x => x.id === u.skillId);
+        const eff = k ? `${k.effect}${hiddenOpen(k, view) ? ` ${k.hidden.effect}` : ''}` : (u.desc || '');
+        lines.push(`- Just now ${who} used the System skill [${u.name} (${u.grade})]${eff ? `: ${eff}` : ''}. Show its effect in the story.`);
+    }
     const notes = r.notes.filter(n => n.deliveredKey == null || !view.index.has(n.deliveredKey));
     for (const n of notes) lines.push(`- ${n.text}`);
     return { text: lines.join('\n'), noteIds: notes.map(n => n.id) };

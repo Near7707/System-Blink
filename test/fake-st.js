@@ -49,6 +49,7 @@
         window.__checkAnswer = (user) => {
             const out = [];
             for (const m of user.matchAll(/^Q(\d+): (.*)$/gm)) out.push(`Q${m[1]}: ${subs.some(x => m[2].includes(x)) ? 'YES - "it happened right there"' : 'NO'}`);
+            for (const m of user.matchAll(/^SKILL(\d+): /gm)) out.push(`SKILL${m[1]}: ${window.__skillYes ? 'YES - "the cat led the way"' : 'NO'}`);
             return out.concat(['TIME: -', 'WEATHER: -', 'PLACE: -', 'DATE: -', 'DAYS: 0', 'NEXT: -']).join('\n') + (extra ? `\n${extra}` : '');
         };
     };
@@ -89,13 +90,28 @@
             return ko ? '{"quests":[{"name":"누군가에게 음료 사 주기","reward":10},{"name":"밖에서 산책하기","reward":15},{"name":"고양이 쓰다듬기","reward":20}]}'
                 : '<think>ok</think>{"quests":[{"name":"Buy someone a drink","reward":10},{"name":"Take a walk outside","reward":15},{"name":"Pet a cat","reward":20}]}';
         }
+        if (/ONE skill for/.test(sys)) {
+            window.__calls.skill = (window.__calls.skill || 0) + 1;
+            if (window.__skillFail) return 'no';
+            const n = window.__calls.skill;
+            const low = /"hidden"/.test(sys);
+            const sk = ko ? { name: `골목 지름길 감각 ${n}`, type: n % 2 ? 'active' : 'passive', effect: '쓰면 가장 빠른 골목길이 떠오른다.' } : { name: `Alley Shortcut Sense ${n}`, type: n % 2 ? 'active' : 'passive', effect: 'Used: the quickest alley comes to mind.' };
+            if (low) sk.hidden = ko ? '그 길에서 꼭 만나야 할 사람과 마주친다.' : 'On that path you meet someone you needed to meet.';
+            return JSON.stringify(sk);
+        }
+        if (/out of a gacha draw/.test(sys)) {
+            window.__calls.drawItem = (window.__calls.drawItem || 0) + 1;
+            return ko ? '{"name":"반쯤 녹은 양초","desc":"켜면 잃어버린 기억 하나가 떠오른다.","icon":"star"}' : '{"name":"Half-Melted Candle","desc":"Light it and one lost memory comes back.","icon":"star"}';
+        }
         if (/personal shop/.test(sys)) {
             window.__calls.shop++;
             const n = Number(/Make exactly (\d+)/.exec(user)?.[1] || 4);
             const pool = ko
                 ? [['호감 머리핀', '첫인상이 조금 좋아진다.', 'rare', 150, 'hairpin'], ['위로의 단팥빵', '나쁜 기분이 조금 풀린다.', 'common', 30, 'bread'], ['여유의 모래시계', '순간이 느려진다.', 'epic', 350, 'hourglass'], ['주머니 비구름', '나한테만 비가 온다.', 'rare', 140, 'cloud'], ['황금 만년필', '오늘 쓴 글은 기억된다.', 'legendary', 900, 'pen'], ['짝 맞는 양말', '다시는 짝을 안 잃는다.', 'common', 20, 'socks']]
                 : [['Hairpin of Good Impressions', 'First impressions go a little better.', 'rare', 150, 'hairpin'], ['Sweet Bun of Comfort', 'A bad mood melts a little.', 'common', 30, 'bread'], ['Hourglass of a Spare Moment', 'A moment slows down.', 'epic', 350, 'hourglass'], ['Pocket Rain Cloud', 'It rains only on you.', 'rare', 140, 'cloud'], ['Golden Pen', 'What you write today is remembered.', 'legendary', 900, 'pen'], ['Socks That Always Match', 'Never lose a pair again.', 'common', 20, 'socks']];
-            return JSON.stringify({ items: pool.slice(0, n).map(([name, desc, rarity, price, icon], i) => ({ name, desc, rarity, price, icon, limited: i === 3 })) });
+            const out = { items: pool.slice(0, n).map(([name, desc, rarity, price, icon], i) => ({ name, desc, rarity, price, icon, limited: i === 3 })) };
+            if (/ONE skill book/.test(sys)) out.book = ko ? { name: '빗소리 듣기', type: 'passive', effect: '빗소리에서 작은 소식을 듣는다.', hidden: '빗소리로 먼 곳의 대화를 듣는다.' } : { name: 'Rain Listening', type: 'passive', effect: 'You hear small news in the sound of rain.', hidden: 'The rain carries far-off talk to you.' };
+            return JSON.stringify(out);
         }
         return '';
     }

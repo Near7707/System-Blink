@@ -6,9 +6,9 @@ A game-like **System** for SillyTavern roleplay, in the style of Korean system n
 In the middle of the story, a translucent System window pops up — *"[Daily quests have arrived]"* —
 you clear quests in the story, earn points, and spend them in your own **personal shop**.
 
-This version (0.3.0): the System window, the tutorial, daily quests, the shop, the bag and daily-life mode,
+This version (0.4.0): the System window, the tutorial, daily quests, the shop, the bag and daily-life mode,
 in the **Game** voice — plus sudden quests, hidden quests, a main goal, quests with several conditions,
-and **difficulty with penalties**.
+**difficulty with penalties**, and **skills and gacha**.
 
 ## Install
 
@@ -23,7 +23,7 @@ https://github.com/Near7707/System-Blink
 - **Wake the System in a chat.** Tap the floating hexagon button (or *System Blink* in the ✨ wand menu) and press
   *[Wake the System]*. Each chat has its own System: points, bag, quests and tutorial. Other chats are not touched.
 - **Tutorial** (once per chat): open the window → clear your first daily quest → buy something → use something.
-  Reward: 100P + a Gacha Ticket (draws open in stage 2). You can skip it.
+  Reward: 100P + a Gacha Ticket. You can skip it.
 - **Daily quests** (2–3 a day) are short, checkable actions — *"Buy someone a drink"*.
   After each AI reply, one small side request reads the story and judges them. The reason (a quote from the story)
   is shown in the Quests tab. A wrong call? Tap the quest: *Clear by hand* / *Undo clear*.
@@ -47,10 +47,18 @@ https://github.com/Near7707/System-Blink
 - **Shop**: the *Daily* shop (4–6 random, unusual things, restocked every day) and the *Standing* shop
   (everyday items, plus an AI-made set with *[Restock]*). Prices by rarity: Common / Rare / Epic / Legendary.
 - **Bag**: *[Use]* an item and the AI hears about it in your next message's reply (and its re-rolls).
+- **Skills**: grades F → S, and **SS** above S (very rare). *Passive* skills are always on — the AI knows them in every
+  reply and lets them show when they fit. *Active* skills are used with *[Use]* (no cooldown, no mana); the AI hears about it
+  with your next message. No stats, no numbers. They sit in the Status tab as a honeycomb; tap one for its card, *[Details]* for its page.
+  - Where they come from: a **Gacha Ticket** (*Bag → [Open]*: a skill or an item, often something odd; S and SS flash the screen),
+    a **skill book** in the daily shop now and then (learned at once), the main goal (always) and hidden quests (sometimes).
+  - **Hidden effects**: low-grade (F·E) skills hide a better use. When the story check sees the skill shine in the story,
+    it opens — the grade stays, only the effect is added. A re-rolled reply shuts it again.
+  - The grade is rolled by the extension; the AI only writes a skill that fits it. Skills do not depend on the difficulty.
 - **Daily life**: date, time of day, weather, place and today's plan. The AI check notices changes;
   you can also edit them. When the story moves to another day, a strip above the input box asks
   *"Move to the next day?"* — settling happens once, however many days passed.
-- **Log cards**: a small card under a message shows a quest clear (or a sudden quest that ran out), a daily-life change or an item use. Screen only.
+- **Log cards**: a small card under a message shows a quest clear (or a sudden quest that ran out), a daily-life change, an opened hidden effect, or an item / skill use. Screen only.
   Every record is kept, so old messages keep their cards too.
 - **Chat with the System log**: *Data → Chat with the System log* downloads the whole chat in order, with what the
   System did under each message (.txt or .json). It only makes a new file — the chat itself is not changed.
@@ -59,7 +67,7 @@ https://github.com/Near7707/System-Blink
 
 - Never writes to character cards, chat files, chat metadata or message text. Everything is kept in extension settings
   (the floating button's place: in this device's browser storage).
-- The AI gets a few short lines (quests, bag, daily life, item uses) only for the story reply — not for
+- The AI gets a few short lines (quests, bag, skills, daily life, item and skill uses) only for the story reply — not for
   other extensions' background requests. Those lines ask the AI **not** to write System notices itself,
   to keep other status blocks as usual, and never to do your quests for you.
 - No slash commands. Switched off, there are no popups, no AI calls and no cards.
@@ -79,7 +87,7 @@ and *What was sent*.
 
 ## Coming later
 
-Gacha and skills, other voices (sponsor, threat) and spectator reactions, and more world modes (regression, possession, hunter, martial arts, sentinel,
+Other voices (sponsor, threat) and spectator reactions, and more world modes (regression, possession, hunter, martial arts, sentinel,
 apocalypse, survival/competition, magic, streamer).
 
 ## Test page

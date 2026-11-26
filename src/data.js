@@ -33,7 +33,7 @@ const STANDING = [
     ['Warm Tea', '따뜻한 차', 'A calm mind for a while.', '잠시 마음이 차분해진다.', 'common', 25, 'tea'],
     ['Lucky Coin', '행운의 동전', 'A small stroke of luck today.', '오늘 작은 행운이 한 번 찾아온다.', 'rare', 120, 'coin'],
     ['Daily Quest Reroll Ticket', '일일 퀘스트 다시 뽑기권', "Swaps today's unfinished daily quests for new ones.", '오늘 아직 못 깬 일일 퀘스트를 새로 바꾼다.', 'common', 30, 'reroll', 'reroll'],
-    ['Gacha Ticket', '뽑기권', 'One draw. (Opens in stage 2.)', '한 번 뽑을 수 있다. (2단계에서 열림)', 'rare', 100, 'ticket', 'gacha'],
+    ['Gacha Ticket', '뽑기권', 'One draw: a skill or an item. Often something odd.', '한 번 뽑는다. 스킬이나 물건이 나온다. 엉뚱한 게 자주 나온다.', 'rare', 100, 'ticket', 'gacha'],
 ];
 
 const DAILY_POOL = [
@@ -89,6 +89,48 @@ export function parseCustomShop(text) {
 }
 
 export const TUTORIAL_REWARD = 100;
+
+// ---------- skills (stage 2-C) ----------
+// Grades F → S, and SS above S (very rare). No numbers, no cooldowns, no mana.
+export const GRADES = ['F', 'E', 'D', 'C', 'B', 'A', 'S', 'SS'];
+export const LOW_GRADES = ['F', 'E']; // only these can have a hidden effect
+
+// [en name, ko name, en effect, ko effect, type, en hidden, ko hidden, odd]
+const SKILLS = [
+    ['Cooking', '요리', 'Simple dishes always come out tasty.', '간단한 요리는 늘 맛있게 된다.', 'passive', 'Food you make lifts the mood of whoever eats it.', '내가 만든 음식을 먹은 사람은 기분이 풀린다.'],
+    ['Popular with Cats', '고양이에게 인기 많음', 'Cats like you and follow you around.', '고양이가 잘 따른다.', 'passive', 'Cats warn you before something bad happens.', '고양이가 위험을 미리 알려 준다.', true],
+    ['Good Hunch on Rainy Days', '비 오는 날 감이 좋음', 'On rainy days small hunches tend to be right.', '비가 오면 사소한 예감이 잘 맞는다.', 'passive', 'On rainy days you can tell when someone lies.', '비 오는 날에는 거짓말을 알아챈다.'],
+    ['Déjà Vu', '데자뷔', 'Used: you recall one small clue in the next scene.', '쓰면 다음 장면에서 작은 단서 하나를 떠올린다.', 'active', 'The clue also hints where it leads.', '떠올린 단서가 어디로 이어지는지도 어렴풋이 보인다.'],
+    ['Regulars Magnet', '단골 자석', 'Shop owners remember you and add a little extra.', '가게 주인들이 나를 기억하고 조금씩 더 챙겨 준다.', 'passive', 'Regulars of a place share its secrets with you.', '단골들이 그 가게의 비밀을 알려 준다.'],
+    ['Perfect Nap', '완벽한 낮잠', 'Used: a short nap feels like a full night of sleep.', '쓰면 짧은 낮잠이 하룻밤 잔 것처럼 개운하다.', 'active', 'Sometimes you dream of a small part of tomorrow.', '가끔 내일의 한 장면을 꿈에서 본다.'],
+    ['Lost-Thing Finder', '물건 찾기', 'Used: you find one lost thing nearby.', '쓰면 근처에서 잃어버린 물건 하나를 찾는다.', 'active', 'It also finds what someone else is looking for.', '다른 사람이 찾는 물건도 찾을 수 있다.'],
+    ['Small Talk', '스몰토크', 'Talks with strangers start easily.', '처음 보는 사람과도 대화가 쉽게 시작된다.', 'passive', 'People tell you one thing they told no one else.', '사람들이 아무에게도 안 한 이야기를 하나씩 털어놓는다.'],
+    ['Umbrella Luck', '우산 운', 'The rain starts only after you get indoors.', '실내에 들어간 뒤에야 비가 내리기 시작한다.', 'passive', 'You can also keep the rain off someone beside you.', '옆 사람도 비를 피하게 할 수 있다.', true],
+    ['Weather Reading', '날씨 읽기', 'Used: you know the weather of the next few hours.', '쓰면 앞으로 몇 시간 날씨를 정확히 안다.', 'active', 'You also sense the mood the day will bring.', '그날 일어날 일의 분위기도 느낀다.'],
+    ['Reading the Room', '분위기 파악', 'You sense the mood of a room as you walk in.', '방에 들어서면 분위기를 바로 알아챈다.', 'passive', 'You see who in the room needs help.', '방 안에서 도움이 필요한 사람이 보인다.'],
+    ['Quiet Steps', '조용한 발걸음', 'Your steps make no sound when you want.', '원할 때 발소리가 나지 않는다.', 'passive', 'Others also stop noticing you for a moment.', '잠깐 동안 다른 사람 눈에도 잘 띄지 않는다.'],
+    ['Pigeon Talk', '비둘기 말 알아듣기', 'You understand pigeons. They mostly complain.', '비둘기 말을 알아듣는다. 대부분 불평이다.', 'passive', 'Pigeons bring you news from around town.', '비둘기들이 동네 소식을 물어다 준다.', true],
+    ['Excuse Maker', '핑계 생성기', 'Used: you come up with a believable excuse.', '쓰면 그럴듯한 핑계가 바로 떠오른다.', 'active', 'The excuse turns out to be true.', '지어낸 핑계가 사실이 된다.', true],
+    ['Second Wind', '재충전', 'Used: tiredness is gone, once.', '쓰면 피로가 한 번 싹 사라진다.', 'active', 'Someone you touch gets their strength back too.', '손을 잡은 사람도 기운을 되찾는다.'],
+    ['Gift Sense', '선물 감각', 'You always know what gift someone would like.', '누가 무엇을 좋아할지 선물을 고를 때 늘 맞힌다.', 'passive', 'A gift you give is remembered for a long time.', '내가 준 선물은 오래 기억된다.'],
+];
+
+export function skillPool(lang, oddities = true) {
+    return SKILLS.filter(x => oddities || !x[7]).map(x => ({
+        name: lang === 'ko' ? x[1] : x[0], effect: lang === 'ko' ? x[3] : x[2], type: x[4], hidden: lang === 'ko' ? x[6] : x[5],
+    }));
+}
+
+// Odd things that only come out of a gacha draw: [en, ko, en desc, ko desc, rarity, icon]
+const GACHA_ODD = [
+    ['Half a Treasure Map', '보물 지도 반쪽', 'Where is the other half?', '나머지 반쪽은 어디에?', 'rare', 'map'],
+    ['Bottle of Yesterday’s Air', '어제의 공기 한 병', 'Smells a little like yesterday.', '열면 어제 냄새가 조금 난다.', 'common', 'potion'],
+    ['Umbrella for Ants', '개미용 우산', 'Very well made. Very small.', '아주 잘 만들었다. 아주 작다.', 'common', 'umbrella'],
+    ['Key to Somewhere', '어딘가의 열쇠', 'Opens one door. Which one, nobody knows.', '어떤 문 하나를 연다. 어느 문인지는 모른다.', 'epic', 'key'],
+    ['Star That Fell Today', '오늘 떨어진 별', 'Still warm. Makes one wish a little likelier.', '아직 따뜻하다. 소원 하나가 조금 더 잘 이루어진다.', 'legendary', 'star'],
+];
+
+export function gachaOddPool(lang) { return GACHA_ODD.map((r, n) => ({ id: `go${n}`, name: lang === 'ko' ? r[1] : r[0], desc: lang === 'ko' ? r[3] : r[2], rarity: r[4], price: 0, icon: r[5], kind: 'item', odd: true })); }
 
 export function shuffle(list, rnd = Math.random) {
     const a = [...list];

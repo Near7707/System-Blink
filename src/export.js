@@ -49,7 +49,13 @@ export function systemEvents(r = room(), view = chatView()) {
     }
     for (const o of r.lost || []) loose.push({ type: 'lost', item: o.name, rarity: o.rarity, at: o.at });
     for (const n of r.notes) if (n.deliveredKey) add(n.deliveredKey, { type: 'note', text: n.text, at: n.at });
-    for (const u of r.uses) add(u.key, { type: 'use', item: u.name, rarity: u.rarity, at: u.at });
+    for (const u of r.uses) add(u.key, u.kind === 'skill' ? { type: 'skillUse', skill: u.name, grade: u.grade, at: u.at } : { type: 'use', item: u.name, rarity: u.rarity, at: u.at });
+    // 2-C: skills gained, gacha draws, hidden effects opened
+    for (const k of r.skills || []) {
+        loose.push({ type: 'skill', skill: k.name, grade: k.grade, skillType: k.type, from: k.from, at: k.at || 0 });
+        if (k.hidden?.key) add(k.hidden.key, { type: 'unlock', skill: k.name, effect: k.hidden.effect, evidence: k.hidden.reason || '', at: k.hidden.at || 0 });
+    }
+    for (const d of r.draws || []) if (d.kind === 'item') loose.push({ type: 'draw', item: d.name, rarity: d.grade, at: d.at });
     for (const p of r.spend) loose.push({ type: 'buy', item: p.what, pts: p.pts, at: p.at });
     loose.sort((a, b) => (a.at || 0) - (b.at || 0));
     return { byKey, loose };
@@ -70,6 +76,10 @@ function line(ev) {
         case 'lost': return `${t('log_lost')}: ${ev.item}`;
         case 'note': return `${t('log_note')}: ${ev.text}`;
         case 'use': return t('used_x', { name: ev.item });
+        case 'skillUse': return `${t('log_skill_used')}: [${ev.skill}] (${ev.grade})`;
+        case 'skill': return `${t('log_skill_got')}: [${ev.skill}] (${ev.grade} · ${t(`skill_${ev.skillType}`)}) · ${t(`skill_from_${ev.from}`)}`;
+        case 'draw': return `${t('log_draw')}: ${ev.item} (${t(`rarity_${ev.rarity}`)})`;
+        case 'unlock': return `${t('log_unlock')}: [${ev.skill}] ${ev.effect}${ev.evidence ? ` · ${t('evidence')} "${ev.evidence}"` : ''}`;
         case 'buy': return `${t('bought', { name: ev.item })} −${ev.pts}P`;
         case 'tutorial': return `${t('pop_tut_done')} +${ev.pts}P`;
         default: return '';

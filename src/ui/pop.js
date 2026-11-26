@@ -3,11 +3,12 @@
 
 import { t } from '../i18n.js';
 import { settings, room } from '../store.js';
-import { active, chatView, suggestion, nextDay, dismissSuggestion, isAI, todays, questState, condsOf, penaltyFor } from '../engine.js';
+import { active, chatView, suggestion, nextDay, dismissSuggestion, isAI, todays, questState, condsOf, penaltyFor, hiddenOpen } from '../engine.js';
+import { gradeBadge, gradeClass, isTop, tag } from './skills.js';
 import { icon, hexMark } from '../icons.js';
 import { esc, $id, typeIn, motionOn, inputTop, viewport } from './util.js';
 
-let hooks = { openTab: () => {}, badge: () => {} };
+let hooks = { openTab: () => {}, openSkill: () => {}, badge: () => {} };
 export function setPopHooks(h) { hooks = { ...hooks, ...h }; }
 
 let held = false;   // a reply is being written
@@ -52,17 +53,20 @@ function draw(p) {
     const head = p.kind === 'awaken'
         ? `<div class="sblink-hexspin">${hexMark()}</div><div class="sblink-tag">AWAKEN</div>`
         : `<div class="sblink-tag">${esc(p.tag || 'SYSTEM')}</div>`;
-    wrap.innerHTML = `
+    wrap.innerHTML = `${p.flash ? `<div class="sblink-flash sblink-flash-${p.flash}"></div>` : ''}
       <div class="sblink-pop sblink-holo" role="alertdialog" aria-modal="true">
         <i class="sblink-cn sblink-cn-tl"></i><i class="sblink-cn sblink-cn-tr"></i><i class="sblink-cn sblink-cn-bl"></i><i class="sblink-cn sblink-cn-br"></i>
         ${head}
         <div class="sblink-pophead"><span class="sblink-code">${esc(p.code || 'SYS.NOTICE')}</span>${dots}</div>
         <div class="sblink-stripes"></div>
         <div class="sblink-poptitle"><span class="sblink-typed"></span><span class="sblink-cursor">▌</span></div>
+        ${p.sub ? `<div class="sblink-popsub">${p.sub}</div>` : ''}
+        ${p.stage || ''}
         ${p.lines?.length ? `<div class="sblink-poplines">${p.lines.map(l => `<div class="sblink-popline">${l}</div>`).join('')}</div>` : ''}
         ${p.body ? `<div class="sblink-popbody">${p.body}</div>` : ''}
         ${p.warn ? `<div class="sblink-popwarn">${esc(p.warn)}</div>` : ''}
         ${p.calm ? `<div class="sblink-popcalm">${esc(p.calm)}</div>` : ''}
+        ${p.dust ? `<div class="sblink-dustbox">${Array.from({ length: 8 }, (_, i) => `<i style="left:${8 + i * 11}%;animation-delay:${(i * 0.37) % 2.6}s"></i>`).join('')}</div>` : ''}
         <div class="sblink-popbtns">
           ${p.second ? `<button type="button" class="sblink-btn" data-pop="second"><span class="sblink-ell">${esc(p.second)}</span></button>` : ''}
           <button type="button" class="sblink-btn sblink-btn-main" data-pop="ok"><span class="sblink-ell">${esc(p.ok || t('ok'))}</span></button>
@@ -79,7 +83,7 @@ function draw(p) {
     setTimeout(() => wrap.querySelector('.sblink-btn-main')?.focus({ preventScroll: true }), 50);
 }
 
-export function clearPopups() { queue.length = 0; if (showing) { showing = null; $id('sblink-pop')?.remove(); } hooks.badge(); }
+export function clearPopups() { $id('sblink-gacha')?.remove(); queue.length = 0; if (showing) { showing = null; $id('sblink-pop')?.remove(); } hooks.badge(); }
 
 // ---------- small notices ----------
 export function notice(text, kind = '') {
@@ -184,6 +188,9 @@ function indexRecords(r, view) {
     for (const e of r.ledger) if (!e.undone && e.key) add(clears, e.key, e);
     for (const l of r.lifeLog || []) lives.set(l.key, l);
     for (const u of r.uses) add(uses, u.key, u);
+    // 2-C: a hidden skill effect opened by this reply
+    const unlocks = new Map();
+    for (const k of r.skills || []) if (k.hidden?.key && view.index.has(k.hidden.key)) add(unlocks, k.hidden.key, k);
     // a sudden quest whose time ran out: under the reply that used its last turn
     const fails = new Map();
     for (const q of r.quests) {
@@ -192,7 +199,7 @@ function indexRecords(r, view) {
         const k = [...q.seen].reverse().find(x => view.index.has(x));
         add(fails, k, q);
     }
-    return { clears, lives, uses, fails, quests: new Map(r.quests.map(q => [q.id, q])) };
+    return { clears, lives, uses, fails, unlocks, quests: new Map(r.quests.map(q => [q.id, q])) };
 }
 
 function cardFor(r, m, key, i, idx, view) {
@@ -202,7 +209,8 @@ function cardFor(r, m, key, i, idx, view) {
         const l = idx.lives.get(key);
         const life = l ? Object.keys(l.life || {}).filter(k => ['time', 'weather', 'place', 'date'].includes(k)) : [];
         const fails = idx.fails.get(key) || [];
-        if (!list.length && !life.length && !fails.length) return '';
+        const unl = idx.unlocks.get(key) || [];
+        if (!list.length && !life.length && !fails.length && !unl.length) return '';
         const lines = list.map(({ q, e }) => {
             const conds = condsOf(q);
             const st = questState(r, q, view);
@@ -215,6 +223,7 @@ function cardFor(r, m, key, i, idx, view) {
             const pts = penaltyFor(q);
             lines.push(`<div class="sblink-cardline sblink-cardfail"><span class="sblink-dia">◆</span><span class="sblink-code sblink-failtag">FAILED</span><span class="sblink-ell">${esc(q.name)}</span>${pts ? `<b class="sblink-pts sblink-neg">−${pts}P</b>` : ''}</div>`);
         }
+        for (const k of unl) lines.push(`<div class="sblink-cardline sblink-cardunlock"><span class="sblink-dia">✦</span><span class="sblink-code sblink-goldtxt">UNLOCK</span><span class="sblink-ell">${esc(t('card_unlock', { name: k.name }))}</span></div>`);
         if (life.length) {
             const bits = life.map(k => `${esc(t(`life_${k}`))} ${l.lifeFrom?.[k] ? `${esc(l.lifeFrom[k])} ▸ ` : ''}${esc(l.life[k])}`).join(' · ');
             lines.push(`<div class="sblink-cardline sblink-cardlife"><span class="sblink-dia">◇</span><span class="sblink-ell">${bits}</span></div>`);
@@ -224,7 +233,12 @@ function cardFor(r, m, key, i, idx, view) {
     if (m?.is_user) {
         const us = idx.uses.get(key) || [];
         if (!us.length) return '';
-        return `<div class="sblink-cardhead"><span class="sblink-code">SYS.LOG // ITEM</span></div>${us.map(u => `<div class="sblink-cardline">${icon(u.icon)}<span class="sblink-ell">${esc(t('used_x', { name: u.name }))}</span><b class="sblink-rar ${RARITY_CLASS[u.rarity] || ''}">${esc(t(`rarity_${u.rarity}`))}</b></div>`).join('')}|bag`;
+        const sk = us.filter(u => u.kind === 'skill');
+        const it = us.filter(u => u.kind !== 'skill');
+        const head = sk.length && it.length ? 'ITEM · SKILL' : sk.length ? 'SKILL' : 'ITEM';
+        const lines = [...it.map(u => `<div class="sblink-cardline">${icon(u.icon)}<span class="sblink-ell">${esc(t('used_x', { name: u.name }))}</span><b class="sblink-rar ${RARITY_CLASS[u.rarity] || ''}">${esc(t(`rarity_${u.rarity}`))}</b></div>`),
+            ...sk.map(u => `<div class="sblink-cardline">${gradeBadge(u.grade)}<span class="sblink-ell">${esc(t('used_skill_x', { name: u.name }))}</span></div>`)];
+        return `<div class="sblink-cardhead"><span class="sblink-code">SYS.LOG // ${head}</span></div>${lines.join('')}|${it.length ? 'bag' : 'status'}`;
     }
     return '';
 }
@@ -362,3 +376,103 @@ export function goalDonePopup(g) {
 }
 
 export function todayCount(r = room()) { return todays(r).length; }
+
+// ---------- 2-C: skills ----------
+const FROM_TITLE = { book: 'pop_skill_book', goal: 'pop_skill_goal', hidden: 'pop_skill_hidden' };
+
+/** A skill was gained (skill book, main goal, hidden quest). */
+export function skillPopup(k, from) {
+    popup({
+        variant: 'skill', tag: 'SKILL', code: 'SYS.SKILL // GAINED', title: t(FROM_TITLE[from] || 'pop_skill_got'),
+        flash: isTop(k.grade) ? (k.grade === 'SS' ? 'ss' : 's') : '',
+        lines: [`${gradeBadge(k.grade)}<span class="sblink-qtext">[${esc(k.name)}]</span>${tag(t(`skill_${k.type}`), 'sblink-stag-acc')}`],
+        body: esc(k.effect), second: t('skill_view'), ok: t('ok'),
+        onClose: (act) => { if (act === 'second') hooks.openSkill(k.id); },
+    });
+}
+
+/** ㉘-B The hidden effect of a low-grade skill opened: a gold flash, the badge cracks in two, ✦ and rays, the text decodes. */
+export function unlockPopup(k) {
+    const stage = `<div class="sblink-unlockstage" aria-hidden="true">
+        <span class="sblink-rays"></span>
+        <span class="sblink-half sblink-half-l">${gradeBadge(k.grade, true)}</span>
+        <span class="sblink-half sblink-half-r">${gradeBadge(k.grade, true)}</span>
+        <svg class="sblink-crack" viewBox="0 0 64 74"><path d="M32 4 L28 22 L36 34 L29 50 L33 70"/></svg>
+        <span class="sblink-star"><b>✦</b><i>${esc(k.grade)} · ${esc(t('unlock_open'))}</i></span>
+      </div>`;
+    popup({
+        variant: 'unlock', tag: 'UNLOCK', code: 'SYS.SKILL // HIDDEN · UNLOCKED', title: t('pop_unlock'), flash: 'gold', dust: true,
+        sub: esc(t('unlock_sub', { name: k.name })), stage,
+        body: `<div class="sblink-fxrow"><span class="sblink-dimtxt">${esc(t('unlock_base'))} · </span>${esc(k.effect)}</div>
+          <div class="sblink-fxrow sblink-fxrow-gold"><b>${esc(t('skill_hidden'))} · </b><span data-decode="${esc(k.hidden?.effect || '')}"></span></div>
+          <div class="sblink-dimtxt sblink-centertxt">${esc(t('unlock_note', { g: k.grade }))}</div>`,
+        second: t('skill_view'), ok: t('ok'),
+        onClose: (act) => { if (act === 'second') hooks.openSkill(k.id); },
+    });
+}
+
+/**
+ * ㉕ Open a gacha ticket. The seal shakes while the draw is made, then the grade's light, then the result.
+ * S and SS flash the whole screen once. Returns { reveal(result) }.
+ */
+export function gachaShow(go = {}) {
+    $id('sblink-gacha')?.remove();
+    const wrap = document.createElement('div');
+    wrap.id = 'sblink-gacha';
+    wrap.className = `sblink-popwrap sblink-gachawrap${motionOn() ? ' sblink-moving' : ''}`;
+    const steps = (n) => [t('gacha_seal'), t('gacha_light'), t('gacha_reveal')].map((x, i) => `<span class="${i === n ? 'sblink-on' : ''}">${esc(x)}</span>`).join('<span>▸</span>');
+    wrap.innerHTML = `<div class="sblink-flash"></div>
+      <div class="sblink-pop sblink-holo sblink-gacha sblink-gacha-seal" role="alertdialog" aria-modal="true">
+        <i class="sblink-cn sblink-cn-tl"></i><i class="sblink-cn sblink-cn-tr"></i><i class="sblink-cn sblink-cn-bl"></i><i class="sblink-cn sblink-cn-br"></i>
+        <div class="sblink-tag">GACHA</div>
+        <div class="sblink-pophead"><span class="sblink-code">SYS.GACHA // TICKET</span></div>
+        <div class="sblink-stripes"></div>
+        <div class="sblink-poptitle"><span class="sblink-typed">${esc(t('gacha_opening'))}</span><span class="sblink-cursor">▌</span></div>
+        <div class="sblink-gsteps sblink-code">${steps(0)}</div>
+        <div class="sblink-gstage"><span class="sblink-seal">${icon('ticket')}</span></div>
+        <div class="sblink-popbtns"></div>
+      </div>`;
+    document.body.appendChild(wrap);
+    hooks.badge();
+    const box = wrap.querySelector('.sblink-gacha');
+    const started = Date.now();
+    const close = () => { wrap.remove(); hooks.badge(); };
+    const reveal = (res) => {
+        if (!wrap.isConnected) return;
+        if (!res) { close(); notice(t('gacha_failed'), 'warn'); return; }
+        const isSkill = res.kind === 'skill';
+        const k = res.skill, it = res.item;
+        const g = isSkill ? k.grade : '';
+        const colour = isSkill ? gradeClass(g) : `sblink-r-${it.rarity}`;
+        const wait = motionOn() ? Math.max(0, 1100 - (Date.now() - started)) : 0;
+        setTimeout(() => {
+            if (!wrap.isConnected) return;
+            box.classList.remove('sblink-gacha-seal');
+            box.classList.add('sblink-gacha-light', colour);
+            wrap.querySelector('.sblink-gsteps').innerHTML = steps(1);
+            setTimeout(() => {
+                if (!wrap.isConnected) return;
+                box.classList.remove('sblink-gacha-light');
+                box.classList.add('sblink-gacha-open');
+                if (isSkill && isTop(g)) wrap.querySelector('.sblink-flash').className = `sblink-flash sblink-flash-${g === 'SS' ? 'ss' : 's'}`;
+                wrap.querySelector('.sblink-gsteps').innerHTML = steps(2);
+                typeIn(wrap.querySelector('.sblink-typed'), t('gacha_result'));
+                wrap.querySelector('.sblink-gstage').innerHTML = isSkill
+                    ? `${gradeBadge(g, true)}<span class="sblink-gkind">SKILL · ${esc(t(`skill_${k.type}`))} · ${esc(g)}</span>
+                       <span class="sblink-gname">「${esc(k.name)}」</span><span class="sblink-gdesc">${esc(k.effect)}</span>${k.hidden ? `<span class="sblink-gq">${esc(t('gacha_hidden_hint'))}</span>` : ''}`
+                    : `<span class="sblink-gitem ${colour}">${icon(it.icon)}</span><span class="sblink-gkind">ITEM · ${esc(t(`rarity_${it.rarity}`))}</span>
+                       <span class="sblink-gname">「${esc(it.name)}」</span><span class="sblink-gdesc">${esc(it.desc)}</span>`;
+                wrap.querySelector('.sblink-popbtns').innerHTML = `<button type="button" class="sblink-btn" data-g="go"><span class="sblink-ell">${esc(isSkill ? t('skill_view') : t('bag_view'))}</span></button>
+                    <button type="button" class="sblink-btn sblink-btn-main" data-g="ok"><span class="sblink-ell">${esc(t('ok'))}</span></button>`;
+                setTimeout(() => wrap.querySelector('[data-g="ok"]')?.focus({ preventScroll: true }), 50);
+            }, motionOn() ? 650 : 0);
+        }, wait);
+    };
+    wrap.addEventListener('click', (e) => {
+        const b = e.target.closest('[data-g]');
+        if (!b) return;
+        close();
+        if (b.dataset.g === 'go') { if (go.res?.kind === 'skill') go.skill?.(go.res.skill.id); else go.bag?.(); }
+    });
+    return { reveal: (res) => { go.res = res; reveal(res); }, close };
+}

@@ -3,7 +3,7 @@
 // Purchases, manual clears and the tutorial reward always count.
 
 import { ctx, settings, save, uid, room, currentChatId, DIFFS } from './store.js';
-import { standingDefaults, dailyPool, questPool, penaltyPool, parseCustomShop, shuffle, TUTORIAL_REWARD } from './data.js';
+import { standingDefaults, dailyPool, questPool, penaltyPool, parseCustomShop, shuffle, TUTORIAL_REWARD, GRADES, LOW_GRADES, skillPool, gachaOddPool } from './data.js';
 
 // ---------- a tiny event bus (engine → screens) ----------
 const subs = {};
@@ -332,7 +332,7 @@ async function makeNextStage(chatId) {
     if (!active(r) || !r.goal) return null;
     const g = goalNow(r);
     if (g.complete) {
-        if (!r.goal.done) { r.goal.done = true; save(); changed(); bus.emit('goalDone', r.goal); }
+        if (!r.goal.done) { r.goal.done = true; save(); changed(); bus.emit('goalDone', r.goal); rewardSkill(chatId, 'goal', r.goal); }
         return null;
     }
     if (!g.pending) return null;
@@ -356,7 +356,7 @@ const KEEP_CHECKS = 12;
  * sudden quests' time, a new sudden or hidden quest. Returns { cleared, failed, sudden, hidden, stages }.
  */
 export function storeCheck(chatId, key, res) {
-    const out = { cleared: [], failed: [], sudden: null, hidden: null, stages: [] };
+    const out = { cleared: [], failed: [], sudden: null, hidden: null, stages: [], unlocked: [] };
     const r = room(chatId);
     if (!r) return out;
     const view = chatView();
@@ -408,6 +408,13 @@ export function storeCheck(chatId, key, res) {
         const q = { id: uid('q'), kind: 'hidden', name: String(res.hidden.name).slice(0, 80), reward: withMul(Math.min(200, Math.max(50, Math.round(Number(res.hidden.reward) || 100))), diff), day: r.day, failed: false, why: String(res.hidden.why || '').slice(0, 120), fromKey: key, diff };
         r.quests.push(q);
         out.hidden = q;
+    }
+    // 2-C: a low-grade skill shone in the story: its hidden effect opens (tied to this reply)
+    for (const { skillId, reason } of res.skills || []) {
+        const sk = r.skills.find(k => k.id === skillId);
+        if (!sk?.hidden || hiddenOpen(sk, view)) continue;
+        sk.hidden.key = key; sk.hidden.reason = String(reason || '').slice(0, 120); sk.hidden.at = Date.now();
+        out.unlocked.push(sk);
     }
     trimQuests(r);
     r.checks.push(check);
@@ -621,11 +628,20 @@ export async function stockDaily(chatId = currentChatId(), force = false) {
     const r = room(chatId);
     if (!active(r) || (!force && dailyReady(r))) return;
     let made = null;
-    try { made = await bus.ask('shop', { count: 4 + Math.floor(Math.random() * 3), kind: 'daily' }); } catch (e) { console.warn('[System Blink] shop', e); }
+    const book = wantBook();
+    const count = 4 + Math.floor(Math.random() * 3) - (book ? 1 : 0);
+    try { made = await bus.ask('shop', { count, kind: 'daily', book }); } catch (e) { console.warn('[System Blink] shop', e); }
     const rr = room(chatId);
     if (!rr) return;
-    const list = Array.isArray(made) && made.length ? made : fallbackDaily();
-    rr.shop.daily = list.slice(0, 6).map(x => ({ ...cleanItem(x), id: uid('d'), sold: false }));
+    const aiItems = Array.isArray(made) ? made : made?.items;
+    const list = Array.isArray(aiItems) && aiItems.length ? aiItems : fallbackDaily();
+    rr.shop.daily = list.slice(0, book ? 5 : 6).map(x => ({ ...cleanItem(x), id: uid('d'), sold: false }));
+    // a skill book sits in the daily shop now and then (the AI's, or one from the built-in list)
+    if (book) {
+        const have = new Set(skillsOf(rr).map(k => k.name));
+        const sk = made?.book?.name && !have.has(made.book.name) ? made.book : fallbackSkill(rr);
+        rr.shop.daily.push(bookItem(sk, book));
+    }
     rr.shop.dailyDay = rr.day;
     save(); changed();
 }
@@ -669,6 +685,14 @@ export function buy(item, where) {
         d.sold = true;
     }
     r.spend.push({ id: uid('p'), what: item.name, pts: price, at: Date.now() });
+    if (item.kind === 'skillbook') {
+        // a skill book is learned at once: the skill goes to the Status tab, not the bag
+        const sk = addSkill(r, cleanSkill(item.skill, item.grade, 'book'));
+        tutorialStep(r, 2);
+        save(); changed();
+        bus.emit('skillGained', { skill: sk, from: 'book' });
+        return true;
+    }
     const same = r.bag.find(b => b.name === item.name && b.kind === (item.kind || 'item') && b.rarity === item.rarity);
     if (same) same.count += 1;
     else r.bag.push({ id: uid('i'), name: item.name, desc: item.desc, rarity: item.rarity, icon: item.icon, kind: item.kind || 'item', count: 1 });
@@ -729,7 +753,7 @@ function finishTutorial(r) {
     t.rewarded = true;
     r.ledger.push({ id: uid('l'), questId: 'tutorial', cond: null, pts: TUTORIAL_REWARD, key: null, reason: '', at: Date.now() });
     const ko = langOf() === 'ko';
-    r.bag.push({ id: uid('i'), name: ko ? '뽑기권' : 'Gacha Ticket', desc: ko ? '한 번 뽑을 수 있다. (2단계에서 열림)' : 'One draw. (Opens in stage 2.)', rarity: 'rare', icon: 'ticket', kind: 'gacha', count: 1 });
+    r.bag.push({ id: uid('i'), name: ko ? '뽑기권' : 'Gacha Ticket', desc: ko ? '한 번 뽑는다. 스킬이나 물건이 나온다. 엉뚱한 게 자주 나온다.' : 'One draw: a skill or an item. Often something odd.', rarity: 'rare', icon: 'ticket', kind: 'gacha', count: 1 });
     const title = ko ? '튜토리얼 수료자' : 'Tutorial Graduate';
     if (!r.titles.includes(title)) r.titles.push(title);
     if (!r.title) r.title = title;
@@ -765,4 +789,175 @@ export function switchOff() {
     if (!r) return;
     r.on = false;
     save(); changed();
+}
+
+// ---------- skills (stage 2-C) ----------
+// Skills have nothing to do with difficulty. A grade is rolled here, never by the AI;
+// the AI only writes the name and effect for the grade it is given.
+const rnd = () => (typeof globalThis.__sblinkRandom === 'function' ? globalThis.__sblinkRandom() : Math.random());
+
+const ODDS = {
+    gacha: { F: 28, E: 24, D: 18, C: 13, B: 8, A: 5, S: 3.5, SS: 0.5 },
+    book: { F: 22, E: 24, D: 20, C: 15, B: 11, A: 6, S: 2 },
+    goal: { C: 35, B: 30, A: 22, S: 11, SS: 2 },
+    hidden: { F: 20, E: 20, D: 25, C: 20, B: 10, A: 5 },
+};
+export const GACHA_SKILL_SHARE = 0.4;      // a draw is a skill 40% of the time, an item otherwise
+const ITEM_ODDS = { common: 45, rare: 35, epic: 16, legendary: 4 };
+const HIDDEN_QUEST_SKILL = 0.3;            // clearing a hidden quest gives a skill now and then
+const BOOK_ODDS = 0.5;                     // about every other daily shop has a skill book
+
+function pick(table, r = rnd()) {
+    const list = Object.entries(table);
+    const all = list.reduce((a, [, w]) => a + w, 0);
+    let x = r * all;
+    for (const [k, w] of list) { if ((x -= w) < 0) return k; }
+    return list[list.length - 1][0];
+}
+export const rollGrade = (from = 'gacha') => pick(ODDS[from] || ODDS.gacha);
+
+/** Skill grade → the shop's rarity band (for a skill book's colour and price). */
+export const gradeRarity = (g) => ({ F: 'common', E: 'common', D: 'rare', C: 'rare', B: 'epic', A: 'epic', S: 'legendary', SS: 'legendary' })[g] || 'common';
+const BOOK_PRICE = { F: 40, E: 70, D: 110, C: 170, B: 320, A: 450, S: 900, SS: 1500 };
+
+/** A skill as stored, from whatever the AI (or the built-in list) gave. */
+export function cleanSkill(x, grade, from) {
+    const g = GRADES.includes(grade) ? grade : 'F';
+    const hidden = LOW_GRADES.includes(g) && String(x?.hidden || '').trim() ? { effect: String(x.hidden).trim().slice(0, 160), key: null, reason: '', at: 0 } : null;
+    return {
+        id: uid('k'), name: String(x?.name || '?').replace(/^[[「]|[\]」]$/g, '').trim().slice(0, 40) || '?', grade: g,
+        type: x?.type === 'active' ? 'active' : 'passive', effect: String(x?.effect || '').trim().slice(0, 160),
+        hidden, from: from || 'gacha', mode: 'life', day: 0, at: 0, uses: 0, fresh: true,
+    };
+}
+
+export function skillsOf(r = room()) { return r?.skills || []; }
+
+/** A hidden effect counts as open while the AI reply that opened it is still there. */
+export const hiddenOpen = (sk, view = chatView()) => !!(sk?.hidden?.key && view.index.has(sk.hidden.key));
+
+/** Low-grade skills with a hidden effect still shut: the story check looks for them (oldest first, at most 3). */
+export function lockedSkills(r = room(), view = chatView()) {
+    return skillsOf(r).filter(k => k.hidden && !hiddenOpen(k, view)).slice(0, 3);
+}
+
+function fallbackSkill(r) {
+    const have = new Set(skillsOf(r).map(k => k.name));
+    const pool = skillPool(langOf(), settings().oddities);
+    return shuffle(pool).find(x => !have.has(x.name)) || pool[0];
+}
+
+/** Make one skill of `grade` (AI, the built-in list if that fails) and add it. */
+async function makeSkill(chatId, grade, from) {
+    const r = room(chatId);
+    if (!r) return null;
+    let made = null;
+    try { made = await bus.ask('skill', { grade, from, avoid: skillsOf(r).map(k => k.name) }); } catch (e) { console.warn('[System Blink] skill', e); }
+    const rr = room(chatId);
+    if (!rr) return null;
+    const sk = cleanSkill(made?.name ? made : fallbackSkill(rr), grade, from);
+    return addSkill(rr, sk);
+}
+
+function addSkill(r, sk) {
+    sk.day = r.day; sk.at = Date.now();
+    // the same name again: a second copy is told apart, never merged (its grade may differ)
+    if (r.skills.some(k => k.name === sk.name)) sk.name = `${sk.name} II`.slice(0, 40);
+    r.skills.push(sk);
+    save();
+    return sk;
+}
+
+/** The skill was looked at: no more NEW. */
+export function seeSkill(id) {
+    const sk = skillsOf().find(k => k.id === id);
+    if (sk?.fresh) { sk.fresh = false; save(); }
+}
+
+let drawing = false;
+export const isDrawing = () => drawing;
+
+/** Open a gacha ticket: a skill (40%) or an item. The ticket is used up first; a failed AI answer falls back to the built-in lists. */
+export async function openGacha(bagId) {
+    const chatId = currentChatId();
+    const r = room(chatId);
+    const b = r?.bag.find(x => x.id === bagId && x.kind === 'gacha');
+    if (drawing || !active(r) || !b || b.count < 1) return null;
+    drawing = true;
+    try {
+        b.count -= 1;
+        if (b.count <= 0) r.bag = r.bag.filter(x => x !== b);
+        tutorialStep(r, 3);
+        save(); changed();
+        let out;
+        if (rnd() < GACHA_SKILL_SHARE) {
+            const sk = await makeSkill(chatId, rollGrade('gacha'), 'gacha');
+            out = sk && { kind: 'skill', skill: sk };
+        } else {
+            const rarity = pick(ITEM_ODDS);
+            let made = null;
+            try { made = await bus.ask('drawItem', { rarity }); } catch (e) { console.warn('[System Blink] draw', e); }
+            const rr = room(chatId);
+            if (!rr) return null;
+            const base = made?.name ? made : fallbackDrawItem(rarity);
+            const it = { ...cleanItem({ ...base, rarity }), odd: true };
+            const same = rr.bag.find(x => x.name === it.name && x.kind === 'item' && x.rarity === it.rarity);
+            if (same) same.count += 1;
+            else rr.bag.push({ id: uid('i'), name: it.name, desc: it.desc, rarity: it.rarity, icon: it.icon, kind: 'item', count: 1 });
+            out = { kind: 'item', item: it };
+        }
+        const rr = room(chatId);
+        if (out && rr) {
+            rr.draws.push({ id: uid('w'), at: Date.now(), kind: out.kind, grade: out.skill?.grade || out.item?.rarity, name: out.skill?.name || out.item?.name });
+            if (rr.draws.length > 100) rr.draws.splice(0, rr.draws.length - 100);
+        }
+        save(); changed();
+        return out;
+    } finally { drawing = false; }
+}
+
+function fallbackDrawItem(rarity) {
+    const lang = langOf();
+    const pool = [...gachaOddPool(lang), ...dailyPool(lang)];
+    const same = pool.filter(x => x.rarity === rarity);
+    return shuffle(same.length ? same : pool)[0];
+}
+
+/** Use an active skill: no limit, no cooldown. The AI hears about it with my next message (and its re-rolls). */
+export function useSkill(id) {
+    const r = room();
+    const sk = skillsOf(r).find(k => k.id === id);
+    if (!active(r) || !sk || sk.type !== 'active') return null;
+    sk.uses = (Number(sk.uses) || 0) + 1;
+    sk.fresh = false;
+    const use = { id: uid('u'), kind: 'skill', skillId: sk.id, name: sk.name, grade: sk.grade, desc: sk.effect, icon: 'star', at: Date.now(), key: null };
+    r.uses.push(use);
+    if (r.uses.length > 40) for (const u of r.uses.slice(0, r.uses.length - 40)) delete u.desc;
+    save(); changed();
+    return use;
+}
+
+/** A skill as a quest reward (main goal reached / sometimes a hidden quest). Given once per goal or quest. */
+export async function rewardSkill(chatId, from, owner) {
+    const r = room(chatId);
+    if (!active(r) || !owner || owner.skillGiven) return null;
+    owner.skillGiven = true;
+    if (from === 'hidden' && rnd() >= HIDDEN_QUEST_SKILL) { save(); return null; }
+    save();
+    const sk = await makeSkill(chatId, rollGrade(from), from);
+    changed();
+    if (sk && chatId === currentChatId()) bus.emit('skillGained', { skill: sk, from });
+    return sk;
+}
+
+/** A daily shop's skill book (about every other day): the grade is rolled here. */
+export function wantBook() { return rnd() < BOOK_ODDS ? rollGrade('book') : null; }
+
+export function bookItem(skill, grade) {
+    const ko = langOf() === 'ko';
+    const sk = cleanSkill(skill, grade, 'book');
+    return {
+        id: uid('d'), name: `${ko ? '스킬북' : 'Skill Book'}: ${sk.name}`.slice(0, 60), desc: sk.effect, rarity: gradeRarity(grade), price: BOOK_PRICE[grade] || 100,
+        icon: 'book', kind: 'skillbook', limited: false, odd: false, sold: false, skill: { name: sk.name, type: sk.type, effect: sk.effect, hidden: sk.hidden?.effect || '' }, grade,
+    };
 }
