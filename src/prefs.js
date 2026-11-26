@@ -16,6 +16,7 @@ export const SCHEMA = [
     { group: 'room', rows: [
         { k: 'roomOn', kind: 'toggle', scope: 'room' },
         { k: 'lifeMode', kind: 'toggle', scope: 'room' },
+        { k: 'world', kind: 'text', scope: 'room' },
     ] },
     { group: 'system', rows: [
         { k: 'tone', kind: 'choice', opts: ['game', 'star', 'threat'], scope: 'room', dots: true },
@@ -53,7 +54,6 @@ export const SCHEMA = [
         { k: 'btnReset', kind: 'button', needs: 'btnShow' },
     ] },
     { group: 'make', folded: true, rows: [
-        { k: 'world', kind: 'text', scope: 'room' },
         { k: 'useDefaults', kind: 'toggle' },
         { k: 'oddities', kind: 'toggle' },
         { k: 'customShop', kind: 'text' },

@@ -2,7 +2,7 @@
 // Its place, size and ring are kept per device. It stays out of the notch, the home bar and the input box.
 
 import { t } from '../i18n.js';
-import { settings, device, saveDevice } from '../store.js';
+import { settings, device, saveDevice, currentChatId } from '../store.js';
 import { hexMark } from '../icons.js';
 import { $id, esc, viewport, safeInsets, inputTop, isPhone } from './util.js';
 
@@ -12,6 +12,7 @@ export function setFabHooks(h) { hooks = { ...hooks, ...h }; }
 const DRAG_START = 6;
 let drag = null;     // { id, sx, sy, ox, oy, moved }
 let hidden = false;  // the window is open
+let noChat = false;  // no chat is open (start screen, character list)
 let count = 0;
 let idleTimer = 0;
 
@@ -39,14 +40,21 @@ export function mountFab() {
       <div class="sblink-fabbody"><i class="sblink-fabscan"></i>${hexMark('sblink-fabmark')}</div>
       <div class="sblink-fabcode">SYS<span class="sblink-cursor">▌</span></div>
       <div class="sblink-fabchip"${count ? '' : ' hidden'}>${esc(count)}</div>`;
-    el.hidden = hidden;
+    noChat = !currentChatId();
+    el.hidden = hidden || noChat;
     place();
     wakeUp();
 }
 
 export function unmountFab() { $id('sblink-fab')?.remove(); endDrag(); }
 
-export function setFabHidden(on) { hidden = !!on; const el = $id('sblink-fab'); if (el) el.hidden = hidden; }
+export function setFabHidden(on) { hidden = !!on; const el = $id('sblink-fab'); if (el) el.hidden = hidden || noChat; }
+/** Hide the button while no chat is open; show it again in a chat. */
+export function syncFabChat() {
+    noChat = !currentChatId();
+    const el = $id('sblink-fab');
+    if (el) { const was = el.hidden; el.hidden = hidden || noChat; if (was && !el.hidden) place(); }
+}
 
 export function setFabCount(n) {
     count = n;

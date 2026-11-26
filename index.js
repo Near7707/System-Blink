@@ -11,7 +11,7 @@ import { buildPrompt } from './src/prompt.js';
 import { panelHtml, panelChange, runButton, setPrefsHooks } from './src/prefs.js';
 import { hexMark } from './src/icons.js';
 import { openWindow, closeWindow, isOpen, refreshWin, place as placeWin, setWinHooks } from './src/ui/win.js';
-import { mountFab, unmountFab, setFabHidden, setFabCount, setFabHooks, place as placeFab, endDrag } from './src/ui/fab.js';
+import { mountFab, unmountFab, setFabHidden, setFabCount, setFabHooks, syncFabChat, place as placeFab, endDrag } from './src/ui/fab.js';
 import {
     popup, notice, hold, waiting, setPopHooks, placePops, renderStrip, placeStrip, foldStrip, stripShown, renderCards, renderCardsSoon,
     removeCards, clearPopups, questsPopup, suddenPopup, hiddenPopup, stagePopup, goalDonePopup, failPopup, skillPopup, unlockPopup, bigPopup,
@@ -50,6 +50,7 @@ function redraw() {
 }
 
 function badge() {
+    syncFabChat();
     setFabCount(waiting() + (stripShown() ? 1 : 0));
     // the floating button wears this chat's voice too
     const fab = document.getElementById('sblink-fab');
@@ -165,8 +166,16 @@ function wireBus() {
 }
 
 // ---------- settings panel & wand ----------
+/** The extension menu is a SillyTavern drawer: close it the way its own icon does, so it does not sit over the window. */
+function closeStDrawer(panel) {
+    try {
+        const drawer = panel.closest('.drawer-content.openDrawer');
+        if (!drawer || drawer.classList.contains('pinnedOpen')) return; // pinned open by the user: leave it
+        drawer.parentElement?.querySelector(':scope > .drawer-toggle')?.click();
+    } catch (e) { console.warn('[System Blink] drawer', e); }
+}
 function mountPanel() {
-    const host = document.getElementById('extensions_settings2') || document.getElementById('extensions_settings');
+    const host = document.getElementById('extensions_settings') || document.getElementById('extensions_settings2');
     if (!host) return;
     let panel = document.getElementById('sblink_settings');
     const wasOpen = panel?.querySelector('.inline-drawer-content')?.style.display === 'block';
@@ -176,7 +185,7 @@ function mountPanel() {
         panel.className = 'sblink-panel';
         host.appendChild(panel);
         panel.addEventListener('click', (e) => {
-            if (e.target.closest('[data-sblink-open]')) return openWindow();
+            if (e.target.closest('[data-sblink-open]')) { closeStDrawer(panel); return openWindow(); }
             const b = e.target.closest('[data-run]');
             if (b && !b.disabled) runButton(b.dataset.run);
         });

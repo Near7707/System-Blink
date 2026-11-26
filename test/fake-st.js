@@ -210,6 +210,8 @@
             await eventSource.emit(eventTypes.CHAT_CHANGED, to);
         },
         async openChat(name) { state.chatName = name; render(); await eventSource.emit(eventTypes.CHAT_CHANGED, name); },
+        async closeChat() { state.keep = state.characterId; state.characterId = undefined; render(); await eventSource.emit(eventTypes.CHAT_CHANGED, undefined); },
+        async reopenChat() { state.characterId = state.keep ?? 0; render(); await eventSource.emit(eventTypes.CHAT_CHANGED, state.chatName); },
     };
 
     window.__boot = () => {

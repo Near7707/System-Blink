@@ -85,6 +85,7 @@ def main():
             pc(browser)
             button(browser)
             fixes051(browser)
+            fixes053(browser)
             browser.close()
     finally:
         srv.terminate()
@@ -1004,6 +1005,36 @@ def button(browser):
     check(b4['y'] + b4['height'] <= 450, f'moves above the keyboard ({b4["y"] + b4["height"]:.0f})')
     shot(page, 'btn_02_keyboard')
     check(not errors, f'no errors {errors[:3]}')
+    page.close()
+
+
+def fixes053(browser):
+    print('--- 0.5.3 fixes (layers, no chat, world note, select colour)')
+    page, errors = open_page(browser, 'fresh&lang=ko', width=1200, height=800)
+    page.click('#sblink-fab'); page.wait_for_timeout(200)
+    page.click('[data-act="roomOn"]'); page.wait_for_timeout(500)
+    close_pops(page, 8)
+    z = ev(page, "[getComputedStyle(document.getElementById('sblink-shade')).zIndex, getComputedStyle(document.getElementById('sblink-win')).zIndex].map(Number)")
+    check(z[0] > 3005 and z[1] > 3005 and z[1] < 4000, f'window above the SillyTavern menus ({z})')
+    # the world note sits in "this chat", right under daily-life mode
+    page.click('[data-act="gear"]'); page.wait_for_timeout(200)
+    order = ev(page, "[...document.querySelectorAll('#sblink-win [data-set], #sblink-win [data-text]')].map(e => e.dataset.set || e.dataset.text).slice(0, 4)")
+    check('world' in order and order.index('world') == order.index('lifeMode') + 1, f'world note right under daily-life mode {order}')
+    pw = ev(page, "[...document.querySelectorAll('#sblink_settings [data-pset]')].map(e => e.dataset.pset).slice(0, 3)")
+    check(pw == ['roomOn', 'lifeMode', 'world'], f'the panel too {pw}')
+    # a theme that paints every select white
+    ev(page, "(() => { const st = document.createElement('style'); st.textContent = 'select { background-color: #fff !important; color: #ccc; }'; document.head.appendChild(st); })()")
+    page.click('[data-fold="make"]'); page.wait_for_timeout(200)
+    c = ev(page, "(() => { const s = document.querySelector('#sblink-win select.sblink-sel'); const cs = getComputedStyle(s); return [cs.boxShadow, cs.webkitTextFillColor]; })()")
+    check('inset' in c[0] and c[1] != 'rgb(204, 204, 204)', f'select keeps a dark ground and light text {c}')
+    shot(page, 'fix053_select')
+    page.click('[data-act="close"]'); page.wait_for_timeout(200)
+    # no chat open: the button hides, and comes back in a chat
+    ev(page, "window.__fakeST.closeChat()"); page.wait_for_timeout(400)
+    check(ev(page, "document.getElementById('sblink-fab').hidden"), 'no chat: the button hides')
+    ev(page, "window.__fakeST.reopenChat()"); page.wait_for_timeout(400)
+    check(not ev(page, "document.getElementById('sblink-fab').hidden"), 'back in a chat: the button is there')
+    check(not errors, f'no script errors ({errors[:2]})')
     page.close()
 
 

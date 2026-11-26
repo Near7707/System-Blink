@@ -251,7 +251,7 @@ const KO = {
     sent_prompt: '본 답변에 넣은 줄', sent_check: '마지막 이야기 확인', sent_quests: '마지막 퀘스트 만들기', sent_shop: '마지막 상점 만들기', sent_none: '(아직 없음)',
     sub_goal: '메인 목표', sub_goalEdit: '목표 정하기',
     main_goal: '메인 목표', no_goal: '아직 메인 목표가 없어요', goal_set: '[목표 정하기]', goal_complete: '목표 달성',
-    stage_now: '지금 단계', stage_of: '{n} / {all} 단계', stages: '단계', stage_count: '{n}단계',
+    stage_now: '현재 단계', stage_of: '{n} / {all} 단계', stages: '단계', stage_count: '{n}단계',
     stage_making: '다음 단계를 만드는 중…', stage_failed: '다음 단계를 만들지 못했어요.', stage_retry: '[다시 만들기]',
     stage_locked: '잠김 · 앞 단계를 깨면 열려요', stage_last_locked: '??? (마지막)',
     goal_hint: 'AI가 캐릭터 카드를 보고 제안 · 내가 고침', goal_note: '메인 목표는 한 번에 하나. 다음 단계는 깰 때 그때 이야기에 맞춰 만들어요.',

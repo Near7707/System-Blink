@@ -89,9 +89,10 @@
 .sblink-sechead > .sblink-code { flex: none; }
 
 /* ---------- the System window ---------- */
-.sblink-shade { position: fixed; inset: 0; background: rgba(0, 4, 10, 0.45); z-index: 3000; }
+/* above SillyTavern's top menus and drawers (3005), below its own dialogs and moving panels (4000+) */
+.sblink-shade { position: fixed; inset: 0; background: rgba(0, 4, 10, 0.45); z-index: 3050; }
 .sblink-win {
-    position: fixed; z-index: 3001; display: flex; flex-direction: column;
+    position: fixed; z-index: 3051; display: flex; flex-direction: column;
     border: 1px solid var(--sb-acc-dim); box-shadow: 0 0 24px rgba(var(--sb-acc-rgb), 0.18), 0 8px 30px rgba(0, 0, 0, 0.5);
     overflow: visible;
 }
@@ -254,6 +255,11 @@
 .sblink-selwrap::after { content: '▾'; position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: var(--sb-acc); pointer-events: none; }
 .sblink-sel { width: 100%; height: 36px; padding: 0 34px 0 10px; font-size: 16px; color: var(--sb-text); background: var(--sb-cell); border: 1px solid var(--sb-acc-dim); appearance: none; -webkit-appearance: none; border-radius: 0; text-overflow: ellipsis; white-space: nowrap; overflow: hidden; }
 .sblink-sel option { color: #111; background: #fff; }
+/* some themes paint every select white: keep ours dark with light text whatever the theme says */
+.sblink-holo select.sblink-sel { background-color: #0E2236; background-image: none; box-shadow: inset 0 0 0 1000px var(--sb-selbg, #0E2236); color: var(--sb-text); -webkit-text-fill-color: var(--sb-text); opacity: 1; }
+.sblink-holo select.sblink-sel:disabled { opacity: 0.5; }
+.sblink-tn-star { --sb-selbg: #2A1D08; }
+.sblink-tn-threat { --sb-selbg: #2C0A0E; }
 .sblink-ringprev { width: 16px; height: 16px; flex: none; border: 2px dotted currentColor; clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%); }
 .sblink-ringprev.sblink-ring-solid { border-style: solid; }
 .sblink-moving .sblink-ringprev { animation: sblink-spin 6s linear infinite; }
@@ -271,7 +277,7 @@
 .sblink-modaltitle { font-weight: 800; font-size: 16px; margin: 6px 0 4px; word-break: break-word; }
 
 /* ---------- big popups ---------- */
-.sblink-popwrap { position: fixed; inset: 0; z-index: 3010; display: flex; align-items: center; justify-content: center; padding: 18px; background: rgba(0, 4, 10, 0.4); box-sizing: border-box; }
+.sblink-popwrap { position: fixed; inset: 0; z-index: 3060; display: flex; align-items: center; justify-content: center; padding: 18px; background: rgba(0, 4, 10, 0.4); box-sizing: border-box; }
 .sblink-pop { position: relative; width: 100%; max-width: 370px; max-height: 100%; display: flex; flex-direction: column; box-sizing: border-box; padding: 22px 16px 16px; border: 1px solid var(--sb-acc); box-shadow: 0 0 22px rgba(var(--sb-acc-rgb), 0.35); }
 .sblink-moving .sblink-pop { animation: sblink-in 0.28s ease-out, sblink-breathe 3s ease-in-out infinite 0.3s; }
 @keyframes sblink-in { from { transform: scale(0.92); opacity: 0; } to { transform: scale(1); opacity: 1; } }
@@ -301,7 +307,7 @@
 .sblink-offbox { max-width: 340px; }
 
 /* ---------- small notices ---------- */
-#sblink-toasts { position: fixed; top: calc(12px + env(safe-area-inset-top, 0px)); right: 10px; z-index: 3020; display: flex; flex-direction: column; gap: 6px; pointer-events: none; max-width: min(300px, calc(100vw - 20px)); }
+#sblink-toasts { position: fixed; top: calc(12px + env(safe-area-inset-top, 0px)); right: 10px; z-index: 3070; display: flex; flex-direction: column; gap: 6px; pointer-events: none; max-width: min(300px, calc(100vw - 20px)); }
 .sblink-toast { position: relative; display: flex; align-items: center; gap: 8px; padding: 8px 12px 10px; border: 1px solid var(--sb-acc-dim); font-size: 13px; overflow: hidden; clip-path: var(--sb-cut-s); transition: opacity 0.3s, transform 0.3s; }
 .sblink-toast .sblink-hexmark { width: 18px; height: 18px; color: var(--sb-acc); flex: none; }
 .sblink-toast-warn .sblink-hexmark { color: var(--sb-red); }
@@ -638,7 +644,7 @@
 @keyframes sblink-dust { 0% { transform: translateY(0); opacity: 0; } 15% { opacity: 1; } 100% { transform: translateY(-120px); opacity: 0; } }
 
 /* ㉕ gacha: seal (shakes) → light (grade colour) → reveal */
-.sblink-gachawrap { z-index: 3012; }
+.sblink-gachawrap { z-index: 3062; }
 .sblink-gacha .sblink-poptitle { text-align: center; }
 .sblink-gsteps { display: flex; justify-content: center; gap: 8px; margin-top: 8px; color: var(--sb-dim); }
 .sblink-gsteps .sblink-on { color: var(--sb-g, var(--sb-acc)); font-weight: 700; }
