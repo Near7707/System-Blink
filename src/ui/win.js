@@ -1,7 +1,7 @@
 // The System window (B: a floating window that leaves the chat visible behind it).
 // Tabs on top: Status / Shop / Bag / Quests, then ⚙ and ✕. Same size on every tab; only the inside scrolls.
 
-import { t, lang } from '../i18n.js';
+import { t } from '../i18n.js';
 import { settings, room, currentChatId, save } from '../store.js';
 import {
     active, chatView, points, todays, questState, clearByHand, undoClear, lifeNow, setLife, nextDay, ownerName,
@@ -14,7 +14,7 @@ import { runCheck, isChecking, cancelCheck } from '../ai.js';
 import { gearHtml, setValue, runButton, toggleGroup, ROWS, getValue } from '../prefs.js';
 import { icon, hexMark } from '../icons.js';
 import { esc, $id, viewport, safeInsets, isPhone, motionOn } from './util.js';
-import { notice, popup, diamonds, gachaShow, warnDias } from './pop.js';
+import { notice, popup, diamonds, gachaShow, warnDias, fitPop } from './pop.js';
 import { skillTile, blankTile, honeycomb, gradeBadge, gradeClass, tag } from './skills.js';
 
 const TABS = ['status', 'shop', 'bag', 'quests'];
@@ -23,6 +23,9 @@ const ui = {
     modal: null, textKey: '', titlePick: false, stocking: false, restocking: false, checkingNow: false,
     goalDraft: null, goalMode: 'new', suggesting: false, makingStage: false,
     skillFilter: 'all', selSkill: null, skillId: null,
+    scroll: {},      // where each tab / page was scrolled to (kept until SillyTavern reloads)
+    drafts: {},      // unsaved "set the goal" drafts, per chat (‹ Back keeps them, Cancel drops them)
+    rest: null,      // the window's place before the keyboard came up
 };
 const SUBS = ['gear', 'text', 'life', 'goal', 'goalEdit', 'skill'];
 const SUB_CODE = { gear: 'CONFIG', life: 'DAY', text: 'TEXT', goal: 'GOAL', goalEdit: 'GOAL', skill: 'SKILL' };
@@ -33,6 +36,20 @@ export const isOpen = () => !!$id('sblink-win');
 
 const RC = { common: 'sblink-r-common', rare: 'sblink-r-rare', epic: 'sblink-r-epic', legendary: 'sblink-r-legendary' };
 const rarityTag = (r) => `<b class="sblink-rar ${RC[r] || ''}">${esc(t(`rarity_${r}`))}</b>`;
+const HEX = '<svg class="sblink-cellhex" viewBox="0 0 24 24" aria-hidden="true"><polygon points="12,1.5 21.5,7 21.5,17 12,22.5 2.5,17 2.5,7"/></svg>';
+const SPARK = '<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M5 0L6 4L10 5L6 6L5 10L4 6L0 5L4 4Z"/></svg>';
+
+/** One shop / bag square: grade colour, a hex stand behind the icon, the name, and a bar at the bottom (price or count). Higher grades shine more. */
+function cellHtml(x, { on, data, label, bar, barCls = '', extra = '' }) {
+    return `<button type="button" class="sblink-cell ${RC[x.rarity] || 'sblink-r-common'}${on ? ' sblink-cell-on' : ''}${x.sold ? ' sblink-sold' : ''}" ${data}>
+        ${x.rarity === 'legendary' ? `<i class="sblink-cellsweep"></i><span class="sblink-spark sblink-spark1">${SPARK}</span><span class="sblink-spark sblink-spark2">${SPARK}</span>` : ''}
+        <span class="sblink-cellrar">${esc(label)}</span>${extra}
+        <span class="sblink-cellart">${HEX}${icon(x.icon, 'sblink-cellico')}</span>
+        <span class="sblink-cellname sblink-ell">${esc(x.cellName || x.name)}</span>
+        <span class="sblink-price${barCls}">${bar}</span>
+        ${x.sold ? '<span class="sblink-stamp">SOLD</span>' : ''}
+      </button>`;
+}
 
 // ---------- open / close ----------
 export function openWindow(tab, opts = {}) {
@@ -55,6 +72,9 @@ export function openWindow(tab, opts = {}) {
         win.addEventListener('click', onClick);
         win.addEventListener('change', onChange);
         win.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.closest?.('[data-fold]')) e.target.click(); });
+        // the keyboard slides up over a moment: look again once it has settled
+        win.addEventListener('focusin', (e) => { if (/^(INPUT|TEXTAREA)$/.test(e.target.tagName)) { setTimeout(place, 320); setTimeout(place, 650); } });
+        win.addEventListener('focusout', () => setTimeout(() => { if (!keyboardUp()) place(); }, 320));
     }
     win.className = `sblink-win sblink-holo${motionOn() ? ' sblink-moving' : ''}`;
     render();
@@ -65,6 +85,8 @@ export function openWindow(tab, opts = {}) {
 }
 
 export function closeWindow() {
+    keepScroll();
+    if (ui.view === 'goalEdit') stashDraft();
     $id('sblink-win')?.remove();
     $id('sblink-shade')?.remove();
     ui.modal = null; ui.titlePick = false;
@@ -74,9 +96,28 @@ export function closeWindow() {
 
 export function refreshWin() { if (isOpen()) render(); }
 
+/** Is the phone keyboard up for a box inside the window? */
+function keyboardUp() {
+    const vv = window.visualViewport;
+    const el = document.activeElement;
+    return !!(vv && el && /^(INPUT|TEXTAREA)$/.test(el.tagName) && $id('sblink-win')?.contains(el) && vv.height < window.innerHeight - 80);
+}
+
 export function place() {
     const win = $id('sblink-win');
     if (!win) return;
+    // The keyboard is up: keep the window's size and place, let the keyboard cover its lower part,
+    // and scroll the box being typed in up above the keyboard instead.
+    if (ui.rest && keyboardUp()) {
+        const vv = window.visualViewport;
+        win.style.width = `${ui.rest.w}px`;
+        win.style.height = `${ui.rest.h}px`;
+        win.style.left = `${ui.rest.left + Math.round(vv.offsetLeft || 0)}px`;
+        win.style.top = `${ui.rest.top + Math.round(vv.offsetTop || 0)}px`;
+        showField();
+        return;
+    }
+    unpadBody();
     const vp = viewport();
     const ins = safeInsets();
     const phone = isPhone();
@@ -89,6 +130,36 @@ export function place() {
     win.style.height = `${Math.round(Math.max(260, h))}px`;
     win.style.left = `${Math.round(vp.x + (vp.w - w) / 2)}px`;
     win.style.top = `${Math.round(vp.y + topGap + Math.max(0, (vp.h - topGap - botGap - h) / 2))}px`;
+    if (!vp.y && !vp.x) ui.rest = { w: Math.round(w), h: Math.round(Math.max(260, h)), left: Math.round((vp.w - w) / 2), top: Math.round(topGap + Math.max(0, (vp.h - topGap - botGap - h) / 2)) };
+}
+
+/** Scroll the box being typed in so it sits above the keyboard (room is added at the bottom for the last box). */
+function showField() {
+    const win = $id('sblink-win');
+    const el = document.activeElement;
+    const body = win?.querySelector('.sblink-body');
+    const vv = window.visualViewport;
+    if (!body || !vv || !el || !body.contains(el)) return;
+    const seeBottom = vv.offsetTop + vv.height - 12;
+    const hidden = Math.max(0, win.getBoundingClientRect().bottom - seeBottom);
+    body.style.paddingBottom = `${Math.round(hidden + 14)}px`;
+    const br = body.getBoundingClientRect();
+    const seeTop = Math.max(br.top, vv.offsetTop) + 8;
+    const r = el.getBoundingClientRect();
+    const fieldBottom = Math.min(r.bottom, r.top + 120);   // a tall text box: its first lines are enough
+    if (fieldBottom > seeBottom) body.scrollTop += fieldBottom - seeBottom;
+    else if (r.top < seeTop) body.scrollTop -= seeTop - r.top;
+}
+
+function unpadBody() {
+    const body = $id('sblink-win')?.querySelector('.sblink-body');
+    if (body && body.style.paddingBottom) body.style.paddingBottom = '';
+}
+
+/** Remember how far this tab / page was scrolled. */
+function keepScroll() {
+    const body = $id('sblink-win')?.querySelector('.sblink-body');
+    if (body?.dataset.view) ui.scroll[body.dataset.view] = body.scrollTop;
 }
 
 // ---------- the "system is off" mini window (from the wand menu) ----------
@@ -105,6 +176,7 @@ function openOffline() {
       <div class="sblink-popbtns"><button type="button" class="sblink-btn" data-off="close"><span class="sblink-ell">${esc(t('close'))}</span></button>
       <button type="button" class="sblink-btn sblink-btn-main" data-off="on"><span class="sblink-ell">${esc(t('turn_on'))}</span></button></div></div>`;
     document.body.appendChild(wrap);
+    fitPop(wrap);
     wrap.addEventListener('click', (e) => {
         const b = e.target.closest('[data-off]');
         if (!b && e.target !== wrap) return;
@@ -117,8 +189,8 @@ function openOffline() {
 function render() {
     const win = $id('sblink-win');
     if (!win) return;
-    const body = win.querySelector('.sblink-body');
-    const keep = body && body.dataset.view === ui.view ? body.scrollTop : 0;
+    keepScroll();
+    const keep = ui.scroll[ui.view] || 0;
     if (ui.view === 'goalEdit' && !ui.freshDraft) readDraft();
     ui.freshDraft = false;
     const inSub = SUBS.includes(ui.view);
@@ -321,14 +393,12 @@ function shopTab(r) {
     const sel = items.find(x => x.id === ui.selShop) || null;
     const pricey = debuffsNow(r).some(d => d.kind === 'pricey');
     const selPrice = sel ? priceOf(sel, r) : 0;
-    const cells = items.map(x => `
-      <button type="button" class="sblink-cell ${RC[x.rarity] || ''}${x.id === ui.selShop ? ' sblink-cell-on' : ''}${x.sold ? ' sblink-sold' : ''}" data-shop="${esc(x.id)}">
-        <span class="sblink-cellrar">${x.kind === 'skillbook' ? esc(x.grade) : esc(t(`rarity_${x.rarity}`).slice(0, lang() === 'ko' ? 2 : 1))}</span>
-        ${x.limited ? `<span class="sblink-limited">${esc(t('limited'))}</span>` : ''}
-        ${icon(x.icon, 'sblink-cellico')}
-        <span class="sblink-price${pricey ? ' sblink-neg' : ''}">${priceOf(x, r)}P${pricey ? '▴' : ''}</span>
-        ${x.sold ? '<span class="sblink-stamp">SOLD</span>' : ''}
-      </button>`).join('');
+    const cells = items.map(x => cellHtml(x.kind === 'skillbook' ? { ...x, cellName: x.skill?.name || x.name } : x, {
+        on: x.id === ui.selShop, data: `data-shop="${esc(x.id)}"`,
+        label: x.kind === 'skillbook' ? t('skillbook_short', { g: x.grade }) : t(`rarity_${RC[x.rarity] ? x.rarity : 'common'}`),
+        bar: `${priceOf(x, r)}P${pricey ? '▴' : ''}`, barCls: pricey ? ' sblink-neg' : '',
+        extra: x.limited ? `<span class="sblink-limited">${esc(t('limited'))}</span>` : '',
+    })).join('');
     const tone = toneOf(r);
     const head = `<div class="sblink-shophead"><span class="sblink-code">${{ game: 'SYS.SHOP', star: 'SYS.STAR', threat: 'SYS.ALERT' }[tone]} // ${side === 'daily' ? ({ game: 'DAILY', star: 'BUNDLE', threat: 'MARKET' }[tone]) : 'STANDING'}</span>
         <span class="sblink-shopname sblink-ell">${esc(t(`shop_title_${tone}`))}</span><i class="sblink-shopline"></i></div>`;
@@ -349,7 +419,7 @@ function shopTab(r) {
           ${sel.kind === 'skillbook' ? `<div class="sblink-stags">${tag(`SKILL ${sel.grade}`, 'sblink-stag-g ' + gradeClass(sel.grade))}${tag(t(`skill_${sel.skill?.type || 'passive'}`), 'sblink-stag-acc')}</div>` : ''}
           <div class="sblink-detaildesc">${esc(sel.desc || '')}</div>
           ${sel.kind === 'skillbook' ? `<div class="sblink-hint">${esc(t('book_hint'))}</div>` : ''}
-          ${sel.sold ? `<div class="sblink-hint">${esc(t('sold_out'))}</div>` : `<div class="sblink-afterpts">${pts}P → <b class="${after < 0 ? 'sblink-neg' : ''}">${after}P</b></div>`}
+          ${sel.sold ? `<div class="sblink-hint">${esc(t('sold_out'))}</div>` : after < 0 ? `<div class="sblink-afterpts"><b class="sblink-neg">${esc(t('pts_short', { n: -after }))}</b></div>` : `<div class="sblink-afterpts">${pts}P → <b>${after}P</b></div>`}
         </div>`;
     } else if (items.length) detail = `<div class="sblink-hint sblink-center">${esc(t('pick_item'))}</div>`;
     const grid = items.length ? `<div class="sblink-grid sblink-grid3">${cells}</div>` : status || `<div class="sblink-hint sblink-center">${esc(t('shop_empty'))}</div>`;
@@ -369,10 +439,7 @@ async function startStock() {
 function bagTab(r) {
     const bag = r.bag.filter(b => b.count > 0);
     const sel = bag.find(b => b.id === ui.selBag) || null;
-    const cells = bag.map(b => `
-      <button type="button" class="sblink-cell ${RC[b.rarity] || ''}${b.id === ui.selBag ? ' sblink-cell-on' : ''}" data-bag="${esc(b.id)}">
-        ${icon(b.icon, 'sblink-cellico')}<span class="sblink-count">${b.count}</span>
-      </button>`).join('');
+    const cells = bag.map(b => cellHtml(b, { on: b.id === ui.selBag, data: `data-bag="${esc(b.id)}"`, label: t(`rarity_${RC[b.rarity] ? b.rarity : 'common'}`), bar: `×${b.count}` })).join('');
     const fill = Math.max(0, Math.ceil(Math.max(8, bag.length) / 4) * 4 - bag.length);
     const blanks = '<div class="sblink-cell sblink-cell-blank"></div>'.repeat(fill);
     let body = sec(t('tab_bag'), `<span class="sblink-code">${bag.reduce((a, b) => a + b.count, 0)}</span>`) + `<div class="sblink-grid sblink-grid4">${cells}${blanks}</div>`;
@@ -531,6 +598,18 @@ function goalPage() {
 }
 
 function blankDraft() { return { title: '', total: 4, stage: { name: '', conds: ['', ''] } }; }
+const isBlank = (d) => !d || (!d.title.trim() && !d.stage.name.trim() && !d.stage.conds.some(c => c.trim()));
+
+/** ‹ Back (or closing the window) keeps an unsaved new goal for this chat; Cancel and Save drop it. */
+function stashDraft() {
+    if (ui.goalMode !== 'new' || !ui.goalDraft) return;
+    readDraft();
+    const id = currentChatId();
+    if (!id) return;
+    if (isBlank(ui.goalDraft)) delete ui.drafts[id];
+    else ui.drafts[id] = structuredClone(ui.goalDraft);
+}
+const dropDraft = () => { delete ui.drafts[currentChatId()]; };
 
 function draftFromGoal(r) {
     const g = goalNow(r);
@@ -556,7 +635,7 @@ function goalEditPage() {
     const f = (k, label, val, ph) => `<label class="sblink-field"><span class="sblink-code">${esc(label)}</span><input class="sblink-input" data-goal="${k}" maxlength="80" value="${esc(val)}" placeholder="${esc(ph)}"></label>`;
     const totals = [3, 4, 5].filter(n => n >= (d.minTotal || 2));
     let body = '';
-    if (ui.goalMode === 'new' && settings().goalSuggest) {
+    if (ui.goalMode === 'new' && settings().goalSuggest !== 'off') {
         body += `<button type="button" class="sblink-btn sblink-btn-wide sblink-suggest" data-act="goalSuggest"${ui.suggesting ? ' disabled' : ''}>${ui.suggesting ? hexMark('sblink-spin') : ''}<span class="sblink-ell">${esc(ui.suggesting ? t('goal_suggesting') : t('goal_suggest'))}</span></button>
           <div class="sblink-hint">${esc(t('goal_suggest_hint'))}</div>`;
     }
@@ -569,9 +648,17 @@ function goalEditPage() {
         body += f('c1', t('cond_label', { n: 2 }), d.stage.conds[1] || '', t('cond_ph2'));
         body += `<div class="sblink-hint">${esc(t('cond_hint'))}</div>`;
     }
-    const foot = `<button type="button" class="sblink-btn" data-act="back"><span class="sblink-ell">${esc(t('cancel'))}</span></button>
+    const foot = `<button type="button" class="sblink-btn" data-act="goalCancel"><span class="sblink-ell">${esc(t('cancel'))}</span></button>
       <button type="button" class="sblink-btn sblink-btn-main" data-act="goalSave"><span class="sblink-ell">${esc(t('save'))}</span></button>`;
     return { body, foot };
+}
+
+/** The [Ask the AI] button: if something is already written, ask before it is replaced. */
+function askSuggest() {
+    readDraft();
+    if (isBlank(ui.goalDraft)) return suggestGoal();
+    ui.modal = { title: t('goal_replace_q'), body: t('goal_replace_body'), yes: t('goal_suggest'), code: 'SYS.CONFIRM // GOAL', run: suggestGoal };
+    return render();
 }
 
 async function suggestGoal() {
@@ -581,11 +668,14 @@ async function suggestGoal() {
     let made = null;
     try { made = await bus.ask('goal', {}); } catch (e) { console.warn('[System Blink] goal', e); }
     ui.suggesting = false;
-    if (currentChatId() !== chatId || ui.view !== 'goalEdit') return render();
+    if (currentChatId() !== chatId) return render();
     if (!made) { notice(t('make_failed'), 'warn'); return render(); }
     const c = made.stage?.conds || [];
+    const draft = { title: made.title, total: [3, 4, 5].includes(Math.round(made.total)) ? Math.round(made.total) : 4, stage: { name: made.stage?.name || '', conds: [c[0] || '', c[1] || ''], reward: made.stage?.reward } };
+    // left the page while waiting: the suggestion waits in the draft instead of being thrown away
+    if (ui.view !== 'goalEdit' || ui.goalMode !== 'new') { ui.drafts[chatId] = draft; notice(t('goal_suggest_kept')); return render(); }
     ui.freshDraft = true;
-    ui.goalDraft = { title: made.title, total: [3, 4, 5].includes(Math.round(made.total)) ? Math.round(made.total) : 4, stage: { name: made.stage?.name || '', conds: [c[0] || '', c[1] || ''], reward: made.stage?.reward } };
+    ui.goalDraft = draft;
     render();
 }
 
@@ -675,18 +765,27 @@ async function onClick(e) {
     switch (d.act) {
         case 'close': return closeWindow();
         case 'gear': ui.back = TABS.includes(ui.view) ? ui.view : 'status'; ui.view = 'gear'; return render();
-        case 'back': ui.view = ui.view === 'text' ? 'gear' : ui.view === 'goalEdit' && room()?.goal ? 'goal' : (ui.back || 'status'); ui.goalDraft = null; return render();
+        case 'back':
+            if (ui.view === 'goalEdit') stashDraft();
+            ui.view = ui.view === 'text' ? 'gear' : ui.view === 'goalEdit' && room()?.goal ? 'goal' : (ui.back || 'status'); ui.goalDraft = null; return render();
+        case 'goalCancel':
+            if (ui.goalMode === 'new') dropDraft();
+            ui.view = room()?.goal ? 'goal' : (ui.back || 'quests'); ui.goalDraft = null; return render();
         case 'skillMore': if (!ui.selSkill) return; ui.skillId = ui.selSkill; ui.back = 'status'; ui.view = 'skill'; return render();
         case 'skillUse': return askUseSkill(ui.view === 'skill' ? ui.skillId : ui.selSkill);
         case 'skillBlank': return notice(t('skill_none'));
         case 'goalOpen': ui.back = 'quests'; ui.view = 'goal'; ui.openQuest = null; return render();
         case 'goalEdit': { const r = room(); if (!r?.goal) return; ui.goalMode = 'edit'; ui.goalDraft = draftFromGoal(r); ui.freshDraft = true; ui.view = 'goalEdit'; return render(); }
         case 'goalNew': {
-            const go = () => { ui.back = 'quests'; ui.goalMode = 'new'; ui.goalDraft = blankDraft(); ui.freshDraft = true; ui.view = 'goalEdit'; render(); if (settings().goalSuggest) suggestGoal(); };
+            const go = () => {
+                const kept = ui.drafts[currentChatId()];
+                ui.back = 'quests'; ui.goalMode = 'new'; ui.goalDraft = kept ? structuredClone(kept) : blankDraft(); ui.freshDraft = true; ui.view = 'goalEdit'; render();
+                if (settings().goalSuggest === 'auto' && !kept && !ui.suggesting) suggestGoal();
+            };
             if (room()?.goal && !goalNow().complete) { ui.modal = { title: t('goal_new_q'), body: t('goal_new_body'), yes: t('goal_new'), code: 'SYS.CONFIRM // GOAL', run: go }; return render(); }
             return go();
         }
-        case 'goalSuggest': return suggestGoal();
+        case 'goalSuggest': return askSuggest();
         case 'stageRetry': return retryStage();
         case 'goalSave': {
             readDraft();
@@ -696,6 +795,7 @@ async function onClick(e) {
             const stage = { name: d.stage.name.trim(), conds, reward: d.stage.reward };
             if (ui.goalMode === 'new') setGoal({ title: d.title.trim(), total: d.total, stage });
             else editGoal({ title: d.title.trim(), total: d.total, stage: d.hasStage ? stage : null });
+            if (ui.goalMode === 'new') dropDraft();
             ui.goalDraft = null; ui.view = 'goal'; ui.back = 'quests';
             return render();
         }

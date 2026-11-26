@@ -13,7 +13,7 @@ import { hexMark } from './src/icons.js';
 import { openWindow, closeWindow, isOpen, refreshWin, place as placeWin, setWinHooks } from './src/ui/win.js';
 import { mountFab, unmountFab, setFabHidden, setFabCount, setFabHooks, place as placeFab, endDrag } from './src/ui/fab.js';
 import {
-    popup, notice, hold, waiting, setPopHooks, renderStrip, placeStrip, foldStrip, stripShown, renderCards, renderCardsSoon,
+    popup, notice, hold, waiting, setPopHooks, placePops, renderStrip, placeStrip, foldStrip, stripShown, renderCards, renderCardsSoon,
     removeCards, clearPopups, questsPopup, suddenPopup, hiddenPopup, stagePopup, goalDonePopup, failPopup, skillPopup, unlockPopup, bigPopup,
 } from './src/ui/pop.js';
 import { esc } from './src/ui/util.js';
@@ -260,7 +260,7 @@ function registerEvents() {
 
 function watchScreen() {
     let tm = 0;
-    const re = () => { cancelAnimationFrame(tm); tm = requestAnimationFrame(() => { placeWin(); placeFab(); placeStrip(); }); };
+    const re = () => { cancelAnimationFrame(tm); tm = requestAnimationFrame(() => { placeWin(); placeFab(); placeStrip(); placePops(); }); };
     window.addEventListener('resize', re);
     window.addEventListener('orientationchange', () => setTimeout(re, 250));
     window.visualViewport?.addEventListener('resize', re);

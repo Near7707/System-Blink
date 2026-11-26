@@ -6,7 +6,7 @@ A game-like **System** for SillyTavern roleplay, in the style of Korean system n
 In the middle of the story, a translucent System window pops up — *"[Daily quests have arrived]"* —
 you clear quests in the story, earn points, and spend them in your own **personal shop**.
 
-This version (0.5.0): the System window, the tutorial, daily quests, the shop, the bag and daily-life mode,
+This version (0.5.1): the System window, the tutorial, daily quests, the shop, the bag and daily-life mode,
 sudden quests, hidden quests, a main goal, quests with several conditions, **difficulty with penalties**,
 **skills and gacha** — and **three System voices** with **spectators** who react and sponsor.
 
@@ -33,7 +33,7 @@ https://github.com/Near7707/System-Blink
   A re-rolled reply gives its reply back to the count.
 - **Hidden quests**: now and then the check looks for something you did by chance and opens a purple hidden quest.
   No time limit, no penalty.
-- **Main goal**: one big goal per chat in 3–5 stages. The AI suggests it from the character card (you can edit every line);
+- **Main goal**: one big goal per chat in 3–5 stages. The AI can suggest it from the character card — on the button, or right away if set to Auto (you can edit every line);
   each next stage is made from the story when you clear the one before. A stage may have two conditions —
   each is checked on its own, and the points come when both are done.
 - **Difficulty** (each chat its own; *Off* by default = as before): *Easy* / *Normal* / *Hard* / *Hell*.
@@ -93,7 +93,7 @@ Everything is both in the window's ⚙ page and in SillyTavern's extension setti
 Highlights: voice and difficulty (per chat), spectators (on/off, light / rich, sponsorships), point rate, story date / real time as the day basis, how often the story is checked
 (every reply / every 3rd / by hand), who sees the System, telling the AI the daily-life fields,
 opening chances for quests, how often sudden quests come (and the rest after one), hidden quests on/off,
-the AI suggesting the main goal, a **world note** per chat (used when making quests and items), your own
+the AI suggesting the main goal (auto / manual / off), a **world note** per chat (used when making quests and items), your own
 shop items, a connection profile for the side requests (a cheap, fast model is enough), backup / restore,
 and *What was sent*.
 

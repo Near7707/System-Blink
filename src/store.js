@@ -3,7 +3,7 @@
 
 export const MODULE = 'systemBlink';
 export const FORMAT = 2;
-export const VERSION = '0.5.0';
+export const VERSION = '0.5.1';
 export const TONES = ['game', 'star', 'threat'];
 export const DIFFS = ['off', 'easy', 'normal', 'hard', 'hell'];
 
@@ -23,14 +23,14 @@ const DEFAULTS = Object.freeze({
     suddenFreq: 'rare',     // off | rare (1/20) | normal (1/10) | often (1/5) — rolled after each reply
     suddenRest: 5,          // replies to rest after a sudden quest: 3 | 5 | 10
     hiddenOn: true,         // hidden quests can be found
-    goalSuggest: true,      // the AI suggests a main goal from the character card
+    goalSuggest: 'manual',  // auto (ask the AI as the page opens) | manual (only on the button) | off (no button)
     specOn: true,           // 2-D: spectators react now and then (small notices)
     specMode: 'light',      // light (ready-made lines, no AI call) | rich (the AI writes the line, one extra call)
     specGift: true,         // spectators sometimes sponsor points (and, very rarely, a skill)
     motion: true,
     logCards: true,
     btnShow: true,
-    btnSnap: true,
+    btnSnap: false,         // free placement by default since 0.5.1
     btnDim: true,
     useDefaults: true,
     oddities: true,
@@ -52,7 +52,7 @@ export function settings() {
 const ONE_OF = {
     tone: TONES, specMode: ['light', 'rich'], dayBasis: ['story', 'real'], judgeEvery: ['every', 'three', 'manual'],
     visibility: ['me', 'all'], questChance: ['off', 'some', 'more'], lang: ['en', 'ko'],
-    suddenFreq: ['off', 'rare', 'normal', 'often'],
+    suddenFreq: ['off', 'rare', 'normal', 'often'], goalSuggest: ['auto', 'manual', 'off'],
 };
 
 const BACKUP_KEY = 'systemBlink.backup.v1';
@@ -79,6 +79,10 @@ export function oldBackup() {
 
 export function migrate(s) {
     if (s.format !== FORMAT) upgrade(s);
+    // 0.5.1: the goal suggestion became auto / manual / off, and the button no longer sticks to the edge by default
+    if (s.goalSuggest === true) s.goalSuggest = 'manual';
+    if (s.goalSuggest === false) s.goalSuggest = 'off';
+    if (!s.v051) { s.btnSnap = false; s.v051 = true; }
     for (const [k, v] of Object.entries(DEFAULTS)) if (s[k] === undefined) s[k] = structuredClone(v);
     for (const [k, list] of Object.entries(ONE_OF)) if (!list.includes(s[k])) s[k] = DEFAULTS[k];
     if (![0.5, 1, 2].includes(Number(s.pointRate))) s.pointRate = 1;

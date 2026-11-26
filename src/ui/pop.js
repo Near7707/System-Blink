@@ -7,7 +7,7 @@ import { active, chatView, suggestion, nextDay, dismissSuggestion, isAI, todays,
 import { specNames } from '../data.js';
 import { gradeBadge, gradeClass, isTop, tag } from './skills.js';
 import { icon, hexMark } from '../icons.js';
-import { esc, $id, typeIn, motionOn, inputTop, viewport } from './util.js';
+import { esc, $id, typeIn, motionOn, inputTop, viewport, safeInsets } from './util.js';
 
 let hooks = { openTab: () => {}, openSkill: () => {}, badge: () => {} };
 export function setPopHooks(h) { hooks = { ...hooks, ...h }; }
@@ -19,6 +19,42 @@ const isThreat = () => active() && toneOf() === 'threat';
 let held = false;   // a reply is being written
 export function hold(on) { held = !!on; if (!held) { pump(); renderStrip(); renderCards(); } else hideStrip(); }
 export const isHeld = () => held;
+
+// ---------- keeping big popups inside the visible screen ----------
+const POP_IDS = ['sblink-pop', 'sblink-gacha', 'sblink-off'];
+
+/**
+ * Big popups sit inside the part of the screen you can actually see (iPhone Safari's page area can be
+ * taller than that), clear of the notch and the home bar. A popup taller than the room left scrolls
+ * inside, and its buttons stay in sight at the bottom.
+ */
+export function placePops() {
+    const vp = viewport();
+    const ins = safeInsets();
+    for (const id of POP_IDS) {
+        const wrap = $id(id);
+        if (!wrap) continue;
+        Object.assign(wrap.style, {
+            inset: 'auto', left: `${Math.round(vp.x)}px`, top: `${Math.round(vp.y)}px`, width: `${Math.round(vp.w)}px`, height: `${Math.round(vp.h)}px`,
+            paddingTop: `${Math.round(Math.max(18, ins.top + 14))}px`, paddingBottom: `${Math.round(Math.max(18, ins.bottom + 10))}px`,
+        });
+    }
+}
+
+/** Put everything but the corner marks, the tag and the buttons into one part that can scroll. */
+export function fitPop(wrap) {
+    const box = wrap?.querySelector('.sblink-pop');
+    if (!box || box.querySelector(':scope > .sblink-popscroll')) return;
+    const scroll = document.createElement('div');
+    scroll.className = 'sblink-popscroll';
+    const btns = box.querySelector(':scope > .sblink-popbtns');
+    for (const el of [...box.children]) {
+        if (el.matches('.sblink-cn, .sblink-tag, .sblink-popbtns')) continue;
+        scroll.appendChild(el);
+    }
+    box.insertBefore(scroll, btns || null);
+    placePops();
+}
 
 // ---------- big popups ----------
 const queue = [];
@@ -78,6 +114,7 @@ function draw(p) {
         </div>
       </div>`;
     document.body.appendChild(wrap);
+    fitPop(wrap);
     typeIn(wrap.querySelector('.sblink-typed'), p.title || '');
     const dec = wrap.querySelector('[data-decode]');
     if (dec) decode(dec, dec.dataset.decode);
@@ -476,6 +513,7 @@ export function gachaShow(go = {}) {
         <div class="sblink-popbtns"></div>
       </div>`;
     document.body.appendChild(wrap);
+    fitPop(wrap);
     hooks.badge();
     const box = wrap.querySelector('.sblink-gacha');
     const started = Date.now();

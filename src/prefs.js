@@ -32,7 +32,7 @@ export const SCHEMA = [
         { k: 'suddenFreq', kind: 'choice', opts: ['off', 'rare', 'normal', 'often'] },
         { k: 'suddenRest', kind: 'choice', opts: [3, 5, 10], needs: 'suddenFreq' },
         { k: 'hiddenOn', kind: 'toggle' },
-        { k: 'goalSuggest', kind: 'toggle' },
+        { k: 'goalSuggest', kind: 'choice', opts: ['auto', 'manual', 'off'] },
     ] },
     { group: 'spectators', rows: [
         { k: 'specOn', kind: 'toggle' },
@@ -60,9 +60,9 @@ export const SCHEMA = [
         { k: 'profileId', kind: 'select' },
     ] },
     { group: 'data', folded: true, rows: [
-        { k: 'logTxt', kind: 'button' },
+        { k: 'logTxt', kind: 'button', pair: true },
         { k: 'logJson', kind: 'button' },
-        { k: 'export', kind: 'button' },
+        { k: 'export', kind: 'button', pair: true },
         { k: 'import', kind: 'button' },
         { k: 'sent', kind: 'button' },
         { k: 'oldBackup', kind: 'button', when: () => !!oldBackup() },
@@ -255,10 +255,25 @@ export function panelHtml() {
     if (!s.enabled) out.push(`<div class="sblink-phint"><b>${esc(t('off_short'))}</b> <button type="button" class="menu_button sblink-pbtn" data-run="allOn">${esc(t('turn_on'))}</button></div>`);
     for (const g of SCHEMA) {
         out.push(`<h4 class="sblink-ph">${esc(t(`grp_${g.group}`))}</h4>`);
-        for (const row of g.rows) if (!row.when || row.when()) out.push(panelRow(row));
+        const rows = g.rows.filter(row => !row.when || row.when());
+        for (let i = 0; i < rows.length; i++) {
+            const row = rows[i];
+            const next = rows[i + 1];
+            // two buttons that belong together sit side by side (export .txt | .json, backup | restore)
+            if (row.pair && row.kind === 'button' && next?.kind === 'button') {
+                out.push(`<div class="sblink-pbtns">${panelBtn(row)}${panelBtn(next)}</div>${panelHint(row)}${panelHint(next)}`);
+                i++;
+            } else out.push(panelRow(row));
+        }
     }
-    out.push(`<div class="sblink-phint">v${VERSION}</div>`);
+    out.push(`<div class="sblink-phint sblink-pver">v${VERSION}</div>`);
     return out.join('');
+}
+
+const panelBtn = (row) => `<button type="button" class="menu_button sblink-pbtn" data-run="${row.k}"${isDisabled(row) ? ' disabled' : ''}>${esc(label(row))}</button>`;
+function panelHint(row) {
+    const h = hint(row);
+    return h && h !== `set_${row.k}_hint` ? `<small class="sblink-phint">${esc(h)}</small>` : '';
 }
 
 function panelRow(row) {
@@ -273,12 +288,12 @@ function panelRow(row) {
     if (row.kind === 'choice') {
         return `<label class="sblink-plabel">${esc(label(row))}</label><select class="text_pole" data-pset="${row.k}"${dis}>${row.opts.map(o => `<option value="${o}"${String(o) === String(v) ? ' selected' : ''}>${esc(optLabel(row, o))}</option>`).join('')}</select>${hintHtml}`;
     }
-    if (row.kind === 'text') return `<label class="sblink-plabel">${esc(label(row))}</label><textarea class="text_pole sblink-pta" rows="3" data-pset="${row.k}" placeholder="${esc(t(`set_${row.k}_ph`))}"${dis}>${esc(v || '')}</textarea>${hintHtml}`;
+    if (row.kind === 'text') return `<label class="sblink-plabel">${esc(label(row))}</label><textarea class="text_pole sblink-pta" rows="${row.k === 'world' ? 5 : 3}" data-pset="${row.k}" placeholder="${esc(t(`set_${row.k}_ph`))}"${dis}>${esc(v || '')}</textarea>${hintHtml}`;
     if (row.kind === 'select') {
         const profiles = getProfiles();
         return `<label class="sblink-plabel">${esc(label(row))}</label><select class="text_pole" data-pset="${row.k}"${dis}><option value="">${esc(t('profile_current'))}</option>${profiles.map(p => `<option value="${esc(p.id)}"${p.id === v ? ' selected' : ''}>${esc(p.name || p.id)}</option>`).join('')}</select>${hintHtml}`;
     }
-    if (row.kind === 'button') return `<div><button type="button" class="menu_button sblink-pbtn" data-run="${row.k}"${dis}>${esc(label(row))}</button></div>${hintHtml}`;
+    if (row.kind === 'button') return `<div class="sblink-pbtns">${panelBtn(row)}</div>${hintHtml}`;
     return '';
 }
 

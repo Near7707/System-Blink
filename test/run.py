@@ -84,6 +84,7 @@ def main():
             long_chat(browser)
             pc(browser)
             button(browser)
+            fixes051(browser)
             browser.close()
     finally:
         srv.terminate()
@@ -326,7 +327,16 @@ def quests2(browser, lang):
     # the main goal: the AI suggests it, I save it
     page.click('#sblink-fab'); page.click('#sblink-win [data-tab="quests"]')
     page.click('.sblink-goalnone [data-act="goalNew"]'); page.wait_for_timeout(600)
+    check(ev(page, "document.querySelector('[data-goal=\"title\"]').value") == '', 'manual: opening the page asks the AI nothing')
+    page.click('[data-act="goalSuggest"]'); page.wait_for_timeout(600)
     check(ev(page, "document.querySelector('[data-goal=\"title\"]').value") != '', 'the AI filled the goal')
+    made = ev(page, "document.querySelector('[data-goal=\"title\"]').value")
+    page.click('[data-act="back"]'); page.wait_for_timeout(200)
+    page.click('.sblink-goalnone [data-act="goalNew"]'); page.wait_for_timeout(300)
+    check(ev(page, "document.querySelector('[data-goal=\"title\"]').value") == made, '‹ Back keeps the draft')
+    page.click('[data-act="goalSuggest"]'); page.wait_for_timeout(200)
+    check(ev(page, "!!document.querySelector('.sblink-modal')"), 'asks before replacing a draft')
+    page.click('[data-modal="no"]'); page.wait_for_timeout(150)
     shot(page, L('04_goal_edit'))
     page.fill('[data-goal="title"]', ('작은 찻집 지키기' if ko else 'Keep the little tea house'))
     page.click('[data-gtotal="3"]')
@@ -956,7 +966,14 @@ def button(browser):
     page.wait_for_timeout(200)
     check(not ev(page, "!!document.getElementById('sblink-win')"), 'a drag does not open the window')
     x = page.locator('#sblink-fab').bounding_box()['x']
-    check(x < 40 or x > 300, f'sticks to an edge ({x:.0f})')
+    check(40 < x < 300, f'stays where it was let go (no edge snap by default) ({x:.0f})')
+    ev(page, "SillyTavern.getContext().extensionSettings.systemBlink.btnSnap = true")
+    box = page.locator('#sblink-fab').bounding_box()
+    page.mouse.move(box['x'] + 30, box['y'] + 30); page.mouse.down()
+    page.mouse.move(box['x'] + 25, box['y'] + 28)
+    page.mouse.move(box['x'] - 20, box['y'] + 40, steps=8); page.mouse.up(); page.wait_for_timeout(200)
+    x = page.locator('#sblink-fab').bounding_box()['x']
+    check(x < 40 or x > 300, f'with "stick to the edge" on, it sticks to an edge ({x:.0f})')
     y = page.locator('#sblink-fab').bounding_box()
     input_top = ev(page, "document.getElementById('form_sheld').getBoundingClientRect().top")
     check(y['y'] + y['height'] <= input_top, 'stays above the input box')
@@ -982,6 +999,53 @@ def button(browser):
     check(not errors, f'no errors {errors[:3]}')
     page.close()
 
+
+def fixes051(browser):
+    print('--- 0.5.1 fixes (short screen, squares, scroll memory, panel)')
+    # a short screen: the big popup stays inside and its button can be reached
+    page, errors = open_page(browser, 'fresh&lang=ko', width=390, height=380)
+    page.click('#sblink-fab'); page.wait_for_timeout(200)
+    page.click('[data-act="roomOn"]'); page.wait_for_timeout(500)
+    r = ev(page, "(() => { const b = document.querySelector('#sblink-pop .sblink-pop').getBoundingClientRect(); return [b.top, b.bottom, innerHeight]; })()")
+    check(r[0] >= 0 and r[1] <= r[2], f'popup fits a short screen ({r[0]:.0f}..{r[1]:.0f} of {r[2]})')
+    ok = ev(page, "(() => { const b = document.querySelector('#sblink-pop [data-pop=\"ok\"]').getBoundingClientRect(); return b.bottom <= innerHeight && b.top >= 0; })()")
+    check(ok, 'its [OK] button is in sight')
+    shot(page, 'fix_01_short_popup')
+    close_pops(page, 8)
+    check(not errors, f'no script errors ({errors[:2]})')
+    page.close()
+
+    page, errors = open_page(browser, 'fresh&lang=ko')
+    page.click('#sblink-fab'); page.wait_for_timeout(200)
+    page.click('[data-act="roomOn"]'); page.wait_for_timeout(500)
+    close_pops(page, 8)
+    page.click('#sblink-win [data-tab="shop"]'); page.wait_for_timeout(900)
+    colours = ev(page, "[...document.querySelectorAll('#sblink-win .sblink-cell')].map(c => [c.className.match(/sblink-r-(\\w+)/)?.[1], getComputedStyle(c).borderTopColor])")
+    rare = [c for c in colours if c[0] == 'rare']
+    common = [c for c in colours if c[0] == 'common']
+    check(not rare or rare[0][1] == 'rgb(90, 169, 255)', f'a rare square is blue ({rare[:1]})')
+    check(not common or common[0][1] == 'rgb(201, 211, 220)', 'a common square stays white-grey')
+    check(ev(page, "[...document.querySelectorAll('#sblink-win .sblink-cellname')].every(n => n.textContent.trim())"), 'every square shows its name')
+    page.click('#sblink-win [data-side="standing"]'); page.wait_for_timeout(200)
+    shot(page, 'fix_02_shop')
+    # not enough points: "NP 부족" instead of a minus number
+    page.click('#sblink-win .sblink-cell'); page.wait_for_timeout(150)
+    txt = ev(page, "document.querySelector('.sblink-afterpts')?.textContent || ''")
+    check('부족' in txt and '−' not in txt and '-' not in txt, f'short of points shows "부족" ({txt.strip()})')
+    # scroll memory: the settings page comes back where it was
+    page.click('#sblink-win [data-act="gear"]'); page.wait_for_timeout(200)
+    ev(page, "document.querySelector('#sblink-win .sblink-body').scrollTop = 300")
+    page.click('#sblink-win [data-act="close"]'); page.wait_for_timeout(150)
+    page.click('#sblink-fab'); page.wait_for_timeout(200)
+    page.click('#sblink-win [data-act="gear"]'); page.wait_for_timeout(200)
+    st = ev(page, "document.querySelector('#sblink-win .sblink-body').scrollTop")
+    check(abs(st - 300) < 3, f'settings page remembers its scroll ({st})')
+    check(ev(page, "document.querySelectorAll('#sblink-win [data-set=\"goalSuggest\"]').length") == 3, 'goal suggestion: auto / manual / off in ⚙')
+    check(ev(page, "document.querySelectorAll('.sblink-panel [data-pset=\"goalSuggest\"] option').length") == 3, 'and in the extension panel')
+    check(ev(page, "[...document.querySelectorAll('.sblink-panel .sblink-pbtns')].some(d => d.querySelectorAll('button').length === 2)"), 'paired buttons sit side by side in the panel')
+    check('\n' in ev(page, "document.querySelector('.sblink-panel textarea[data-pset=\"world\"]')?.placeholder || ''"), 'world examples are several lines')
+    check(not errors, f'no script errors ({errors[:2]})')
+    page.close()
 
 if __name__ == '__main__':
     main()
