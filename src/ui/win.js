@@ -7,14 +7,14 @@ import {
     active, chatView, points, todays, questState, clearByHand, undoClear, lifeNow, setLife, nextDay, ownerName,
     standingItems, dailyReady, stockDaily, restockStanding, buy, useItem, tutorialStep, skipTutorial, switchOn, rate, bus,
     goalNow, condsOf, suddenLeft, setGoal, editGoal, nextStage, isMakingStage,
-    diffOf, penaltyFor, debuffsNow, priceOf, penaltyQuests,
+    diffOf, penaltyFor, debuffsNow, priceOf, penaltyQuests, toneOf, warnFor, warnCount, WARN_MAX,
     skillsOf, hiddenOpen, seeSkill, useSkill, openGacha, isDrawing, gradeRarity,
 } from '../engine.js';
 import { runCheck, isChecking, cancelCheck } from '../ai.js';
 import { gearHtml, setValue, runButton, toggleGroup, ROWS, getValue } from '../prefs.js';
 import { icon, hexMark } from '../icons.js';
 import { esc, $id, viewport, safeInsets, isPhone, motionOn } from './util.js';
-import { notice, popup, diamonds, gachaShow } from './pop.js';
+import { notice, popup, diamonds, gachaShow, warnDias } from './pop.js';
 import { skillTile, blankTile, honeycomb, gradeBadge, gradeClass, tag } from './skills.js';
 
 const TABS = ['status', 'shop', 'bag', 'quests'];
@@ -124,6 +124,8 @@ function render() {
     const inSub = SUBS.includes(ui.view);
     const r = room();
     win.classList.toggle('sblink-hell', active(r) && diffOf(r) === 'hell');
+    const tone = active(r) ? toneOf(r) : 'game';
+    for (const x of ['game', 'star', 'threat']) win.classList.toggle(`sblink-tn-${x}`, x === tone);
     const tabs = inSub
         ? `<button type="button" class="sblink-backbtn" data-act="back"><span class="sblink-ell">‹ ${esc(t('back'))}</span></button>
            <div class="sblink-subtitle sblink-ell">${esc(t(`sub_${ui.view}`))} <span class="sblink-code">// ${SUB_CODE[ui.view]}</span></div>`
@@ -205,6 +207,11 @@ function statusTab(r) {
         body += sec(t('debuffs'), `<span class="sblink-code sblink-neg">${debuffs.length}</span>`)
             + debuffs.map(d => `<div class="sblink-debuff"><span class="sblink-debuffchip">${esc(t('debuff_pricey'))}</span><span class="sblink-code sblink-neg">${esc(t('until_next_day'))}</span></div>`).join('')
             + (debuffs.some(d => d.questId) ? `<div class="sblink-hint">${esc(t('debuff_lift_hint'))}</div>` : '');
+    }
+    const warns = warnCount(r, view);
+    if (toneOf(r) === 'threat' || warns) {
+        body += sec(t('warnings'), `<span class="sblink-code sblink-neg">${warns} / ${WARN_MAX}</span>`)
+            + `<div class="sblink-warnbox">${warnDias(Math.min(WARN_MAX, warns))}<b>${warns} / ${WARN_MAX}</b></div><div class="sblink-hint">${esc(t('warn_hint'))}</div>`;
     }
     body += `<button type="button" class="sblink-todayline" data-tab="quests"><span class="sblink-code">TODAY</span><span class="sblink-ell">${esc(t('today_quests', { done, all: list.length }))}</span><span>▸</span></button>`;
     body += skillsBlock(r, view);
@@ -322,7 +329,10 @@ function shopTab(r) {
         <span class="sblink-price${pricey ? ' sblink-neg' : ''}">${priceOf(x, r)}P${pricey ? '▴' : ''}</span>
         ${x.sold ? '<span class="sblink-stamp">SOLD</span>' : ''}
       </button>`).join('');
-    const top = `<div class="sblink-shoptop">
+    const tone = toneOf(r);
+    const head = `<div class="sblink-shophead"><span class="sblink-code">${{ game: 'SYS.SHOP', star: 'SYS.STAR', threat: 'SYS.ALERT' }[tone]} // ${side === 'daily' ? ({ game: 'DAILY', star: 'BUNDLE', threat: 'MARKET' }[tone]) : 'STANDING'}</span>
+        <span class="sblink-shopname sblink-ell">${esc(t(`shop_title_${tone}`))}</span><i class="sblink-shopline"></i></div>`;
+    const top = head + `<div class="sblink-shoptop">
         <div class="sblink-seg">
           <button type="button" class="sblink-chip${side === 'daily' ? ' sblink-chip-on' : ''}" data-side="daily"><span class="sblink-ell">${esc(t('shop_daily'))}</span></button>
           <button type="button" class="sblink-chip${side === 'standing' ? ' sblink-chip-on' : ''}" data-side="standing"><span class="sblink-ell">${esc(t('shop_standing'))}</span></button>
@@ -371,7 +381,7 @@ function bagTab(r) {
         body += `<div class="sblink-detail">
           <div class="sblink-detailhead">${icon(sel.icon, 'sblink-bigico')}<div><div class="sblink-detailname">${esc(sel.name)} <span class="sblink-times">×${sel.count}</span></div>${rarityTag(sel.rarity)}</div></div>
           <div class="sblink-detaildesc">${esc(sel.desc || '')}</div>
-          <div class="sblink-hint">${esc(sel.kind === 'gacha' ? t('gacha_hint') : sel.kind === 'reroll' ? t('reroll_hint') : t('use_hint'))}</div>
+          <div class="sblink-hint">${esc(sel.kind === 'gacha' ? t('gacha_hint') : sel.kind === 'reroll' ? t('reroll_hint') : sel.kind === 'eraser' ? t('eraser_hint') : t('use_hint'))}</div>
         </div>`;
     } else if (bag.length) body += `<div class="sblink-hint sblink-center">${esc(t('pick_item'))}</div>`;
     const gacha = sel?.kind === 'gacha';
@@ -388,13 +398,14 @@ function questRow(r, q, view) {
     const conds = condsOf(q);
     const cls = { done: 'sblink-q-done', failed: 'sblink-q-failed', declined: 'sblink-q-failed' }[st.status] || 'sblink-q-active';
     const pen = penaltyFor(q);
-    const penBit = (on) => (on && pen ? ` · <b class="sblink-neg">−${pen}P</b>` : '');
+    const warn = warnFor(q);
+    const penBit = (on) => (on && pen ? ` · <b class="sblink-neg">−${pen}P</b>` : on && warn ? ` · <b class="sblink-neg">${esc(t('warn_plus'))}</b>` : '');
     let extra = '';
     if (st.status === 'done') {
         extra += `<div class="sblink-qmeta"><span class="sblink-code sblink-clear">CLEAR</span> · ${esc(st.entry?.byHand || !st.entry?.key ? t('by_hand') : t('by_ai'))}</div>`;
         if (!conds && st.entry?.reason) extra += `<div class="sblink-qwhy"><span class="sblink-code">${esc(t('evidence'))}</span> “${esc(st.entry.reason)}”</div>`;
     } else if (st.status === 'offered') {
-        extra += `<div class="sblink-qmeta"><span class="sblink-code sblink-orange">${esc(t('limit_replies', { n: q.limit }))}</span>${pen ? ` · <span class="sblink-neg">${esc(t('penalty_short', { pts: pen }))}</span>` : ''}</div>
+        extra += `<div class="sblink-qmeta"><span class="sblink-code sblink-orange">${esc(t('limit_replies', { n: q.limit }))}</span>${pen ? ` · <span class="sblink-neg">${esc(t('penalty_short', { pts: pen }))}</span>` : warn ? ` · <span class="sblink-neg">${esc(t('warn_short'))}</span>` : ''}</div>
           <div class="sblink-qacts"><button type="button" class="sblink-btn sblink-btn-sm" data-sudden="no" data-id="${esc(q.id)}"><span class="sblink-ell">${esc(t('decline'))}</span></button>
           <button type="button" class="sblink-btn sblink-btn-sm sblink-btn-main" data-sudden="yes" data-id="${esc(q.id)}"><span class="sblink-ell">${esc(t('accept'))}</span></button></div>`;
     } else if (st.status === 'declined') extra += `<div class="sblink-qmeta">${esc(t('declined'))}${penBit(true)}</div>`;
@@ -408,6 +419,7 @@ function questRow(r, q, view) {
         if (q.kind === 'hidden') bits.push(esc(t('hidden_meta')));
         if (q.kind === 'penalty') bits.push(esc(t('penalty_meta')));
         if (q.kind === 'daily' && pen) bits.push(`<span class="sblink-neg">${esc(t('fail_cost', { pts: pen }))}</span>`);
+        if (q.kind === 'daily' && warn) bits.push(`<span class="sblink-neg">${esc(t('fail_warn'))}</span>`);
         extra += `<div class="sblink-qmeta">${bits.join(' · ')}</div>`;
     }
     if (conds && st.status !== 'offered') {
@@ -465,7 +477,7 @@ function questsTab(r) {
     if (pq.length) body += sec(t('penalty_quests')) + pq.map(q => questRow(r, q, view)).join('');
     const list = todays(r);
     const done = list.filter(q => questState(r, q, view).status === 'done').length;
-    body += sec(t('daily_quests'), `<span class="sblink-code">${esc(t('day_n', { n: r.day }))} · ${done} / ${list.length}</span>`);
+    body += sec(t(toneOf(r) === 'threat' ? 'daily_quests_threat' : 'daily_quests'), `<span class="sblink-code">${esc(t('day_n', { n: r.day }))} · ${done} / ${list.length}</span>`);
     if (!list.length) body += `<div class="sblink-hint sblink-center">${esc(t('no_quests'))}</div>`;
     body += list.map(q => questRow(r, q, view)).join('');
     const hidden = r.quests.filter(q => q.kind === 'hidden' && shown(q));
@@ -730,10 +742,17 @@ async function onClick(e) {
                 return render();
             }
             ui.modal = {
-                title: t('use_q', { name: b.name }), body: b.kind === 'reroll' ? t('reroll_hint') : t('use_hint'), yes: t('use'), code: 'SYS.CONFIRM // ITEM',
+                title: t('use_q', { name: b.name }), body: b.kind === 'reroll' ? t('reroll_hint') : b.kind === 'eraser' ? t('eraser_hint') : t('use_hint'), yes: t('use'), code: 'SYS.CONFIRM // ITEM',
                 run: async () => {
                     const u = await useItem(b.id);
                     if (!u) return;
+                    if (u.blocked) { notice(t('erase_none'), 'warn'); return render(); }
+                    if (u.kind === 'eraser') {
+                        if (!room()?.bag.some(x => x.id === b.id)) ui.selBag = null;
+                        const n = warnCount();
+                        popup({ tag: 'ITEM', code: 'SYS.LOG // ERASE', title: t('pop_erased'), lines: [`${icon(u.icon)}<span class="sblink-ell">${esc(u.name)}</span>`], body: `<div class="sblink-warnmeter">${warnDias(n)}<span>${esc(t('erased_left', { n }))}</span></div>` });
+                        return render();
+                    }
                     if (!room()?.bag.some(x => x.id === b.id)) ui.selBag = null;
                     popup({ tag: 'ITEM', code: 'SYS.LOG // ITEM', title: t('pop_used'), lines: [`${icon(u.icon)}<span class="sblink-ell">${esc(u.name)}</span>${rarityTag(u.rarity)}`], body: esc(u.kind === 'reroll' ? t('reroll_done') : t('use_hint')) });
                     render();

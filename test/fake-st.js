@@ -44,6 +44,7 @@
     window.__calls = { check: 0, quests: 0, shop: 0 };
     // the dice: never by default (tests turn them on)
     window.__sblinkRandom = () => 0.99;
+    window.__sblinkSpecRandom = () => 0.99;  // spectators: never by default
     // answer YES to the check lines that contain one of `subs`; `extra` adds lines (SUDDEN / HIDDEN)
     window.__yes = (subs = [], extra = '') => {
         window.__checkAnswer = (user) => {
@@ -102,6 +103,12 @@
         if (/out of a gacha draw/.test(sys)) {
             window.__calls.drawItem = (window.__calls.drawItem || 0) + 1;
             return ko ? '{"name":"반쯤 녹은 양초","desc":"켜면 잃어버린 기억 하나가 떠오른다.","icon":"star"}' : '{"name":"Half-Melted Candle","desc":"Light it and one lost memory comes back.","icon":"star"}';
+        }
+        if (/reaction of an unseen spectator/.test(sys)) {
+            window.__calls.spectator = (window.__calls.spectator || 0) + 1;
+            window.__specLast = sys;
+            if (window.__specFail) return 'hm';
+            return ko ? '{"name":"우산 수집가","line":"[구경꾼 \'우산 수집가\'이(가) 젖은 우산을 걱정합니다]"}' : '{"name":"Umbrella Hoarder","line":"[Spectator \'Umbrella Hoarder\' worries about the wet umbrella]"}';
         }
         if (/personal shop/.test(sys)) {
             window.__calls.shop++;

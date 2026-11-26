@@ -3,7 +3,8 @@
 
 export const MODULE = 'systemBlink';
 export const FORMAT = 2;
-export const VERSION = '0.4.0';
+export const VERSION = '0.5.0';
+export const TONES = ['game', 'star', 'threat'];
 export const DIFFS = ['off', 'easy', 'normal', 'hard', 'hell'];
 
 const DEFAULTS = Object.freeze({
@@ -11,7 +12,7 @@ const DEFAULTS = Object.freeze({
     enabled: true,
     lang: 'en',
     langChosen: false,      // false = follow SillyTavern's language
-    tone: 'game',
+    tone: 'game',           // (old; each chat has its own voice since 0.5)
     pointRate: 1,           // 0.5 | 1 | 2
     dayBasis: 'story',      // story | real
     judgeEvery: 'every',    // every | three | manual
@@ -23,6 +24,9 @@ const DEFAULTS = Object.freeze({
     suddenRest: 5,          // replies to rest after a sudden quest: 3 | 5 | 10
     hiddenOn: true,         // hidden quests can be found
     goalSuggest: true,      // the AI suggests a main goal from the character card
+    specOn: true,           // 2-D: spectators react now and then (small notices)
+    specMode: 'light',      // light (ready-made lines, no AI call) | rich (the AI writes the line, one extra call)
+    specGift: true,         // spectators sometimes sponsor points (and, very rarely, a skill)
     motion: true,
     logCards: true,
     btnShow: true,
@@ -46,7 +50,7 @@ export function settings() {
 }
 
 const ONE_OF = {
-    tone: ['game'], dayBasis: ['story', 'real'], judgeEvery: ['every', 'three', 'manual'],
+    tone: TONES, specMode: ['light', 'rich'], dayBasis: ['story', 'real'], judgeEvery: ['every', 'three', 'manual'],
     visibility: ['me', 'all'], questChance: ['off', 'some', 'more'], lang: ['en', 'ko'],
     suddenFreq: ['off', 'rare', 'normal', 'often'],
 };
@@ -93,6 +97,7 @@ export function newRoom() {
         on: false,              // the system is switched on in this chat
         lifeMode: true,         // daily-life mode
         difficulty: 'off',      // off | easy | normal | hard | hell (stage 2-B; each chat its own)
+        tone: 'game',           // the System's voice in this chat: game | star (sponsors) | threat (2-D)
         name: '',               // '' = the persona's name
         title: '', titles: [],
         world: '',              // world note (used when making quests, items and titles)
@@ -120,6 +125,11 @@ export function newRoom() {
         //   from: gacha | book | goal | hidden, mode, day, at, uses, fresh (NEW until looked at) }
         skills: [],
         draws: [],              // gacha results, kept for the log: { id, at, kind: skill | item, grade | rarity, name }
+        // 2-D: threat voice — warnings come from failed quests (worked out each time); these are what changes the count
+        erases: [],             // a warning eraser was used: { id, at }
+        bigs: [],               // three warnings set off a big event (the count starts again): { id, at, day }
+        cheers: [],             // spectator reactions, kept for the log: { id, at, key, name, text, pts, gift }
+        specKey: '',            // the newest reply the spectators already reacted to (one reaction per reply)
         roll: { key: '', sudden: false, hidden: false }, // the dice for the newest reply
         suddenRest: 0,          // replies left before another sudden quest may come
         sinceCheck: 0,          // AI replies since the last check (for "every 3rd")
@@ -144,6 +154,7 @@ function fixRoom(r) {
     r.quests = r.quests.filter(q => q && typeof q === 'object');
     for (const q of r.quests) if (!['daily', 'sudden', 'hidden', 'goal', 'penalty'].includes(q.kind)) q.kind = 'daily';
     if (!DIFFS.includes(r.difficulty)) r.difficulty = 'off';
+    if (!TONES.includes(r.tone)) r.tone = 'game';
     r.skills = r.skills.filter(x => x && typeof x === 'object' && x.id && x.name);
     // 0.4: gacha tickets kept from before say they open "in stage 2"
     for (const b of r.bag) if (b && b.kind === 'gacha' && /2단계|stage 2/i.test(String(b.desc || ''))) b.desc = /2단계/.test(b.desc) ? '한 번 뽑는다. 스킬이나 물건이 나온다. 엉뚱한 게 자주 나온다.' : 'One draw: a skill or an item. Often something odd.';

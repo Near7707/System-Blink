@@ -5,7 +5,7 @@
 
 import { t, setLanguage, lang } from './src/i18n.js';
 import { ctx, settings, save, uiLang, room, currentChatId, onChatRenamed, onChatDeleted, copyFromParent, VERSION } from './src/store.js';
-import { bus, storeCheck, bindUses, markDelivered, active, checkRealDay, setLangGetter, skipTutorial, rate, lastReply, chatView, nextStage, tidy, answerSudden, penaltyFor, rewardSkill } from './src/engine.js';
+import { bus, storeCheck, bindUses, markDelivered, active, checkRealDay, setLangGetter, skipTutorial, rate, lastReply, chatView, nextStage, tidy, answerSudden, penaltyFor, rewardSkill, warnFor, checkBig, spectate, toneOf } from './src/engine.js';
 import { runCheck } from './src/ai.js';
 import { buildPrompt } from './src/prompt.js';
 import { panelHtml, panelChange, runButton, setPrefsHooks } from './src/prefs.js';
@@ -14,7 +14,7 @@ import { openWindow, closeWindow, isOpen, refreshWin, place as placeWin, setWinH
 import { mountFab, unmountFab, setFabHidden, setFabCount, setFabHooks, place as placeFab, endDrag } from './src/ui/fab.js';
 import {
     popup, notice, hold, waiting, setPopHooks, renderStrip, placeStrip, foldStrip, stripShown, renderCards, renderCardsSoon,
-    removeCards, clearPopups, questsPopup, suddenPopup, hiddenPopup, stagePopup, goalDonePopup, failPopup, skillPopup, unlockPopup,
+    removeCards, clearPopups, questsPopup, suddenPopup, hiddenPopup, stagePopup, goalDonePopup, failPopup, skillPopup, unlockPopup, bigPopup,
 } from './src/ui/pop.js';
 import { esc } from './src/ui/util.js';
 
@@ -49,7 +49,12 @@ function redraw() {
     if (!generating) updatePrompt();
 }
 
-function badge() { setFabCount(waiting() + (stripShown() ? 1 : 0)); }
+function badge() {
+    setFabCount(waiting() + (stripShown() ? 1 : 0));
+    // the floating button wears this chat's voice too
+    const fab = document.getElementById('sblink-fab');
+    if (fab) { const tone = active() ? toneOf() : 'game'; for (const x of ['game', 'star', 'threat']) fab.classList.toggle(`sblink-tn-${x}`, x === tone); }
+}
 
 function redrawAll() {
     setLanguage(lang());
@@ -75,19 +80,37 @@ function checkSoon(force = false) {
         const chatId = currentChatId();
         let res = null;
         try { res = await runCheck({ force }); } catch (e) { console.error('[System Blink] check', e); }
-        if (!res || currentChatId() !== chatId) { redrawSoon(); return; }
+        if (!res || currentChatId() !== chatId) {
+            redrawSoon();
+            // no check this time: the spectators may still react to the reply
+            if (currentChatId() === chatId && !force) cheer(chatId, lastReply()?.key, 'reply');
+            return;
+        }
         const out = storeCheck(chatId, res.key, res);
         afterCheck(out, chatId);
         redraw();
+        cheer(chatId, res.key, out.cleared.length ? 'clear' : out.failed.length ? 'fail' : 'reply');
     }, force ? 0 : 700);
+}
+
+/** 2-D: a spectator may react (a small notice; a sponsorship is gold). */
+async function cheer(chatId, key, ev) {
+    if (!key && ev !== 'fail') return;
+    let c = null;
+    try { c = await spectate(chatId, key, ev); } catch (e) { console.warn('[System Blink] spectator', e); }
+    if (!c || currentChatId() !== chatId || generating) return;
+    if (c.pts) notice(c.text, 'gold', `+${c.pts}P`);
+    else notice(c.text, 'spec');
 }
 
 const clearedNotice = (c) => notice(c.q.kind === 'penalty' ? t('toast_lifted', { name: c.q.name }) : t('toast_cleared', { pts: c.pts, name: c.q.name }));
 
 function answered(id, yes) {
     const pts = answerSudden(id, yes);
-    if (yes) notice(t('toast_accepted'));
-    else if (pts) notice(t('toast_declined', { pts }), 'warn');
+    if (yes) { notice(t('toast_accepted')); return; }
+    const q = room()?.quests.find(x => x.id === id);
+    if (pts) notice(t('toast_declined', { pts }), 'warn');
+    else if (warnFor(q)) { notice(t('toast_declined_warn'), 'warn'); checkBig(); }
 }
 
 /** What a story check found, shown to me. */
@@ -97,10 +120,12 @@ function afterCheck(out, chatId) {
     for (const sk of out.unlocked || []) unlockPopup(sk);
     for (const q of out.failed) {
         const pts = penaltyFor(q);
-        // Off / Easy: a small notice; from Normal up the failure costs points and gets the big popup
-        if (pts) failPopup({ items: [{ name: q.name, pts, kind: 'sudden' }] });
+        const warn = warnFor(q);
+        // Off / Easy: a small notice; from Normal up the failure costs points (or a warning in the threat voice) and gets the big popup
+        if (pts || warn) failPopup({ items: [{ name: q.name, pts, warn, kind: 'sudden' }] });
         else notice(t('toast_sudden_failed', { name: q.name }), 'warn');
     }
+    if (out.failed.some(q => warnFor(q))) checkBig(chatId);
     for (const q of out.stages) { stagePopup(q, rate(q.reward)); nextStage(chatId); }
     if (out.hidden) hiddenPopup(out.hidden, rate(out.hidden.reward));
     if (out.sudden) suddenPopup(out.sudden, rate(out.sudden.reward), (yes) => answered(out.sudden.id, yes));
@@ -118,11 +143,13 @@ function wireBus() {
     bus.on('goalDone', (g) => goalDonePopup(g));
     bus.on('questsArrived', (list) => questsPopup(list.map(q => ({ name: q.name, pts: q.kind === 'penalty' ? 0 : rate(q.reward), penalty: q.kind === 'penalty', conds: q.conds || null, diff: q.diff }))));
     bus.on('sudden', ({ id, yes }) => answered(id, yes));
-    bus.on('dayMoved', ({ days, failed, pen = [], debuff, lost }) => {
+    bus.on('dayMoved', ({ days, failed, pen = [], debuff, lost, chatId }) => {
         notice(days === 1 ? t('toast_day') : t('toast_days', { n: days }));
-        if (pen.length || debuff || lost) failPopup({ items: pen.map(x => ({ name: x.q.name, pts: x.pts, kind: 'daily' })), debuff, lost });
+        if (pen.length || debuff || lost) failPopup({ items: pen.map(x => ({ name: x.q.name, pts: x.pts, warn: x.warn, kind: 'daily' })), debuff, lost });
         else if (failed.length) notice(t('toast_failed', { n: failed.length }), 'warn');
+        if (failed.length) cheer(chatId || currentChatId(), null, 'fail');
     });
+    bus.on('bigEvent', () => bigPopup());
     bus.on('awaken', () => {
         popup({
             kind: 'awaken', code: 'SYS.NOTICE // AWAKEN', title: t('pop_awaken'),

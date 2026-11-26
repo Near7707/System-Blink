@@ -6,9 +6,9 @@ A game-like **System** for SillyTavern roleplay, in the style of Korean system n
 In the middle of the story, a translucent System window pops up — *"[Daily quests have arrived]"* —
 you clear quests in the story, earn points, and spend them in your own **personal shop**.
 
-This version (0.4.0): the System window, the tutorial, daily quests, the shop, the bag and daily-life mode,
-in the **Game** voice — plus sudden quests, hidden quests, a main goal, quests with several conditions,
-**difficulty with penalties**, and **skills and gacha**.
+This version (0.5.0): the System window, the tutorial, daily quests, the shop, the bag and daily-life mode,
+sudden quests, hidden quests, a main goal, quests with several conditions, **difficulty with penalties**,
+**skills and gacha** — and **three System voices** with **spectators** who react and sponsor.
 
 ## Install
 
@@ -55,10 +55,22 @@ https://github.com/Near7707/System-Blink
   - **Hidden effects**: low-grade (F·E) skills hide a better use. When the story check sees the skill shine in the story,
     it opens — the grade stays, only the effect is added. A re-rolled reply shuts it again.
   - The grade is rolled by the extension; the AI only writes a skill that fits it. Skills do not depend on the difficulty.
+- **Voice** (each chat its own): the System's colours and words. Point rules stay the same.
+  - **Game** — blue hologram, curt game notices (as before).
+  - **Sponsor** — gold. Daily quests are *"[The spectators await today's show]"*, rewards read as *"Sponsor 10P"*,
+    and the shop is a **Goblin's Bundle**.
+  - **Threat** — red, the screen shakes a little. Daily quests are *survival tasks*, the shop is a **Shady Black Market**.
+    From *Normal* difficulty a failure gives a **warning** instead of losing points (Hard / Hell debuffs and lost items stay).
+    **Three warnings set off a big event**: the AI is told once that something dangerous happens in the story, and the count
+    starts again. The black market sells a *Warning Eraser* (−1 warning). A big event cannot be undone.
+- **Spectators** (on/off): now and then a small notice in the top right — *"[Someone finds your choice interesting]"*.
+  *Light* uses ready-made lines (no AI call); *Rich* lets the AI write a line about the scene (one extra call when a spectator reacts).
+  Spectators sometimes **sponsor** 5–30P (a gold notice; the points go with that reply if you re-roll it), and very rarely
+  send a skill (F–C). They never appear in the story.
 - **Daily life**: date, time of day, weather, place and today's plan. The AI check notices changes;
   you can also edit them. When the story moves to another day, a strip above the input box asks
   *"Move to the next day?"* — settling happens once, however many days passed.
-- **Log cards**: a small card under a message shows a quest clear (or a sudden quest that ran out), a daily-life change, an opened hidden effect, or an item / skill use. Screen only.
+- **Log cards**: a small card under a message shows a quest clear (or a sudden quest that ran out), a daily-life change, an opened hidden effect, a sponsorship, or an item / skill use. Screen only.
   Every record is kept, so old messages keep their cards too.
 - **Chat with the System log**: *Data → Chat with the System log* downloads the whole chat in order, with what the
   System did under each message (.txt or .json). It only makes a new file — the chat itself is not changed.
@@ -78,7 +90,7 @@ https://github.com/Near7707/System-Blink
 ## Settings
 
 Everything is both in the window's ⚙ page and in SillyTavern's extension settings (same values).
-Highlights: difficulty (per chat), point rate, story date / real time as the day basis, how often the story is checked
+Highlights: voice and difficulty (per chat), spectators (on/off, light / rich, sponsorships), point rate, story date / real time as the day basis, how often the story is checked
 (every reply / every 3rd / by hand), who sees the System, telling the AI the daily-life fields,
 opening chances for quests, how often sudden quests come (and the rest after one), hidden quests on/off,
 the AI suggesting the main goal, a **world note** per chat (used when making quests and items), your own
@@ -87,7 +99,7 @@ and *What was sent*.
 
 ## Coming later
 
-Other voices (sponsor, threat) and spectator reactions, and more world modes (regression, possession, hunter, martial arts, sentinel,
+More world modes (regression, possession, hunter, martial arts, sentinel,
 apocalypse, survival/competition, magic, streamer).
 
 ## Test page

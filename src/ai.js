@@ -2,8 +2,9 @@
 // quests and shop items. A connection profile can be picked; otherwise the current API is used.
 
 import { ctx, settings, room, currentChatId } from './store.js';
-import { bus, chatView, lastReply, openQuests, condsOf, lifeNow, ownerName, langOf, rollFor, needsEveryCheck, diffOf, suddenLimitFor, lockedSkills } from './engine.js';
+import { bus, chatView, lastReply, openQuests, condsOf, lifeNow, ownerName, langOf, rollFor, needsEveryCheck, diffOf, suddenLimitFor, lockedSkills, toneOf } from './engine.js';
 import { questPool, standingDefaults, dailyPool } from './data.js';
+import { josa } from './i18n.js';
 import { ITEM_ICONS } from './icons.js';
 
 export function getProfiles() {
@@ -11,7 +12,7 @@ export function getProfiles() {
 }
 
 // "What was sent": the last request of each kind, for the settings screen.
-export const sentLog = { check: null, quests: null, shop: null, goal: null, skill: null };
+export const sentLog = { check: null, quests: null, shop: null, goal: null, skill: null, spectator: null };
 
 async function requestLLM(messages, { maxTokens = 500, signal } = {}) {
     const c = ctx();
@@ -106,7 +107,17 @@ export const DIFF_HINT = {
     hell: 'DIFFICULTY Hell: it takes risk or courage.',
 };
 
-async function makeQuests({ count = 3, avoid = [], diff = 'off', penalty = false }, signal) {
+// The System's voice (2-D) only changes how things are worded and the shop's flavour, never how hard they are.
+export const TONE_QUEST = {
+    star: 'VOICE: the System is a show for unseen spectators who sponsor the user; quests are things worth watching (a little dramatic is fine).',
+    threat: 'VOICE: the System is a cold, threatening survival system; word quests as terse survival tasks.',
+};
+const TONE_SHOP = {
+    star: 'VOICE: this shop is a goblin\'s bundle (a Korean dokkaebi\'s sack): folksy, quirky lucky charms and odd little treasures.',
+    threat: 'VOICE: this shop is a shady black market: dubious goods of unknown origin, risky but useful deals. Never anything illegal in the real world.',
+};
+
+async function makeQuests({ count = 3, avoid = [], diff = 'off', penalty = false, tone = 'game' }, signal) {
     const s = settings();
     const lang = langOf();
     const many = diff === 'hard' ? 'Each quest has exactly 2 conditions in "conds": two short actions, each easy to check on its own; "name" is a short title for both. '
@@ -122,6 +133,7 @@ async function makeQuests({ count = 3, avoid = [], diff = 'off', penalty = false
         + `Reply with JSON only: {"quests":[{"name":"...","conds":[],"reward":10}]${penalty ? ',"penalty":{"name":"..."}' : ''}}. reward is 10, 15, 20, 25 or 30 (harder = more).`;
     const parts = [background()];
     if (DIFF_HINT[diff]) parts.push(DIFF_HINT[diff]);
+    if (TONE_QUEST[tone]) parts.push(TONE_QUEST[tone]);
     if (s.useDefaults) parts.push(`You may pick from or adapt these (only ones that fit the world):\n${questPool(lang, s.oddities).map(q => `- ${q.name} (${q.reward})`).join('\n')}`);
     if (s.oddities) parts.push('One of them may be a little odd or funny, if it fits.');
     if (avoid.length) parts.push(`Do not repeat: ${avoid.join('; ')}`);
@@ -200,6 +212,8 @@ async function makeShop({ count = 4, kind = 'daily', book = null }, signal) {
         const pool = kind === 'daily' ? dailyPool(lang) : standingDefaults(lang).filter(x => x.kind === 'item');
         parts.push(`Examples you may pick from or adapt (only ones that fit the world):\n${pool.filter(x => s.oddities || !x.odd).map(x => `- ${x.name}: ${x.desc} (${x.rarity})`).join('\n')}`);
     }
+    const tone = toneOf();
+    if (TONE_SHOP[tone]) parts.push(TONE_SHOP[tone]);
     parts.push(kind === 'daily'
         ? 'This is the DAILY shop: unusual and special things, mostly rare or better.'
         : 'This is the STANDING shop: useful everyday things, mostly common, a few rare.');
@@ -255,6 +269,33 @@ async function makeStage({ title, done = [], index = 1, total = 4 }, signal) {
     return { name: String(j.name), conds: Array.isArray(j.conds) ? j.conds.map(String) : [], reward: Number(j.reward) || 150 };
 }
 
+// ---------- spectators (2-D, the rich way: one extra call when a spectator reacts) ----------
+const SPEC_VOICE = {
+    game: 'They are unseen watchers of the System.',
+    star: 'They are spectators who watch the show and like to sponsor.',
+    threat: 'They are something ominous watching from beyond the System; a little creepy, never gory.',
+};
+
+async function makeCheer({ ev = 'reply', tone = 'game' }, signal) {
+    const lang = langOf();
+    const who = ownerName(room());
+    const what = { reply: 'just watched the newest scene', clear: `just watched ${who} clear a quest`, fail: `just watched ${who} fail a quest` }[ev] || 'just watched the newest scene';
+    const system = 'You write ONE short reaction of an unseen spectator who watches a roleplay through a game-like "System", in the style of Korean system novels (like readers or constellations reacting). '
+        + 'The spectator never appears in the story and cannot change it. ' + (SPEC_VOICE[tone] || SPEC_VOICE.game) + ' '
+        + 'React to a concrete detail of the newest scene. Give the spectator a short playful nickname (2-4 words, like "Sleepy Cat" or "Bored Onlooker"). '
+        + 'Write the reaction as ONE System line in square brackets, at most 14 words, in the third person, e.g. "[Spectator \'Sleepy Cat\' envies the cookie]". '
+        + 'Reply with JSON only: {"name":"...","line":"[...]"}.';
+    const messages = [{ role: 'system', content: system }, { role: 'user', content: `${background()}\n\nThe spectator ${what}. Write name and line in ${LANG_NAME[lang]}.` }];
+    sentLog.spectator = { at: Date.now(), messages, answer: '' };
+    const raw = await requestLLM(messages, { maxTokens: 150, signal });
+    sentLog.spectator.answer = raw;
+    const j = looseJson(cleanAnswer(raw));
+    if (typeof j?.line !== 'string' || !j.line.trim()) throw new Error('BAD_ANSWER');
+    let line = j.line.trim().replace(/\s+/g, ' ').slice(0, 120);
+    if (!line.startsWith('[')) line = `[${line.replace(/^\[|\]$/g, '')}]`;
+    return { name: String(j.name || '').trim().slice(0, 30), line: lang === 'ko' ? josa(line) : line };
+}
+
 bus.ask = async (kind, opts) => {
     if (kind === 'quests') return makeQuests(opts);
     if (kind === 'goal') return makeGoal(opts);
@@ -262,6 +303,7 @@ bus.ask = async (kind, opts) => {
     if (kind === 'shop') return makeShop(opts);
     if (kind === 'skill') return makeSkill(opts);
     if (kind === 'drawItem') return makeDrawItem(opts);
+    if (kind === 'spectator') return makeCheer(opts);
     return null;
 };
 

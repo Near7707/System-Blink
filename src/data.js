@@ -1,3 +1,5 @@
+import { josa } from './i18n.js';
+
 // Built-in lists for daily-life mode. Every quest is a sentence that is easy to judge from the story.
 
 export const RARITIES = ['common', 'rare', 'epic', 'legendary'];
@@ -136,4 +138,44 @@ export function shuffle(list, rnd = Math.random) {
     const a = [...list];
     for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
     return a;
+}
+
+// ---------- 2-D: the voices ----------
+// The black market's warning eraser (threat voice only).
+export function eraserItem(lang) {
+    return toItem(['Warning Eraser (−1 warning)', '경고 지우개 (경고 −1)', 'Wipes one System warning away. Ask no questions.', '시스템 경고 하나를 지운다. 출처는 묻지 않는다.', 'epic', 450, 'charm', 'eraser'], lang, 'era', 0);
+}
+
+// Spectators: nicknames and ready-made lines (the light way, no AI call). [en, ko]
+const SPEC_NAMES = {
+    common: [['Sleepy Cat', '졸린 고양이'], ['Bored Onlooker', '심심한 방관자'], ['Snack Collector', '간식 수집가'], ['Rainy-Day Reader', '비 오는 날의 독자'],
+        ['Quiet Night Owl', '조용한 올빼미'], ['Lost Umbrella', '잃어버린 우산'], ['Back-Row Critic', '뒷줄의 평론가'], ['Tea Spiller', '차를 쏟는 자']],
+    threat: [['The One Behind the Door', '문 뒤의 존재'], ['Nameless Eye', '이름 없는 눈'], ['Cold Hand', '차가운 손'], ['Shadow at Noon', '정오의 그림자']],
+};
+export function specNames(lang, tone) {
+    const list = tone === 'threat' ? [...SPEC_NAMES.threat, ...SPEC_NAMES.common.slice(0, 3)] : SPEC_NAMES.common;
+    return list.map(x => (lang === 'ko' ? x[1] : x[0]));
+}
+
+// {name} is put in after the line is picked
+const SPEC_LINES = {
+    reply: [['[Someone finds your choice interesting]', '[누군가가 당신의 선택을 흥미로워합니다]'], ["[Spectator '{name}' leans in closer]", "[구경꾼 '{name}'이(가) 몸을 앞으로 기울입니다]"],
+        ["[Spectator '{name}' is quietly enjoying this]", "[구경꾼 '{name}'이(가) 조용히 즐기고 있습니다]"], ["[Spectator '{name}' wants to see what happens next]", "[구경꾼 '{name}'이(가) 다음 장면을 기다립니다]"]],
+    clear: [["[Spectator '{name}' claps]", "[구경꾼 '{name}'이(가) 박수를 칩니다]"], ['[Several spectators nod in approval]', '[몇몇 구경꾼이 만족스럽게 고개를 끄덕입니다]'],
+        ["[Spectator '{name}' says they knew you could]", "[구경꾼 '{name}'이(가) 해낼 줄 알았다고 말합니다]"]],
+    fail: [["[Spectator '{name}' sighs]", "[구경꾼 '{name}'이(가) 한숨을 쉽니다]"], ['[The spectators murmur]', '[구경꾼들이 웅성거립니다]'],
+        ["[Spectator '{name}' looks away]", "[구경꾼 '{name}'이(가) 고개를 돌립니다]"]],
+    tip: [["[Spectator '{name}' sponsored you]", "[구경꾼 '{name}'이(가) 후원했습니다]"]],
+};
+const SPEC_LINES_THREAT = {
+    reply: [['[Something is watching you]', '[무언가가 당신을 지켜봅니다]'], ["[ '{name}' is counting your steps]", "['{name}'이(가) 당신의 걸음을 세고 있습니다]"],
+        ["[ '{name}' finds you amusing. For now]", "['{name}'이(가) 당신을 흥미로워합니다. 아직은]"]],
+    clear: [["[ '{name}' is mildly impressed]", "['{name}'이(가) 조금 감탄합니다]"], ['[The watching eyes go quiet]', '[지켜보던 눈들이 잠잠해집니다]']],
+    fail: [["[ '{name}' smiles]", "['{name}'이(가) 웃습니다]"], ['[Something writes your name down]', '[무언가가 당신의 이름을 적어 둡니다]']],
+};
+export function specLine(ev, tone, lang, name) {
+    const pool = (tone === 'threat' && SPEC_LINES_THREAT[ev]) || SPEC_LINES[ev] || SPEC_LINES.reply;
+    const row = pool[Math.floor(Math.random() * pool.length)];
+    const line = (lang === 'ko' ? row[1] : row[0]).replace('[ ', '[').replace('{name}', name);
+    return lang === 'ko' ? josa(line) : line;
 }

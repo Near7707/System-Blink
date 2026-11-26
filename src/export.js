@@ -4,7 +4,7 @@
 
 import { t } from './i18n.js';
 import { room, currentChatId, VERSION } from './store.js';
-import { chatView, condsOf, rate, ownerName, questState, penaltyFor } from './engine.js';
+import { chatView, condsOf, rate, ownerName, questState, penaltyFor, warnFor } from './engine.js';
 
 const time = (ms) => { try { return new Date(ms).toLocaleString(); } catch { return String(ms); } };
 
@@ -22,6 +22,7 @@ export function systemEvents(r = room(), view = chatView()) {
     for (const e of r.ledger) {
         if (e.undone) continue;
         if (e.questId === 'tutorial') { loose.push({ type: 'tutorial', pts: e.pts, at: e.at }); continue; }
+        if (e.questId === 'spectator') continue; // with the spectator reactions below
         const q = quests.get(e.questId);
         const conds = condsOf(q);
         add(e.key, {
@@ -37,11 +38,12 @@ export function systemEvents(r = room(), view = chatView()) {
     // 2-B: failures, debuffs, lost items
     for (const q of r.quests) {
         const pts = penaltyFor(q);
+        const warn = warnFor(q);
         if (q.kind === 'sudden' && q.state === 'accepted' && questState(r, q, view).status === 'failed') {
             const k = [...(q.seen || [])].reverse().find(x => view.index.has(x));
-            if (k) add(k, { type: 'fail', kind: 'sudden', quest: q.name, pts, at: q.failAt || 0 });
-        } else if (q.kind === 'sudden' && q.state === 'declined' && pts) loose.push({ type: 'fail', kind: 'sudden', quest: q.name, pts, declined: true, at: q.answeredAt || 0 });
-        else if ((q.kind === 'daily' || q.kind === 'penalty') && q.failed && (q.failedAt || q.kind === 'penalty')) loose.push({ type: 'fail', kind: q.kind, quest: q.name, pts, at: q.failedAt || 0 });
+            if (k) add(k, { type: 'fail', kind: 'sudden', quest: q.name, pts, warn, at: q.failAt || 0 });
+        } else if (q.kind === 'sudden' && q.state === 'declined' && (pts || warn)) loose.push({ type: 'fail', kind: 'sudden', quest: q.name, pts, warn, declined: true, at: q.answeredAt || 0 });
+        else if ((q.kind === 'daily' || q.kind === 'penalty') && q.failed && (q.failedAt || q.kind === 'penalty')) loose.push({ type: 'fail', kind: q.kind, quest: q.name, pts, warn, at: q.failedAt || 0 });
     }
     for (const d of r.debuffs || []) {
         const pq = d.questId && r.quests.find(x => x.id === d.questId);
@@ -57,6 +59,10 @@ export function systemEvents(r = room(), view = chatView()) {
     }
     for (const d of r.draws || []) if (d.kind === 'item') loose.push({ type: 'draw', item: d.name, rarity: d.grade, at: d.at });
     for (const p of r.spend) loose.push({ type: 'buy', item: p.what, pts: p.pts, at: p.at });
+    // 2-D: spectators, warnings
+    for (const c of r.cheers || []) add(c.key, { type: 'cheer', name: c.name, text: c.text, pts: c.pts || 0, gift: c.gift || '', at: c.at });
+    for (const b of r.bigs || []) loose.push({ type: 'big', day: b.day, at: b.at });
+    for (const e of r.erases || []) loose.push({ type: 'erase', at: e.at });
     loose.sort((a, b) => (a.at || 0) - (b.at || 0));
     return { byKey, loose };
 }
@@ -71,7 +77,10 @@ function line(ev) {
         case 'life': return `${t('life')}: ${Object.keys(ev.life).map(k => `${t(`life_${k}`)} ${ev.from[k] ? `${ev.from[k]} → ` : ''}${ev.life[k]}`).join(', ')}`;
         case 'sudden': return `${t('log_sudden')}: ${ev.quest} +${ev.pts}P${ev.answer ? ` (${t(`log_answer_${ev.answer}`)})` : ''}`;
         case 'hidden': return `${t('log_hidden')}: ${ev.quest} +${ev.pts}P${ev.why ? ` · ${ev.why}` : ''}`;
-        case 'fail': return `FAILED [${t(`log_kind_${ev.kind}`)}] ${ev.quest}${ev.declined ? ` (${t('log_answer_declined')})` : ''}${ev.pts ? ` −${ev.pts}P` : ''}`;
+        case 'fail': return `FAILED [${t(`log_kind_${ev.kind}`)}] ${ev.quest}${ev.declined ? ` (${t('log_answer_declined')})` : ''}${ev.pts ? ` −${ev.pts}P` : ''}${ev.warn ? ` · ${t('log_warn')}` : ''}`;
+        case 'cheer': return `${t('log_cheer')}: ${ev.text}${ev.pts ? ` +${ev.pts}P` : ''}${ev.gift ? ` · ${t('skill_from_spectator')} [${ev.gift}]` : ''}`;
+        case 'big': return `${t('log_big')} · ${t('day_n', { n: ev.day })}`;
+        case 'erase': return t('log_erase');
         case 'debuff': return `${t('log_debuff')}: ${t('debuff_pricey')} · ${t('day_n', { n: ev.day })}${ev.lifted ? ` · ${t('log_lifted')}` : ''}`;
         case 'lost': return `${t('log_lost')}: ${ev.item}`;
         case 'note': return `${t('log_note')}: ${ev.text}`;

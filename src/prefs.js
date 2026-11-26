@@ -2,7 +2,7 @@
 // both drawn from it and share the same saved values.
 
 import { t, setLanguage, lang } from './i18n.js';
-import { settings, save, room, currentChatId, device, saveDevice, exportData, importData, oldBackup, VERSION } from './store.js';
+import { settings, save, room, currentChatId, device, saveDevice, exportData, importData, oldBackup, VERSION, TONES } from './store.js';
 import { switchOn, switchOff, bus } from './engine.js';
 import { getProfiles, sentLog } from './ai.js';
 import { buildLog, logFileName } from './export.js';
@@ -18,7 +18,7 @@ export const SCHEMA = [
         { k: 'lifeMode', kind: 'toggle', scope: 'room' },
     ] },
     { group: 'system', rows: [
-        { k: 'tone', kind: 'choice', opts: ['game'] },
+        { k: 'tone', kind: 'choice', opts: ['game', 'star', 'threat'], scope: 'room', dots: true },
         { k: 'difficulty', kind: 'radio', opts: ['off', 'easy', 'normal', 'hard', 'hell'], scope: 'room' },
         { k: 'pointRate', kind: 'choice', opts: [0.5, 1, 2] },
         { k: 'dayBasis', kind: 'choice', opts: ['story', 'real'] },
@@ -33,6 +33,11 @@ export const SCHEMA = [
         { k: 'suddenRest', kind: 'choice', opts: [3, 5, 10], needs: 'suddenFreq' },
         { k: 'hiddenOn', kind: 'toggle' },
         { k: 'goalSuggest', kind: 'toggle' },
+    ] },
+    { group: 'spectators', rows: [
+        { k: 'specOn', kind: 'toggle' },
+        { k: 'specMode', kind: 'choice', opts: ['light', 'rich'], needs: 'specOn' },
+        { k: 'specGift', kind: 'toggle', needs: 'specOn' },
     ] },
     { group: 'screen', rows: [
         { k: 'lang', kind: 'choice', opts: ['en', 'ko'] },
@@ -75,6 +80,7 @@ export function getValue(k) {
         case 'lifeMode': return r ? !!r.lifeMode : true;
         case 'world': return r?.world || '';
         case 'difficulty': return r?.difficulty || 'off';
+        case 'tone': return r?.tone || 'game';
         case 'lang': return lang();
         case 'btnSize': return device().size;
         case 'btnRing': return device().ring;
@@ -84,7 +90,7 @@ export function getValue(k) {
 
 const isDisabled = (row) => {
     if (row.scope === 'room' && !currentChatId()) return true;
-    if (row.k === 'lifeMode' || row.k === 'world' || row.k === 'difficulty') return !room()?.on;
+    if (['lifeMode', 'world', 'difficulty', 'tone'].includes(row.k)) return !room()?.on;
     if (row.needs && (!settings()[row.needs] || settings()[row.needs] === 'off')) return true;
     return false;
 };
@@ -98,6 +104,7 @@ export async function setValue(k, v) {
         case 'roomOn': if (v) await switchOn(); else switchOff(); break;
         case 'lifeMode': { const r = room(); if (r) { r.lifeMode = !!v; save(); } break; }
         case 'difficulty': { const r = room(); if (r && ['off', 'easy', 'normal', 'hard', 'hell'].includes(v)) { r.difficulty = v; save(); } break; }
+        case 'tone': { const r = room(); if (r && TONES.includes(v)) { r.tone = v; save(); } break; }
         case 'world': { const r = room(currentChatId(), true); if (r) { r.world = String(v || '').slice(0, 2000); save(); } break; }
         case 'lang': s.lang = v === 'ko' ? 'ko' : 'en'; s.langChosen = true; setLanguage(s.lang); save(); break;
         case 'btnSize': case 'btnRing': { const d = device(); d[k === 'btnSize' ? 'size' : 'ring'] = v; saveDevice(d); break; }
@@ -216,7 +223,7 @@ function gearRow(row) {
           <button type="button" class="sblink-tog${v ? ' sblink-on' : ''}" data-set="${row.k}" data-val="${v ? '0' : '1'}" role="switch" aria-checked="${v ? 'true' : 'false'}"${dis ? ' disabled' : ''}><i></i></button></div>${hintHtml}</div>`;
     }
     if (row.kind === 'choice') {
-        const chips = row.opts.map(o => `<button type="button" class="sblink-chip${String(o) === String(v) ? ' sblink-chip-on' : ''}" data-set="${row.k}" data-val="${o}"${dis ? ' disabled' : ''}>${row.preview ? `<i class="sblink-ringprev sblink-ring-${o}"></i>` : ''}<span class="sblink-ell">${esc(optLabel(row, o))}</span></button>`).join('');
+        const chips = row.opts.map(o => `<button type="button" class="sblink-chip${String(o) === String(v) ? ' sblink-chip-on' : ''}" data-set="${row.k}" data-val="${o}"${dis ? ' disabled' : ''}>${row.preview ? `<i class="sblink-ringprev sblink-ring-${o}"></i>` : ''}${row.dots ? `<i class="sblink-tonedot sblink-tonedot-${o}"></i>` : ''}<span class="sblink-ell">${esc(optLabel(row, o))}</span></button>`).join('');
         return `<div class="sblink-row${d}"><div class="sblink-rowlabel">${esc(label(row))}</div><div class="sblink-chips">${chips}</div>${hintHtml}</div>`;
     }
     if (row.kind === 'radio') {

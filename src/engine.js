@@ -2,8 +2,8 @@
 // counts while that AI reply is still there, so re-rolling or deleting the reply takes it back.
 // Purchases, manual clears and the tutorial reward always count.
 
-import { ctx, settings, save, uid, room, currentChatId, DIFFS } from './store.js';
-import { standingDefaults, dailyPool, questPool, penaltyPool, parseCustomShop, shuffle, TUTORIAL_REWARD, GRADES, LOW_GRADES, skillPool, gachaOddPool } from './data.js';
+import { ctx, settings, save, uid, room, currentChatId, DIFFS, TONES } from './store.js';
+import { standingDefaults, dailyPool, questPool, penaltyPool, parseCustomShop, shuffle, TUTORIAL_REWARD, GRADES, LOW_GRADES, skillPool, gachaOddPool, eraserItem, specLine, specNames } from './data.js';
 
 // ---------- a tiny event bus (engine → screens) ----------
 const subs = {};
@@ -104,10 +104,26 @@ export const diffAtLeast = (d, min) => DIFFS.indexOf(d) >= DIFFS.indexOf(min);
 const withMul = (base, diff) => Math.max(1, Math.round(base * (MUL[diff] || 1)));
 export const suddenLimitFor = (r = room()) => SUDDEN_LIMITS[diffOf(r)] || SUDDEN_LIMIT;
 
-/** What failing (or declining) this quest costs: half its reward, from Normal up. Others: 0. */
+/** What failing (or declining) this quest costs: half its reward, from Normal up. Others: 0.
+ *  In the threat voice a failure gives a warning instead (warnFor). */
 export function penaltyFor(q) {
-    if (!q || !['daily', 'sudden'].includes(q.kind) || !PENALIZED.includes(q.diff)) return 0;
+    if (!q || !['daily', 'sudden'].includes(q.kind) || !PENALIZED.includes(q.diff) || q.tone === 'threat') return 0;
     return Math.max(1, Math.round(rate(q.reward) / 2));
+}
+
+/** Threat voice (2-D): failing this quest gives one warning (from Normal up). */
+export function warnFor(q) {
+    return q && ['daily', 'sudden'].includes(q.kind) && PENALIZED.includes(q.diff) && q.tone === 'threat' ? 1 : 0;
+}
+
+/** When (and how) a daily or sudden quest was failed, or null. */
+function failInfo(r, q, view) {
+    if (q.kind === 'daily') return q.failed && q.failedAt ? { at: q.failedAt, why: 'daily' } : null;
+    if (q.kind !== 'sudden') return null;
+    const st = questState(r, q, view).status;
+    if (st === 'declined') return { at: q.answeredAt || 0, why: 'declined' };
+    if (st === 'failed') return { at: q.failAt || q.answeredAt || 0, why: 'timeout' };
+    return null;
 }
 
 /** Penalties that count now. Worked out again every time, so a re-roll that revives a sudden quest gives its points back. */
@@ -117,12 +133,51 @@ export function penaltyList(r = room(), view = chatView()) {
     for (const q of r.quests) {
         const pts = penaltyFor(q);
         if (!pts) continue;
-        if (q.kind === 'daily') { if (q.failed && q.failedAt) out.push({ q, pts, at: q.failedAt, why: 'daily' }); continue; }
-        const st = questState(r, q, view).status;
-        if (st === 'declined') out.push({ q, pts, at: q.answeredAt || 0, why: 'declined' });
-        else if (st === 'failed') out.push({ q, pts, at: q.failAt || q.answeredAt || 0, why: 'timeout' });
+        const f = failInfo(r, q, view);
+        if (f) out.push({ q, pts, at: f.at, why: f.why });
     }
     return out;
+}
+
+// ---------- voice (2-D) ----------
+export const toneOf = (r = room()) => (TONES.includes(r?.tone) ? r.tone : 'game');
+export const WARN_MAX = 3;
+
+/**
+ * Warnings now (threat voice). Worked out again every time from failed quests, erasers and big events:
+ * in time order, an eraser takes one off (never below 0) and a big event starts the count again.
+ */
+export function warnCount(r = room(), view = chatView()) {
+    if (!r) return 0;
+    const evs = [];
+    for (const q of r.quests) {
+        if (!warnFor(q)) continue;
+        const f = failInfo(r, q, view);
+        if (f) evs.push({ at: Number(f.at) || 0, v: 1 });
+    }
+    if (!evs.length) return 0;
+    for (const e of r.erases || []) evs.push({ at: Number(e.at) || 0, v: -1 });
+    for (const b of r.bigs || []) evs.push({ at: Number(b.at) || 0, reset: true });
+    evs.sort((a, b) => a.at - b.at || (a.reset ? 1 : 0) - (b.reset ? 1 : 0));
+    let n = 0;
+    for (const e of evs) n = e.reset ? 0 : Math.max(0, n + e.v);
+    return n;
+}
+
+/** Three warnings: a big event strikes in the story (the AI hears it once) and the count starts again. Cannot be undone. */
+export function checkBig(chatId = currentChatId()) {
+    const r = room(chatId);
+    if (!active(r) || warnCount(r) < WARN_MAX) return null;
+    const now = Date.now();
+    const big = { id: uid('b'), at: now, day: r.day };
+    r.bigs.push(big);
+    if (r.bigs.length > 50) r.bigs.splice(0, r.bigs.length - 50);
+    const who = ownerName(r);
+    r.notes.push({ id: uid('n'), text: `The System's warnings have run out: a dangerous event strikes ${who} in the story now — something sudden and threatening that fits the world and the scene, which ${who} must face. Do not decide ${who}'s actions, and do not kill or permanently harm ${who}.`, at: now, deliveredKey: null });
+    if (r.notes.length > 10) r.notes.splice(0, r.notes.length - 10);
+    save(); changed();
+    if (chatId === currentChatId()) bus.emit('bigEvent', big);
+    return big;
 }
 
 /** Debuffs in effect now: they last for their day, or until their penalty quest is cleared. */
@@ -398,7 +453,7 @@ export function storeCheck(chatId, key, res) {
     // something new
     if (res.sudden?.name && r.roll?.key === key && r.roll.sudden) {
         const diff = diffOf(r);
-        const q = { id: uid('q'), kind: 'sudden', name: String(res.sudden.name).slice(0, 80), reward: withMul(Math.min(100, Math.max(30, Math.round(Number(res.sudden.reward) || 50))), diff), day: r.day, failed: false, state: 'offered', limit: SUDDEN_LIMITS[diff] || SUDDEN_LIMIT, seen: [], fromKey: key, diff };
+        const q = { id: uid('q'), kind: 'sudden', name: String(res.sudden.name).slice(0, 80), reward: withMul(Math.min(100, Math.max(30, Math.round(Number(res.sudden.reward) || 50))), diff), day: r.day, failed: false, state: 'offered', limit: SUDDEN_LIMITS[diff] || SUDDEN_LIMIT, seen: [], fromKey: key, diff, tone: toneOf(r) };
         r.quests.push(q);
         r.suddenRest = settings().suddenRest;
         out.sudden = q;
@@ -428,7 +483,7 @@ export function storeCheck(chatId, key, res) {
 function trimQuests(r, view = chatView()) {
     r.quests = r.quests.filter(q => !(q.kind === 'sudden' && q.state === 'offered' && q.fromKey && !view.index.has(q.fromKey)));
     // (failed / declined sudden quests that cost points stay: the points are worked out from them)
-    const extra = r.quests.filter(q => ['sudden', 'hidden', 'penalty'].includes(q.kind) && q.day < r.day - 7 && !['active', 'offered'].includes(questState(r, q, view).status) && !penaltyFor(q));
+    const extra = r.quests.filter(q => ['sudden', 'hidden', 'penalty'].includes(q.kind) && q.day < r.day - 7 && !['active', 'offered'].includes(questState(r, q, view).status) && !penaltyFor(q) && !warnFor(q));
     if (extra.length) r.quests = r.quests.filter(q => !extra.includes(q) || r.ledger.some(e => e.questId === q.id && !e.undone));
 }
 
@@ -492,7 +547,7 @@ export async function nextDay(days = 1, nextTime = '') {
     // a penalty quest not done just ends with its day (no more penalty)
     for (const q of penaltyQuests(r)) if (questState(r, q, view).status === 'active') q.failed = true;
     // penalties of the quests' own difficulty: Normal = points, Hard = + a debuff, Hell = + an item lost
-    const pen = failed.map(q => ({ q, pts: penaltyFor(q) })).filter(x => x.pts);
+    const pen = failed.map(q => ({ q, pts: penaltyFor(q), warn: warnFor(q) })).filter(x => x.pts || x.warn);
     const worst = failed.reduce((a, q) => (DIFFS.indexOf(q.diff) > DIFFS.indexOf(a) ? q.diff : a), 'off');
     for (const c of r.checks) c.dismissed = true;
     r.day += days;
@@ -510,7 +565,8 @@ export async function nextDay(days = 1, nextTime = '') {
     if (r.notes.length > 10) r.notes.splice(0, r.notes.length - 10);
     r.shop.daily = []; r.shop.dailyDay = 0;
     save(); changed();
-    bus.emit('dayMoved', { days, failed, pen, debuff, lost });
+    bus.emit('dayMoved', { days, failed, pen, debuff, lost, chatId });
+    if (pen.some(x => x.warn)) checkBig(chatId);
     await newQuests(chatId, { penalty: !!debuff });
 }
 
@@ -539,14 +595,15 @@ export async function newQuests(chatId = currentChatId(), { replaceOpen = false,
     // keep only daily quests of today that stay; other kinds are not touched
     if (replaceOpen) r.quests = r.quests.filter(q => q.kind !== 'daily' || q.day !== r.day || keep.includes(q));
     const diff = diffOf(r);
+    const tone = toneOf(r);
     let made = null;
-    try { made = await bus.ask('quests', { count: want, avoid: keep.map(q => q.name), diff, penalty }); } catch (e) { console.warn('[System Blink] quests', e); }
+    try { made = await bus.ask('quests', { count: want, avoid: keep.map(q => q.name), diff, penalty, tone }); } catch (e) { console.warn('[System Blink] quests', e); }
     const rr = room(chatId);
     if (!rr) return;
     const aiList = Array.isArray(made) ? made : made?.quests;
     let list = Array.isArray(aiList) && aiList.length ? aiList : fallbackQuests(want, keep.map(q => q.name), diff);
     list = list.slice(0, want).map(q => {
-        const o = { id: uid('q'), kind: 'daily', name: String(q.name).slice(0, 80), reward: withMul(Math.min(30, Math.max(10, Math.round(Number(q.reward) || 10))), diff), day: rr.day, failed: false, diff };
+        const o = { id: uid('q'), kind: 'daily', name: String(q.name).slice(0, 80), reward: withMul(Math.min(30, Math.max(10, Math.round(Number(q.reward) || 10))), diff), day: rr.day, failed: false, diff, tone };
         const conds = cleanConds(q.conds, diff);
         if (conds) o.conds = conds;
         return o;
@@ -562,7 +619,8 @@ export async function newQuests(chatId = currentChatId(), { replaceOpen = false,
     }
     // keep the list short: drop quests of old days beyond the last few
     const minDay = rr.day - 7;
-    rr.quests = rr.quests.filter(q => q.kind !== 'daily' || q.day >= minDay || rr.ledger.some(e => e.questId === q.id));
+    // (failed ones that cost points or gave a warning stay: points and warnings are worked out from them)
+    rr.quests = rr.quests.filter(q => q.kind !== 'daily' || q.day >= minDay || (q.failed && (penaltyFor(q) || warnFor(q))) || rr.ledger.some(e => e.questId === q.id));
     save(); changed();
     if (list.length && chatId === currentChatId()) bus.emit('questsArrived', list);
 }
@@ -619,6 +677,8 @@ export function standingItems(r = room()) {
     if (s.useDefaults) list.push(...standingDefaults(langOf()));
     list.push(...parseCustomShop(s.customShop));
     list.push(...(r?.shop.standing || []));
+    // threat voice: the black market always has a warning eraser
+    if (toneOf(r) === 'threat') list.unshift(eraserItem(langOf()));
     return list;
 }
 
@@ -706,10 +766,13 @@ export async function useItem(bagId) {
     const r = room();
     const b = r?.bag.find(x => x.id === bagId);
     if (!active(r) || !b || b.count < 1 || b.kind === 'gacha') return null;
+    // a warning eraser with no warnings would be wasted
+    if (b.kind === 'eraser' && warnCount(r) < 1) return { blocked: 'no_warn' };
     b.count -= 1;
     if (b.count <= 0) r.bag = r.bag.filter(x => x !== b);
     const use = { id: uid('u'), name: b.name, desc: b.desc, rarity: b.rarity, icon: b.icon, kind: b.kind, at: Date.now(), key: null };
     r.uses.push(use);
+    if (b.kind === 'eraser') r.erases.push({ id: uid('e'), at: use.at });
     // every use is kept; older ones drop their description to stay small
     if (r.uses.length > 40) for (const u of r.uses.slice(0, r.uses.length - 40)) delete u.desc;
     tutorialStep(r, 3);
@@ -801,6 +864,7 @@ const ODDS = {
     book: { F: 22, E: 24, D: 20, C: 15, B: 11, A: 6, S: 2 },
     goal: { C: 35, B: 30, A: 22, S: 11, SS: 2 },
     hidden: { F: 20, E: 20, D: 25, C: 20, B: 10, A: 5 },
+    spectator: { F: 35, E: 30, D: 22, C: 13 },
 };
 export const GACHA_SKILL_SHARE = 0.4;      // a draw is a skill 40% of the time, an item otherwise
 const ITEM_ODDS = { common: 45, rare: 35, epic: 16, legendary: 4 };
@@ -961,3 +1025,55 @@ export function bookItem(skill, grade) {
         icon: 'book', kind: 'skillbook', limited: false, odd: false, sold: false, skill: { name: sk.name, type: sk.type, effect: sk.effect, hidden: sk.hidden?.effect || '' }, grade,
     };
 }
+
+// ---------- spectators (2-D) ----------
+// Unseen watchers react now and then with a small notice. At most one reaction per AI reply.
+// A sponsorship is tied to that reply (a re-roll takes it back), like a quest clear.
+const SPEC_ODDS = { reply: 1 / 6, clear: 1 / 2, fail: 1 / 2 };
+const SPEC_TIP = { game: 1 / 5, star: 1 / 3, threat: 1 / 5 };   // the sponsor voice is sponsored more often
+const SPEC_GIFT = 1 / 40;                                       // a skill as a gift: very rare (F–C)
+const specRnd = () => (typeof globalThis.__sblinkSpecRandom === 'function' ? globalThis.__sblinkSpecRandom() : Math.random());
+
+let reacting = false;
+
+/** Maybe a spectator reacts. `ev` = reply | clear | fail. Returns the reaction (to show) or null. */
+export async function spectate(chatId, key, ev = 'reply') {
+    const s = settings();
+    const r = room(chatId);
+    if (!s.specOn || !active(r) || r.tutorial?.state === 'active' || reacting) return null;
+    if (key) {
+        if (r.specKey === key) return null;
+        r.specKey = key;
+        save();
+    }
+    if (specRnd() >= (SPEC_ODDS[ev] || 0)) return null;
+    const tone = toneOf(r);
+    const tip = !!(s.specGift && key && ev !== 'fail' && specRnd() < (SPEC_TIP[tone] || 0.2));
+    const gift = !!(s.specGift && ev !== 'fail' && specRnd() < SPEC_GIFT);
+    reacting = true;
+    try {
+        let made = null;
+        // a sponsorship has its own fixed line: no AI call for it
+        if (s.specMode === 'rich' && !tip) { try { made = await bus.ask('spectator', { ev, tone, tip }); } catch (e) { console.warn('[System Blink] spectator', e); } }
+        const rr = room(chatId);
+        if (!active(rr)) return null;
+        const lang = langOf();
+        const name = String(made?.name || shuffle(specNames(lang, tone), specRnd)[0]).replace(/^['"‘’「」]+|['"‘’「」]+$/g, '').slice(0, 30);
+        const pts = tip ? rate(5 * (1 + Math.floor(specRnd() * 6))) : 0;
+        const text = tip ? specLine('tip', tone, lang, name) : String(made?.line || specLine(ev, tone, lang, name)).slice(0, 120);
+        const cheer = { id: uid('c'), at: Date.now(), key: key || null, name, text, pts, ev, gift: '' };
+        if (pts) rr.ledger.push({ id: uid('l'), questId: 'spectator', cond: null, pts, key, reason: name, at: cheer.at });
+        rr.cheers.push(cheer);
+        if (rr.cheers.length > 200) rr.cheers.splice(0, rr.cheers.length - 200);
+        save(); changed();
+        let skill = null;
+        if (gift) {
+            skill = await makeSkill(chatId, rollGrade('spectator'), 'spectator');
+            if (skill) { cheer.gift = skill.name; save(); changed(); if (chatId === currentChatId()) bus.emit('skillGained', { skill, from: 'spectator' }); }
+        }
+        return { ...cheer, skill };
+    } finally { reacting = false; }
+}
+
+/** Points a spectator gave with this reply (for the log card). */
+export function cheersFor(r, key) { return (r?.cheers || []).filter(c => c.key === key); }

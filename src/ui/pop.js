@@ -1,15 +1,20 @@
 // Big popups (one at a time, [OK] to close), small notices, the "next day?" strip above the
 // input box, and the log cards under messages. Nothing here shows while a reply is being written.
 
-import { t } from '../i18n.js';
+import { t, lang } from '../i18n.js';
 import { settings, room } from '../store.js';
-import { active, chatView, suggestion, nextDay, dismissSuggestion, isAI, todays, questState, condsOf, penaltyFor, hiddenOpen } from '../engine.js';
+import { active, chatView, suggestion, nextDay, dismissSuggestion, isAI, todays, questState, condsOf, penaltyFor, hiddenOpen, toneOf, warnFor, warnCount, WARN_MAX } from '../engine.js';
+import { specNames } from '../data.js';
 import { gradeBadge, gradeClass, isTop, tag } from './skills.js';
 import { icon, hexMark } from '../icons.js';
 import { esc, $id, typeIn, motionOn, inputTop, viewport } from './util.js';
 
 let hooks = { openTab: () => {}, openSkill: () => {}, badge: () => {} };
 export function setPopHooks(h) { hooks = { ...hooks, ...h }; }
+
+/** The System's voice in this chat, as a class (2-D). */
+export const toneClass = () => `sblink-tn-${active() ? toneOf() : 'game'}`;
+const isThreat = () => active() && toneOf() === 'threat';
 
 let held = false;   // a reply is being written
 export function hold(on) { held = !!on; if (!held) { pump(); renderStrip(); renderCards(); } else hideStrip(); }
@@ -47,7 +52,7 @@ function draw(p) {
     $id('sblink-pop')?.remove();
     const wrap = document.createElement('div');
     wrap.id = 'sblink-pop';
-    wrap.className = `sblink-popwrap${motionOn() ? ' sblink-moving' : ''}${p.variant ? ` sblink-v-${p.variant}` : ''}`;
+    wrap.className = `sblink-popwrap ${toneClass()}${motionOn() ? ' sblink-moving' : ''}${p.variant ? ` sblink-v-${p.variant}` : ''}${p.shake ?? isThreat() ? ' sblink-shake' : ''}`;
     const more = queue.length;
     const dots = more ? `<span class="sblink-popdots">${'◆'.repeat(1)}${'◇'.repeat(Math.min(4, more))}</span>` : '';
     const head = p.kind === 'awaken'
@@ -86,15 +91,15 @@ function draw(p) {
 export function clearPopups() { $id('sblink-gacha')?.remove(); queue.length = 0; if (showing) { showing = null; $id('sblink-pop')?.remove(); } hooks.badge(); }
 
 // ---------- small notices ----------
-export function notice(text, kind = '') {
+export function notice(text, kind = '', right = '') {
     if (!settings().enabled) return;
     let box = $id('sblink-toasts');
     if (!box) { box = document.createElement('div'); box.id = 'sblink-toasts'; document.body.appendChild(box); }
     const el = document.createElement('div');
-    el.className = `sblink-toast sblink-holo ${kind ? `sblink-toast-${kind}` : ''}`;
-    el.innerHTML = `${hexMark()}<span class="sblink-ell">${esc(text)}</span><i class="sblink-toastbar"></i>`;
+    el.className = `sblink-toast sblink-holo ${toneClass()} ${kind ? `sblink-toast-${kind}` : ''}`;
+    el.innerHTML = `${hexMark()}<span class="sblink-ell">${esc(text)}</span>${right ? `<b class="sblink-toastpts">${esc(right)}</b>` : ''}<i class="sblink-toastbar"></i>`;
     box.appendChild(el);
-    const life = 2800;
+    const life = kind === 'spec' || kind === 'gold' ? 4200 : 2800;
     if (motionOn()) el.querySelector('.sblink-toastbar').style.animationDuration = `${life}ms`;
     setTimeout(() => { el.classList.add('sblink-gone'); setTimeout(() => el.remove(), 300); }, life);
     while (box.children.length > 3) box.firstChild.remove();
@@ -118,10 +123,10 @@ export function renderStrip() {
     if (!el) {
         el = document.createElement('div');
         el.id = 'sblink-strip';
-        el.className = 'sblink-strip sblink-holo';
         document.body.appendChild(el);
         el.addEventListener('click', onStripClick);
     }
+    el.className = `sblink-strip sblink-holo ${toneClass()}`;
     el.hidden = winOpen;
     el.classList.toggle('sblink-strip-open', stripOpen);
     el.classList.toggle('sblink-strip-folded', stripFolded && !stripOpen);
@@ -143,6 +148,7 @@ export function renderStrip() {
         <div class="sblink-settle"><div class="sblink-code">${esc(t('settle_once'))}</div>
           ${open.length ? `<div>◇ ${esc(t('settle_failed', { list: open.map(q => `「${q.name}」`).join(' ') }))}</div>` : ''}
           ${open.some(q => penaltyFor(q)) ? `<div class="sblink-neg">◇ ${esc(t('settle_penalty'))}</div>` : ''}
+          ${open.some(q => warnFor(q)) ? `<div class="sblink-neg">◇ ${esc(t('settle_warn'))}</div>` : ''}
           <div>◇ ${esc(t('settle_new'))}</div>
           <div>◇ ${esc(t('settle_shop'))}</div>
           <div>◇ ${esc(t(one ? 'settle_ai_one' : 'settle_ai_many'))}</div>
@@ -199,7 +205,10 @@ function indexRecords(r, view) {
         const k = [...q.seen].reverse().find(x => view.index.has(x));
         add(fails, k, q);
     }
-    return { clears, lives, uses, fails, unlocks, quests: new Map(r.quests.map(q => [q.id, q])) };
+    // 2-D: spectator sponsorships tied to a reply
+    const tips = new Map();
+    for (const c of r.cheers || []) if (c.pts && c.key) add(tips, c.key, c);
+    return { clears, lives, uses, fails, unlocks, tips, quests: new Map(r.quests.map(q => [q.id, q])) };
 }
 
 function cardFor(r, m, key, i, idx, view) {
@@ -210,7 +219,8 @@ function cardFor(r, m, key, i, idx, view) {
         const life = l ? Object.keys(l.life || {}).filter(k => ['time', 'weather', 'place', 'date'].includes(k)) : [];
         const fails = idx.fails.get(key) || [];
         const unl = idx.unlocks.get(key) || [];
-        if (!list.length && !life.length && !fails.length && !unl.length) return '';
+        const tips = (idx.tips.get(key) || []).filter(c => c.pts);
+        if (!list.length && !life.length && !fails.length && !unl.length && !tips.length) return '';
         const lines = list.map(({ q, e }) => {
             const conds = condsOf(q);
             const st = questState(r, q, view);
@@ -221,8 +231,10 @@ function cardFor(r, m, key, i, idx, view) {
         });
         for (const q of fails) {
             const pts = penaltyFor(q);
-            lines.push(`<div class="sblink-cardline sblink-cardfail"><span class="sblink-dia">◆</span><span class="sblink-code sblink-failtag">FAILED</span><span class="sblink-ell">${esc(q.name)}</span>${pts ? `<b class="sblink-pts sblink-neg">−${pts}P</b>` : ''}</div>`);
+            const w = warnFor(q);
+            lines.push(`<div class="sblink-cardline sblink-cardfail"><span class="sblink-dia">◆</span><span class="sblink-code sblink-failtag">FAILED</span><span class="sblink-ell">${esc(q.name)}</span>${pts ? `<b class="sblink-pts sblink-neg">−${pts}P</b>` : ''}${w ? `<b class="sblink-pts sblink-neg">${esc(t('warn_plus'))}</b>` : ''}</div>`);
         }
+        for (const c of tips) lines.push(`<div class="sblink-cardline sblink-cardtip"><span class="sblink-dia">✦</span><span class="sblink-code">SPONSOR</span><span class="sblink-ell">${esc(t('card_tip', { name: c.name }))}</span><b class="sblink-pts sblink-goldtxt">+${c.pts}P</b></div>`);
         for (const k of unl) lines.push(`<div class="sblink-cardline sblink-cardunlock"><span class="sblink-dia">✦</span><span class="sblink-code sblink-goldtxt">UNLOCK</span><span class="sblink-ell">${esc(t('card_unlock', { name: k.name }))}</span></div>`);
         if (life.length) {
             const bits = life.map(k => `${esc(t(`life_${k}`))} ${l.lifeFrom?.[k] ? `${esc(l.lifeFrom[k])} ▸ ` : ''}${esc(l.life[k])}`).join(' · ');
@@ -255,6 +267,7 @@ export function renderCards() {
     const show = !held && s.logCards && active(r);
     const view = chatView();
     const idx = show ? indexRecords(r, view) : null;
+    const tc = toneClass();
     chatEl.querySelectorAll('.mes[mesid]').forEach(mes => {
         const i = Number(mes.getAttribute('mesid'));
         const m = view.list[i];
@@ -265,10 +278,9 @@ export function renderCards() {
         const sig = html ? `${key}|${html.length}|${hashStr(html)}` : '';
         let card = mes.querySelector(':scope .sblink-card');
         if (!sig) { card?.remove(); return; }
-        if (card && card.dataset.sig === sig) return;
+        if (card && card.dataset.sig === sig && card.classList.contains(tc)) return;
         if (!card) {
             card = document.createElement('div');
-            card.className = 'sblink-card sblink-holo';
             card.addEventListener('click', () => hooks.openTab(card.dataset.tab || 'quests'));
             const block = mes.querySelector('.mes_block') || mes;
             const text = block.querySelector(':scope > .mes_text') || block.querySelector('.mes_text');
@@ -277,7 +289,7 @@ export function renderCards() {
         }
         card.dataset.sig = sig;
         card.dataset.tab = tab;
-        card.classList.toggle('sblink-card-mine', !!m?.is_user);
+        card.className = `sblink-card sblink-holo ${tc}${m?.is_user ? ' sblink-card-mine' : ''}`;
         card.innerHTML = html;
     });
 }
@@ -289,16 +301,37 @@ function hashStr(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 
 // popup builders used by index.js
 const WARN = { normal: 'warn_normal', hard: 'warn_hard', hell: 'warn_hell' };
 
+/** A reward as the voice says it: "+10P", or "Sponsor 10P" in the sponsor voice. */
+export const ptsText = (pts) => (active() && toneOf() === 'star' ? t('pts_star', { pts }) : `+${pts}P`);
+
+/** ◆◆◇ warnings now, out of 3 (threat voice). */
+export const warnDias = (n) => `<span class="sblink-wdia">${Array.from({ length: WARN_MAX }, (_, i) => `<i class="${i < n ? 'sblink-on' : ''}"></i>`).join('')}</span>`;
+export const warnMeter = () => { const n = Math.min(WARN_MAX, warnCount()); return `<div class="sblink-warnmeter">${warnDias(n)}<span>${esc(t('warn_meter', { n }))}</span></div>`; };
+
+const TONE_DAILY = {
+    game: { tag: 'QUEST', code: 'SYS.NOTICE // DAILY', title: 'pop_daily' },
+    star: { tag: 'SCENARIO', code: 'SYS.STAR // DAILY', title: 'pop_daily_star' },
+    threat: { tag: 'WARNING', code: 'SYS.ALERT // SURVIVAL', title: 'pop_daily_threat' },
+};
+
 export function questsPopup(list) {
     const diff = list.find(q => !q.penalty)?.diff || 'off';
-    popup({
-        tag: 'QUEST', code: 'SYS.NOTICE // DAILY', title: t('pop_daily'),
+    const tone = active() ? toneOf() : 'game';
+    const v = TONE_DAILY[tone] || TONE_DAILY.game;
+    const threatWarn = tone === 'threat' && WARN[diff];
+    const p = {
+        tag: v.tag, code: v.code, title: t(v.title),
         lines: list.map(q => (q.penalty
             ? `<span class="sblink-dia sblink-neg">◆</span><span class="sblink-code sblink-failtag">PENALTY</span><span class="sblink-ell">${esc(q.name)}</span><b class="sblink-pts sblink-dimpts">${esc(t('no_reward'))}</b>`
-            : `<span class="sblink-dia">◆</span><span class="sblink-ell">${esc(q.name)}</span>${q.conds ? `<span class="sblink-code">×${q.conds.length}</span>` : ''}<b class="sblink-pts">${q.pts ? `+${q.pts}P` : ''}</b>`)),
-        warn: WARN[diff] ? t(WARN[diff]) : '', calm: WARN[diff] ? '' : t('no_penalty'), second: t('view_quests'), ok: t('ok'),
+            : `<span class="sblink-dia">◆</span><span class="sblink-ell">${esc(q.name)}</span>${q.conds ? `<span class="sblink-code">×${q.conds.length}</span>` : ''}<b class="sblink-pts">${q.pts ? esc(ptsText(q.pts)) : ''}</b>`)),
+        warn: threatWarn ? t(`warn_threat_${diff}`) : WARN[diff] ? t(WARN[diff]) : '', calm: WARN[diff] ? '' : t('no_penalty'),
+        second: t(tone === 'star' ? 'view_show' : 'view_quests'), ok: t('ok'),
         onClose: (act) => { if (act === 'second') hooks.openTab('quests'); },
-    });
+    };
+    if (tone === 'star') p.calm = `${t('star_expect', { name: specNames(lang(), 'star')[Math.floor(Math.random() * 8)] })}${p.calm ? ` · ${p.calm}` : ''}`;
+    // the threat voice: only [OK], and the warnings so far
+    if (tone === 'threat') { delete p.second; if (threatWarn) p.body = warnMeter(); }
+    popup(p);
 }
 
 /** Broken letters that settle into the real text one by one. */
@@ -323,9 +356,9 @@ export { diamonds };
 export function suddenPopup(q, pts, answer) {
     popup({
         variant: 'sudden', tag: 'SUDDEN', code: 'SYS.NOTICE // SUDDEN', title: t('pop_sudden'),
-        lines: [`<span class="sblink-dia">◆</span><span class="sblink-qtext">${esc(q.name)}</span><b class="sblink-pts">+${pts}P</b>`,
+        lines: [`<span class="sblink-dia">◆</span><span class="sblink-qtext">${esc(q.name)}</span><b class="sblink-pts">${esc(ptsText(pts))}</b>`,
             `<span class="sblink-code">${esc(t('limit_replies', { n: q.limit }))}</span>${diamonds(q.limit, q.limit)}`],
-        ...(penaltyFor(q) ? { warn: t('penalty_line', { pts: penaltyFor(q) }) } : { calm: t('decline_ok') }),
+        ...(penaltyFor(q) ? { warn: t('penalty_line', { pts: penaltyFor(q) }) } : warnFor(q) ? { warn: t('warn_line'), body: warnMeter() } : { calm: t('decline_ok') }),
         second: t('decline'), ok: t('accept'),
         onClose: (act) => answer(act === 'ok'),
     });
@@ -333,8 +366,9 @@ export function suddenPopup(q, pts, answer) {
 
 /** ㉓ Quests failed with a penalty (from Normal up): points, a debuff and its penalty quest, a lost item. */
 export function failPopup({ items = [], debuff = null, lost = null }) {
-    const lines = items.map(x => `<span class="sblink-dia">◆</span><span class="sblink-qtext">${esc(x.name)}</span><b class="sblink-pts sblink-neg">−${x.pts}P</b>`);
-    let body = '';
+    const lines = items.map(x => `<span class="sblink-dia">◆</span><span class="sblink-qtext">${esc(x.name)}</span>${x.pts ? `<b class="sblink-pts sblink-neg">−${x.pts}P</b>` : ''}${x.warn ? `<b class="sblink-pts sblink-neg">${esc(t('warn_plus'))}</b>` : ''}`);
+    const warned = items.some(x => x.warn);
+    let body = warned ? warnMeter() : '';
     if (debuff) {
         body += `<div class="sblink-failrow"><span class="sblink-code sblink-failtag">DEBUFF</span><b>${esc(t('debuff_pricey'))}</b><span class="sblink-dimtxt">· ${esc(t('until_next_day'))}</span></div>
           <div class="sblink-failrow"><span class="sblink-code sblink-failtag">PENALTY QUEST</span><span>${esc(t('penalty_quest_line'))}</span></div>`;
@@ -342,7 +376,8 @@ export function failPopup({ items = [], debuff = null, lost = null }) {
     if (lost) body += `<div class="sblink-failrow"><span class="sblink-code sblink-failtag">LOST</span><span>${esc(t('lost_item', { name: lost.name }))}</span></div>`;
     popup({
         variant: 'fail', tag: 'FAILED', code: 'SYS.NOTICE // PENALTY', title: t('pop_failed'),
-        lines, body, calm: t('floor_zero'), second: t('view_quests'), ok: t('ok'),
+        sub: esc(t(`fail_sub_${active() ? toneOf() : 'game'}`)),
+        lines, body, calm: items.some(x => x.pts) ? t('floor_zero') : '', second: t('view_quests'), ok: t('ok'),
         onClose: (act) => { if (act === 'second') hooks.openTab('quests'); },
     });
 }
@@ -351,7 +386,7 @@ export function failPopup({ items = [], debuff = null, lost = null }) {
 export function hiddenPopup(q, pts) {
     popup({
         variant: 'hidden', tag: 'HIDDEN', code: 'SYS.NOTICE // HIDDEN', title: t('pop_hidden'),
-        lines: [`<span class="sblink-dia">◆</span><span class="sblink-qtext" data-decode="${esc(q.name)}"></span><b class="sblink-pts">+${pts}P</b>`],
+        lines: [`<span class="sblink-dia">◆</span><span class="sblink-qtext" data-decode="${esc(q.name)}"></span><b class="sblink-pts">${esc(ptsText(pts))}</b>`],
         body: `${q.why ? `<div><span class="sblink-code">${esc(t('found_why'))}</span> · ${esc(q.why)}</div>` : ''}<div>${esc(t('hidden_free'))}</div>`,
         second: t('view_quests'), ok: t('ok'),
         onClose: (act) => { if (act === 'second') hooks.openTab('quests'); },
@@ -362,7 +397,7 @@ export function hiddenPopup(q, pts) {
 export function stagePopup(q, pts) {
     popup({
         tag: 'CLEAR', code: 'SYS.GOAL // MAIN', title: t('pop_stage'),
-        lines: [`<span class="sblink-dia">◆</span><span class="sblink-qtext">${esc(q.name)}</span><b class="sblink-pts">+${pts}P</b>`],
+        lines: [`<span class="sblink-dia">◆</span><span class="sblink-qtext">${esc(q.name)}</span><b class="sblink-pts">${esc(ptsText(pts))}</b>`],
         body: esc(t('stage_next')),
     });
 }
@@ -377,8 +412,16 @@ export function goalDonePopup(g) {
 
 export function todayCount(r = room()) { return todays(r).length; }
 
+/** Threat voice: three warnings set off a big event in the story. */
+export function bigPopup() {
+    popup({
+        variant: 'big', tag: 'WARNING', code: 'SYS.ALERT // EVENT', title: t('pop_big'), shake: true,
+        body: `<div class="sblink-bigdias">${warnDias(WARN_MAX)}</div><div class="sblink-centertxt">${esc(t('big_body'))}</div>`,
+    });
+}
+
 // ---------- 2-C: skills ----------
-const FROM_TITLE = { book: 'pop_skill_book', goal: 'pop_skill_goal', hidden: 'pop_skill_hidden' };
+const FROM_TITLE = { book: 'pop_skill_book', goal: 'pop_skill_goal', hidden: 'pop_skill_hidden', spectator: 'pop_skill_spectator' };
 
 /** A skill was gained (skill book, main goal, hidden quest). */
 export function skillPopup(k, from) {
@@ -419,7 +462,7 @@ export function gachaShow(go = {}) {
     $id('sblink-gacha')?.remove();
     const wrap = document.createElement('div');
     wrap.id = 'sblink-gacha';
-    wrap.className = `sblink-popwrap sblink-gachawrap${motionOn() ? ' sblink-moving' : ''}`;
+    wrap.className = `sblink-popwrap sblink-gachawrap ${toneClass()}${motionOn() ? ' sblink-moving' : ''}`;
     const steps = (n) => [t('gacha_seal'), t('gacha_light'), t('gacha_reveal')].map((x, i) => `<span class="${i === n ? 'sblink-on' : ''}">${esc(x)}</span>`).join('<span>▸</span>');
     wrap.innerHTML = `<div class="sblink-flash"></div>
       <div class="sblink-pop sblink-holo sblink-gacha sblink-gacha-seal" role="alertdialog" aria-modal="true">

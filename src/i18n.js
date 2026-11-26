@@ -51,7 +51,7 @@ const EN = {
     grp_room: 'This chat', grp_system: 'System', grp_screen: 'Screen', grp_button: 'Floating button', grp_make: 'Making things', grp_data: 'Data',
     set_roomOn: 'System in this chat', set_roomOn_hint: 'Each chat has its own points, bag and quests.',
     set_lifeMode: 'Daily-life mode', set_lifeMode_hint: 'Date, time, weather, place and today’s plan.',
-    set_tone: 'Voice', set_tone_hint: 'More voices come in stage 2.', opt_tone_game: 'Game',
+    set_tone: 'Voice', opt_tone_game: 'Game',
     set_pointRate: 'Point rate', set_pointRate_hint: 'How many points quests give.',
     set_dayBasis: 'What counts as a day', opt_dayBasis_story: 'Story date', opt_dayBasis_real: 'Real time',
     set_dayBasis_hint: 'Story date: the AI notices a new day and asks you. Real time: a new real date moves one day on.',
@@ -149,6 +149,26 @@ const EN = {
     pop_unlock: '[A hidden effect has been unlocked]', unlock_sub: 'Skill 「{name}」', unlock_open: 'UNLOCKED', unlock_base: 'Effect',
     unlock_note: 'The grade stays {g} · only the effect is added', card_unlock: 'Hidden effect · {name}',
     sent_skill: 'Last skill / gacha making', log_skill_got: 'Skill gained', log_draw: 'Gacha', log_unlock: 'Hidden effect unlocked', log_skill_used: 'Skill used',
+    // 2-D: voices and spectators
+    set_tone_hint: "The System's colours and words in this chat. Point rules stay the same.", opt_tone_star: 'Sponsor', opt_tone_threat: 'Threat',
+    grp_spectators: 'Spectators', set_specOn: 'Spectator reactions', set_specOn_hint: 'Now and then a small notice in the top right. It is not put into the story.',
+    set_specMode: 'How they react', opt_specMode_light: 'Light', opt_specMode_rich: 'Rich',
+    set_specMode_hint: 'Light: ready-made lines, no AI call. Rich: the AI writes a line about the scene (one extra call when a spectator reacts).',
+    set_specGift: 'Sponsorships (points)', set_specGift_hint: 'Spectators sometimes give 5–30P, and very rarely a skill.',
+    sent_spectator: 'Last spectator line (rich)',
+    pop_daily_star: "[The spectators await today's show]", pop_daily_threat: '[A survival task has been assigned]',
+    pts_star: 'Sponsor {pts}P', star_expect: "[Spectator '{name}' is looking forward to it]", view_show: '[View the show]',
+    warn_meter: 'Warnings {n} / 3 · at 3 a big event happens', warn_threat_normal: 'Not clearing one gives a warning.',
+    warn_threat_hard: 'Not clearing one gives a warning, and a debuff follows.', warn_threat_hell: 'Not clearing one gives a warning, a debuff follows and something leaves your bag.',
+    daily_quests_threat: 'Survival tasks', fail_sub_game: '[Moving to the penalty zone]', fail_sub_star: '[The spectators are disappointed]', fail_sub_threat: '[A warning has been recorded]',
+    warn_plus: '+1 warning', warn_line: '[Decline or run out of time: +1 warning]', warn_short: 'Decline / time out +1 warning', fail_warn: 'Fail +1 warning',
+    toast_declined_warn: 'Declined · +1 warning', settle_warn: 'Warnings for unfinished quests',
+    pop_big: '[Warnings full — a big event is coming]', big_body: 'Something dangerous happens in the story with the next reply. The warning count starts again from 0.',
+    warnings: 'Warnings', warn_hint: 'At 3 a big event happens in the story. The black market sells erasers.',
+    eraser_hint: 'Takes one warning away. The AI is not told.', erase_none: 'No warnings to erase.', pop_erased: '[A warning has been erased]', erased_left: 'Warnings {n} / 3',
+    shop_title_game: "Today's Shop", shop_title_star: "Goblin's Bundle", shop_title_threat: 'Shady Black Market',
+    skill_from_spectator: 'Spectator gift', pop_skill_spectator: '[A spectator sent you a skill]', card_tip: 'Sponsor · {name}',
+    log_cheer: 'Spectator', log_warn: '+1 warning', log_big: 'Big event (warnings full)', log_erase: 'Warning erased',
 };
 
 const KO = {
@@ -194,7 +214,7 @@ const KO = {
     grp_room: '이 채팅방', grp_system: '시스템', grp_screen: '화면', grp_button: '떠 있는 버튼', grp_make: '생성', grp_data: '데이터',
     set_roomOn: '이 채팅방에서 켜기', set_roomOn_hint: '채팅방마다 포인트·가방·퀘스트가 따로예요.',
     set_lifeMode: '일상 모드', set_lifeMode_hint: '날짜·시간대·날씨·장소·오늘 일정.',
-    set_tone: '말투', set_tone_hint: '다른 말투는 2단계에서 열려요.', opt_tone_game: '게임형',
+    set_tone: '말투', opt_tone_game: '게임형',
     set_pointRate: '포인트 배율', set_pointRate_hint: '퀘스트로 받는 포인트 양.',
     set_dayBasis: '하루 기준', opt_dayBasis_story: '이야기 속 날짜', opt_dayBasis_real: '실제 시간',
     set_dayBasis_hint: '이야기 속 날짜: AI가 날이 바뀐 걸 알아채면 물어봐요. 실제 시간: 실제 날짜가 바뀌면 하루가 넘어가요.',
@@ -290,6 +310,26 @@ const KO = {
     pop_unlock: '[숨겨진 효과가 개방되었습니다]', unlock_sub: '스킬 「{name}」', unlock_open: '개방', unlock_base: '원래 효과',
     unlock_note: '등급은 그대로 {g} · 효과만 더해져요', card_unlock: '숨은 효과 개방 · {name}',
     sent_skill: '마지막 스킬·뽑기 만들기', log_skill_got: '스킬 획득', log_draw: '뽑기', log_unlock: '숨은 효과 개방', log_skill_used: '스킬 사용',
+    // 2-D: 말투·구경꾼
+    set_tone_hint: '이 채팅방에서 시스템의 색과 말투예요. 포인트 규칙은 같아요.', opt_tone_star: '후원형', opt_tone_threat: '협박형',
+    grp_spectators: '구경꾼', set_specOn: '구경꾼 반응 켜기', set_specOn_hint: '가끔 오른쪽 위에 작은 알림이 떠요. 이야기에는 안 들어가요.',
+    set_specMode: '반응 방식', opt_specMode_light: '가벼운 방식', opt_specMode_rich: '풍부한 방식',
+    set_specMode_hint: '가벼운 방식: 미리 만든 문장, AI 호출 없음. 풍부한 방식: AI가 장면을 보고 한 줄을 써요(구경꾼이 반응할 때 한 번 더 불러요).',
+    set_specGift: '후원 (포인트 받기)', set_specGift_hint: '구경꾼이 가끔 5~30P를 주고, 아주 드물게 스킬도 줘요.',
+    sent_spectator: '마지막 구경꾼 반응 (풍부한 방식)',
+    pop_daily_star: '[구경꾼들이 오늘의 볼거리를 기다립니다]', pop_daily_threat: '[생존 과제가 부여되었습니다]',
+    pts_star: '후원 {pts}P', star_expect: "[구경꾼 '{name}'이(가) 기대하고 있습니다]", view_show: '[볼거리 보기]',
+    warn_meter: '경고 {n} / 3 · 3이 되면 큰 사건이 일어납니다', warn_threat_normal: '완료하지 못하면 경고가 쌓입니다.',
+    warn_threat_hard: '완료하지 못하면 경고가 쌓이고 디버프가 걸립니다.', warn_threat_hell: '완료하지 못하면 경고가 쌓이고, 디버프가 걸리고, 가방에서 물건 하나를 잃습니다.',
+    daily_quests_threat: '생존 과제', fail_sub_game: '[페널티 지역으로 이동합니다]', fail_sub_star: '[구경꾼들이 실망했습니다]', fail_sub_threat: '[경고가 기록되었습니다]',
+    warn_plus: '경고 +1', warn_line: '[거절하거나 시간 안에 못 하면 경고 +1]', warn_short: '거절·시간 초과 경고 +1', fail_warn: '실패 시 경고 +1',
+    toast_declined_warn: '거절 · 경고 +1', settle_warn: '못 깬 퀘스트 경고 쌓임',
+    pop_big: '[경고 누적 — 큰 사건이 일어납니다]', big_body: '다음 답장에서 이야기 속에 위험한 사건이 벌어져요. 경고는 0부터 다시 쌓여요.',
+    warnings: '경고', warn_hint: '3이 되면 이야기 속에 큰 사건이 일어나요. 암시장에서 지우개를 팔아요.',
+    eraser_hint: '경고 하나를 지워요. AI에게는 알리지 않아요.', erase_none: '지울 경고가 없어요.', pop_erased: '[경고 하나가 지워졌습니다]', erased_left: '경고 {n} / 3',
+    shop_title_game: '오늘의 상점', shop_title_star: '도깨비 보따리', shop_title_threat: '수상한 암시장',
+    skill_from_spectator: '구경꾼 선물', pop_skill_spectator: '[구경꾼이 스킬을 선물했습니다]', card_tip: '후원 · {name}',
+    log_cheer: '구경꾼', log_warn: '경고 +1', log_big: '큰 사건 (경고 누적)', log_erase: '경고 지움',
 };
 
 const DICT = { en: EN, ko: KO };
@@ -300,7 +340,17 @@ export const lang = () => current;
 export function t(key, vars) {
     let s = DICT[current][key] ?? EN[key] ?? key;
     if (vars) s = s.replace(/\{(\w+)\}/g, (_, k) => (vars[k] !== undefined ? String(vars[k]) : `{${k}}`));
-    return s;
+    return current === 'ko' ? josa(s) : s;
 }
+
+/** Korean: 이(가) after a name becomes 이 or 가 by the name's last sound. */
+export function josa(text) {
+    return String(text).replace(/(.)('?)이\(가\)/g, (m, ch, q) => {
+        const c = ch.charCodeAt(0);
+        if (c < 0xAC00 || c > 0xD7A3) return m;
+        return `${ch}${q}${(c - 0xAC00) % 28 ? '이' : '가'}`;
+    });
+}
+
 
 export const KEYS = { en: Object.keys(EN), ko: Object.keys(KO) };
