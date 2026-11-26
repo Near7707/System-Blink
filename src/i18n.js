@@ -108,6 +108,11 @@ const EN = {
     set_goalSuggest: 'The AI suggests the main goal', set_goalSuggest_hint: 'Off = you write it yourself.',
     set_oldBackup: 'Data from before 0.2 (download)', set_oldBackup_hint: 'Kept on this device when the data was moved to the new format.',
     sent_goal: 'Last goal making',
+    set_logTxt: 'Chat with the System log (.txt)', set_logTxt_hint: 'Every message in order, with what the System did under it. Only makes a new file; the chat itself is not changed.',
+    set_logJson: 'Chat with the System log (.json)',
+    log_cond: 'CONDITION', log_kind_daily: 'Daily', log_kind_sudden: 'Sudden', log_kind_hidden: 'Hidden', log_kind_goal: 'Main goal',
+    log_sudden: 'Sudden quest appeared', log_hidden: 'Hidden quest found', log_note: 'Told to the AI', log_loose: 'Not tied to a message',
+    log_answer_offered: 'not answered', log_answer_accepted: 'accepted', log_answer_declined: 'declined',
 };
 
 const KO = {
@@ -209,6 +214,11 @@ const KO = {
     set_goalSuggest: 'AI가 메인 목표 제안하기', set_goalSuggest_hint: '끄면 직접 써요.',
     set_oldBackup: '0.2 이전 데이터 (내려받기)', set_oldBackup_hint: '새 형식으로 옮길 때 이 기기에 남겨 둔 것이에요.',
     sent_goal: '마지막 목표 만들기',
+    set_logTxt: '시스템 기록 넣어 채팅 내보내기 (.txt)', set_logTxt_hint: '메시지 순서대로, 각 메시지 아래에 시스템이 한 일을 붙여요. 새 파일만 만들고 채팅은 안 바꿔요.',
+    set_logJson: '시스템 기록 넣어 채팅 내보내기 (.json)',
+    log_cond: '조건', log_kind_daily: '일일', log_kind_sudden: '돌발', log_kind_hidden: '히든', log_kind_goal: '메인 목표',
+    log_sudden: '돌발 퀘스트 발생', log_hidden: '히든 퀘스트 발견', log_note: 'AI에게 알림', log_loose: '메시지에 묶이지 않은 기록',
+    log_answer_offered: '답 안 함', log_answer_accepted: '수락', log_answer_declined: '거절',
 };
 
 const DICT = { en: EN, ko: KO };

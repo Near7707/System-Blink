@@ -27,9 +27,18 @@
     const metas = {};
     const stamp = () => new Date(state.clock += 60_000).toISOString();
     function chat() {
-        if (!chats[state.chatName]) chats[state.chatName] = [{ is_user: false, is_system: false, name: 'Mira', mes: 'Morning! The café just opened. Want your usual?', send_date: stamp() }];
+        if (!chats[state.chatName]) {
+            chats[state.chatName] = [{ is_user: false, is_system: false, name: 'Mira', mes: 'Morning! The café just opened. Want your usual?', send_date: stamp() }];
+            // a long chat for speed checks: made-up lines only
+            const n = Number(params.get('long') || 0);
+            for (let i = 1; i < n; i++) chats[state.chatName].push(i % 2
+                ? { is_user: true, is_system: false, name: 'Ari', mes: `Line ${i}. I walk a little further down the street.`, send_date: stamp() }
+                : { is_user: false, is_system: false, name: 'Mira', mes: `Line ${i}. The street is quiet; a bell rings somewhere.`, send_date: stamp() });
+        }
         return chats[state.chatName];
     }
+    // like SillyTavern: only the newest messages are drawn on screen
+    const SHOWN = 100;
     let lastPrompt = '';
     let sentPrompt = '';
     window.__calls = { check: 0, quests: 0, shop: 0 };
@@ -100,7 +109,9 @@
     function render() {
         const box = document.getElementById('chat');
         box.innerHTML = '';
-        ctx.chat.forEach((m, i) => {
+        const list = ctx.chat;
+        list.forEach((m, i) => {
+            if (i < list.length - SHOWN) return;
             const d = document.createElement('div');
             d.className = 'mes';
             d.setAttribute('mesid', String(i));

@@ -3,7 +3,7 @@
 
 import { t } from '../i18n.js';
 import { settings, room } from '../store.js';
-import { active, chatView, suggestion, nextDay, dismissSuggestion, checkFor, isAI, todays, questState, condsOf } from '../engine.js';
+import { active, chatView, suggestion, nextDay, dismissSuggestion, isAI, todays, questState, condsOf } from '../engine.js';
 import { icon, hexMark } from '../icons.js';
 import { esc, $id, typeIn, motionOn, inputTop, viewport } from './util.js';
 
@@ -176,33 +176,39 @@ export const stripShown = () => !!$id('sblink-strip');
 // ---------- log cards under messages ----------
 const RARITY_CLASS = { common: 'sblink-r-common', rare: 'sblink-r-rare', epic: 'sblink-r-epic', legendary: 'sblink-r-legendary' };
 
-function cardFor(r, m, key, i) {
+/** Records grouped by message, made once per redraw (long chats: no search per message). */
+function indexRecords(r) {
+    const clears = new Map(), lives = new Map(), uses = new Map();
+    const add = (map, k, v) => { if (k == null) return; const a = map.get(k); if (a) a.push(v); else map.set(k, [v]); };
+    for (const e of r.ledger) if (!e.undone && e.key) add(clears, e.key, e);
+    for (const l of r.lifeLog || []) lives.set(l.key, l);
+    for (const u of r.uses) add(uses, u.key, u);
+    return { clears, lives, uses, quests: new Map(r.quests.map(q => [q.id, q])) };
+}
+
+function cardFor(r, m, key, i, idx, view) {
     if (!r) return '';
     if (isAI(m)) {
-        const c = checkFor(r, key);
-        if (!c) return '';
-        const view = chatView();
-        const qs = c.quests.map(x => ({ x, q: r.quests.find(q => q.id === x.questId) }))
-            .map(o => ({ ...o, e: o.q && r.ledger.find(l => l.key === key && l.questId === o.q.id && (l.cond ?? null) === (o.x.cond ?? null) && !l.undone) }))
-            .filter(o => o.q && o.e);
-        const life = Object.keys(c.life || {}).filter(k => ['time', 'weather', 'place', 'date'].includes(k));
-        if (!qs.length && !life.length) return '';
-        const lines = qs.map(({ q, x, e }) => {
+        const list = (idx.clears.get(key) || []).map(e => ({ e, q: idx.quests.get(e.questId) })).filter(o => o.q);
+        const l = idx.lives.get(key);
+        const life = l ? Object.keys(l.life || {}).filter(k => ['time', 'weather', 'place', 'date'].includes(k)) : [];
+        if (!list.length && !life.length) return '';
+        const lines = list.map(({ q, e }) => {
             const conds = condsOf(q);
             const st = questState(r, q, view);
-            const name = conds && x.cond != null ? `${q.name} · ${conds[x.cond]}` : q.name;
+            const name = conds && e.cond != null ? `${q.name} · ${conds[e.cond]}` : q.name;
             const tag = st.status === 'done' ? '<span class="sblink-code sblink-clear">CLEAR</span>'
                 : `<span class="sblink-code">${(st.condDone || []).filter(Boolean).length} / ${conds?.length || 1}</span>`;
             return `<div class="sblink-cardline"><span class="sblink-dia">◆</span>${tag}<span class="sblink-ell">${esc(name)}</span>${e.pts && st.status === 'done' ? `<b class="sblink-pts">+${e.pts}P</b>` : ''}</div>`;
         });
         if (life.length) {
-            const bits = life.map(k => `${esc(t(`life_${k}`))} ${c.lifeFrom?.[k] ? `${esc(c.lifeFrom[k])} ▸ ` : ''}${esc(c.life[k])}`).join(' · ');
+            const bits = life.map(k => `${esc(t(`life_${k}`))} ${l.lifeFrom?.[k] ? `${esc(l.lifeFrom[k])} ▸ ` : ''}${esc(l.life[k])}`).join(' · ');
             lines.push(`<div class="sblink-cardline sblink-cardlife"><span class="sblink-dia">◇</span><span class="sblink-ell">${bits}</span></div>`);
         }
         return `<div class="sblink-cardhead"><span class="sblink-code">SYS.LOG // #${i}</span><span class="sblink-sp"></span><span class="sblink-open">${esc(t('open'))} ▸</span></div>${lines.join('')}|quests`;
     }
     if (m?.is_user) {
-        const us = r.uses.filter(u => u.key === key);
+        const us = idx.uses.get(key) || [];
         if (!us.length) return '';
         return `<div class="sblink-cardhead"><span class="sblink-code">SYS.LOG // ITEM</span></div>${us.map(u => `<div class="sblink-cardline">${icon(u.icon)}<span class="sblink-ell">${esc(t('used_x', { name: u.name }))}</span><b class="sblink-rar ${RARITY_CLASS[u.rarity] || ''}">${esc(t(`rarity_${u.rarity}`))}</b></div>`).join('')}|bag`;
     }
@@ -220,11 +226,12 @@ export function renderCards() {
     const r = room();
     const show = !held && s.logCards && active(r);
     const view = chatView();
+    const idx = show ? indexRecords(r) : null;
     chatEl.querySelectorAll('.mes[mesid]').forEach(mes => {
         const i = Number(mes.getAttribute('mesid'));
         const m = view.list[i];
         const key = view.keys[i];
-        let html = show && m ? cardFor(r, m, key, i) : '';
+        let html = show && m ? cardFor(r, m, key, i, idx, view) : '';
         let tab = '';
         if (html) { const cut = html.lastIndexOf('|'); tab = html.slice(cut + 1); html = html.slice(0, cut); }
         const sig = html ? `${key}|${html.length}|${hashStr(html)}` : '';

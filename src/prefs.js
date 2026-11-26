@@ -5,6 +5,7 @@ import { t, setLanguage, lang } from './i18n.js';
 import { settings, save, room, currentChatId, device, saveDevice, exportData, importData, oldBackup, VERSION } from './store.js';
 import { switchOn, switchOff, bus } from './engine.js';
 import { getProfiles, sentLog } from './ai.js';
+import { buildLog, logFileName } from './export.js';
 import { esc } from './ui/util.js';
 import { resetPos } from './ui/fab.js';
 
@@ -53,6 +54,8 @@ export const SCHEMA = [
         { k: 'profileId', kind: 'select' },
     ] },
     { group: 'data', folded: true, rows: [
+        { k: 'logTxt', kind: 'button' },
+        { k: 'logJson', kind: 'button' },
         { k: 'export', kind: 'button' },
         { k: 'import', kind: 'button' },
         { k: 'sent', kind: 'button' },
@@ -106,6 +109,11 @@ export async function setValue(k, v) {
 export async function runButton(k) {
     if (k === 'btnReset') { resetPos(); globalThis.toastr?.info?.(t('btn_reset_done'), t('ext_name')); return; }
     if (k === 'export') return doExport();
+    if (k === 'logTxt' || k === 'logJson') {
+        if (!currentChatId()) { globalThis.toastr?.info?.(t('no_chat'), t('ext_name')); return; }
+        const f = k === 'logJson' ? 'json' : 'txt';
+        return saveText(buildLog(f), logFileName(f), f === 'json' ? 'application/json' : 'text/plain');
+    }
     if (k === 'oldBackup') return download(oldBackup(), 'system-blink-before-0.2.json');
     if (k === 'import') return doImport();
     if (k === 'sent') return hooks.showText(sentText());
@@ -124,7 +132,11 @@ function doExport() {
 
 function download(obj, name) {
     if (!obj) return;
-    const blob = new Blob([JSON.stringify(obj, null, 1)], { type: 'application/json' });
+    saveText(JSON.stringify(obj, null, 1), name, 'application/json');
+}
+
+function saveText(text, name, type) {
+    const blob = new Blob([text], { type: `${type};charset=utf-8` });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = name;

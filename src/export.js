@@ -1,0 +1,95 @@
+// "Chat with the System log": the chat's messages in order, each followed by what the System did there
+// (quest clears with their evidence, daily-life changes, sudden / hidden quests, item uses).
+// Only makes a new file to download — the chat file itself is never touched.
+
+import { t } from './i18n.js';
+import { room, currentChatId, VERSION } from './store.js';
+import { chatView, condsOf, rate, ownerName } from './engine.js';
+
+const time = (ms) => { try { return new Date(ms).toLocaleString(); } catch { return String(ms); } };
+
+/** Everything the System did, grouped by message key, plus what belongs to no message. */
+export function systemEvents(r = room(), view = chatView()) {
+    const byKey = new Map();
+    const loose = [];
+    const add = (key, ev) => {
+        if (key == null) { loose.push(ev); return; }
+        if (!view.index.has(key)) return; // a re-rolled or deleted reply: not in this chat any more
+        const a = byKey.get(key); if (a) a.push(ev); else byKey.set(key, [ev]);
+    };
+    if (!r) return { byKey, loose };
+    const quests = new Map(r.quests.map(q => [q.id, q]));
+    for (const e of r.ledger) {
+        if (e.undone) continue;
+        if (e.questId === 'tutorial') { loose.push({ type: 'tutorial', pts: e.pts, at: e.at }); continue; }
+        const q = quests.get(e.questId);
+        const conds = condsOf(q);
+        add(e.key, {
+            type: 'clear', kind: q?.kind || 'daily', quest: q?.name || '?', condition: conds && e.cond != null ? conds[e.cond] : null,
+            pts: e.pts || 0, evidence: e.reason || '', byHand: !!e.byHand || e.key == null, at: e.at,
+        });
+    }
+    for (const l of r.lifeLog || []) add(l.key, { type: 'life', life: { ...l.life }, from: { ...(l.lifeFrom || {}) }, at: l.t });
+    for (const q of r.quests) {
+        if (q.kind === 'sudden' && q.fromKey) add(q.fromKey, { type: 'sudden', quest: q.name, pts: rate(q.reward), answer: q.state || '', at: 0 });
+        if (q.kind === 'hidden' && q.fromKey) add(q.fromKey, { type: 'hidden', quest: q.name, pts: rate(q.reward), why: q.why || '', at: 0 });
+    }
+    for (const n of r.notes) if (n.deliveredKey) add(n.deliveredKey, { type: 'note', text: n.text, at: n.at });
+    for (const u of r.uses) add(u.key, { type: 'use', item: u.name, rarity: u.rarity, at: u.at });
+    for (const p of r.spend) loose.push({ type: 'buy', item: p.what, pts: p.pts, at: p.at });
+    loose.sort((a, b) => (a.at || 0) - (b.at || 0));
+    return { byKey, loose };
+}
+
+function line(ev) {
+    switch (ev.type) {
+        case 'clear': {
+            const what = ev.condition ? `${ev.quest} · ${ev.condition}` : ev.quest;
+            const head = ev.condition && !ev.pts ? t('log_cond') : 'CLEAR';
+            return `${head} [${t(`log_kind_${ev.kind}`)}] ${what}${ev.pts ? ` +${ev.pts}P` : ''}${ev.byHand ? ` · ${t('by_hand')}` : ''}${ev.evidence ? ` · ${t('evidence')} "${ev.evidence}"` : ''}`;
+        }
+        case 'life': return `${t('life')}: ${Object.keys(ev.life).map(k => `${t(`life_${k}`)} ${ev.from[k] ? `${ev.from[k]} → ` : ''}${ev.life[k]}`).join(', ')}`;
+        case 'sudden': return `${t('log_sudden')}: ${ev.quest} +${ev.pts}P${ev.answer ? ` (${t(`log_answer_${ev.answer}`)})` : ''}`;
+        case 'hidden': return `${t('log_hidden')}: ${ev.quest} +${ev.pts}P${ev.why ? ` · ${ev.why}` : ''}`;
+        case 'note': return `${t('log_note')}: ${ev.text}`;
+        case 'use': return t('used_x', { name: ev.item });
+        case 'buy': return `${t('bought', { name: ev.item })} −${ev.pts}P`;
+        case 'tutorial': return `${t('pop_tut_done')} +${ev.pts}P`;
+        default: return '';
+    }
+}
+
+export function buildLog(format = 'txt') {
+    const r = room();
+    const view = chatView();
+    const { byKey, loose } = systemEvents(r, view);
+    const chatId = currentChatId() || '';
+    if (format === 'json') {
+        return JSON.stringify({
+            systemBlink: VERSION, chat: chatId, exportedAt: new Date().toISOString(), user: ownerName(r),
+            messages: view.list.map((m, i) => ({
+                index: i, name: m?.name || (m?.is_user ? 'User' : ''), isUser: !!m?.is_user, isSystem: !!m?.is_system,
+                sendDate: m?.send_date ?? null, text: String(m?.mes ?? ''), system: byKey.get(view.keys[i]) || [],
+            })),
+            notInMessages: loose,
+        }, null, 1);
+    }
+    const out = [`# ${chatId}`, `# System Blink ${VERSION} · ${time(Date.now())}`, ''];
+    view.list.forEach((m, i) => {
+        if (!m) return;
+        out.push(`#${i} ${m.name || (m.is_user ? 'User' : '')}: ${String(m.mes ?? '')}`);
+        for (const ev of byKey.get(view.keys[i]) || []) out.push(`    [SYS] ${line(ev)}`);
+        out.push('');
+    });
+    if (loose.length) {
+        out.push(`## ${t('log_loose')}`);
+        for (const ev of loose) out.push(`[SYS] ${ev.at ? `${time(ev.at)} · ` : ''}${line(ev)}`);
+    }
+    return out.join('\n');
+}
+
+export function logFileName(format) {
+    const id = String(currentChatId() || 'chat').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80);
+    return `${id} - System Blink.${format === 'json' ? 'json' : 'txt'}`;
+}
+

@@ -3,7 +3,7 @@
 
 export const MODULE = 'systemBlink';
 export const FORMAT = 2;
-export const VERSION = '0.2.0';
+export const VERSION = '0.2.1';
 
 const DEFAULTS = Object.freeze({
     format: FORMAT,
@@ -57,7 +57,8 @@ function upgrade(s) {
     const from = Number(s.format) || 1;
     if (from >= FORMAT) return;
     if (from < 2) {
-        try { if (!localStorage.getItem(BACKUP_KEY)) localStorage.setItem(BACKUP_KEY, JSON.stringify({ systemBlink: 1, at: Date.now(), settings: s })); } catch (e) { console.warn('[System Blink] backup before upgrade', e); }
+        const hasData = s.chats && typeof s.chats === 'object' && Object.keys(s.chats).length > 0;
+        try { if (hasData && !localStorage.getItem(BACKUP_KEY)) localStorage.setItem(BACKUP_KEY, JSON.stringify({ systemBlink: 1, at: Date.now(), settings: s })); } catch (e) { console.warn('[System Blink] backup before upgrade', e); }
         for (const r of Object.values(s.chats || {})) {
             if (!r || typeof r !== 'object' || !Array.isArray(r.quests)) continue;
             for (const q of r.quests) if (q && !q.kind) q.kind = 'daily';
@@ -106,6 +107,7 @@ export function newRoom() {
         bag: [],                // { id, name, desc, rarity, icon, kind, count }
         uses: [],               // { id, name, rarity, icon, desc, at, key (my message) | null }
         notes: [],              // one-time notes for the AI: { id, text, at, deliveredKey }
+        lifeLog: [],            // every daily-life change, kept for good: { key, t, life, lifeFrom }
         checks: [],             // { key, t, quests: [{ questId, reason }], life: {}, days, dayReason, nextTime, dismissed }
         shop: { standing: [], dailyDay: 0, daily: [] },
         goal: null,             // { id, title, total, done: false } — its stages are quests of kind 'goal'
@@ -119,6 +121,11 @@ export function newRoom() {
 function fixRoom(r) {
     const base = newRoom();
     if (!r || typeof r !== 'object') return base;
+    // 0.2.1: daily-life changes get their own log (seeded from the recent checks)
+    if (!Array.isArray(r.lifeLog)) {
+        r.lifeLog = (Array.isArray(r.checks) ? r.checks : []).filter(c => c && c.life && Object.keys(c.life).length)
+            .map(c => ({ key: c.key, t: c.t, life: { ...c.life }, lifeFrom: { ...(c.lifeFrom || {}) } }));
+    }
     for (const [k, v] of Object.entries(base)) if (r[k] === undefined || typeof r[k] !== typeof v || Array.isArray(v) !== Array.isArray(r[k])) r[k] = v;
     if (!Array.isArray(r.tutorial.done) || r.tutorial.done.length !== 4) r.tutorial.done = [false, false, false, false];
     if (!r.shop || typeof r.shop !== 'object') r.shop = base.shop;

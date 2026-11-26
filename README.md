@@ -41,7 +41,10 @@ https://github.com/Near7707/System-Blink
 - **Daily life**: date, time of day, weather, place and today's plan. The AI check notices changes;
   you can also edit them. When the story moves to another day, a strip above the input box asks
   *"Move to the next day?"* — settling happens once, however many days passed.
-- **Log cards**: a small card under a message shows a quest clear or an item use. Screen only.
+- **Log cards**: a small card under a message shows a quest clear, a daily-life change or an item use. Screen only.
+  Every record is kept, so old messages keep their cards too.
+- **Chat with the System log**: *Data → Chat with the System log* downloads the whole chat in order, with what the
+  System did under each message (.txt or .json). It only makes a new file — the chat itself is not changed.
 
 ## Safe by design
 

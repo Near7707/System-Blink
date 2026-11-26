@@ -311,6 +311,10 @@ export function storeCheck(chatId, key, res) {
             if (q.kind === 'goal') out.stages.push(q);
         }
     }
+    if (Object.keys(life).length) {
+        r.lifeLog = r.lifeLog.filter(x => x.key !== key);
+        r.lifeLog.push({ key, t: check.t, life: { ...life }, lifeFrom: { ...lifeFrom } });
+    } else r.lifeLog = r.lifeLog.filter(x => x.key !== key);
     if (out.cleared.some(c => c.q.kind === 'daily')) tutorialStep(r, 1);
     // accepted sudden quests: this reply used one of their replies
     for (const q of r.quests) {
@@ -544,7 +548,8 @@ export async function useItem(bagId) {
     if (b.count <= 0) r.bag = r.bag.filter(x => x !== b);
     const use = { id: uid('u'), name: b.name, desc: b.desc, rarity: b.rarity, icon: b.icon, kind: b.kind, at: Date.now(), key: null };
     r.uses.push(use);
-    if (r.uses.length > 40) r.uses.splice(0, r.uses.length - 40);
+    // every use is kept; older ones drop their description to stay small
+    if (r.uses.length > 40) for (const u of r.uses.slice(0, r.uses.length - 40)) delete u.desc;
     tutorialStep(r, 3);
     save(); changed();
     if (b.kind === 'reroll') await newQuests(currentChatId(), { replaceOpen: true });

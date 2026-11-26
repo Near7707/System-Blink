@@ -70,6 +70,7 @@ def main():
             quests2(browser, 'en')
             quests2(browser, 'ko')
             upgrade(browser)
+            long_chat(browser)
             pc(browser)
             button(browser)
             browser.close()
@@ -376,6 +377,54 @@ def upgrade(browser):
     check(ev(page, "JSON.parse(localStorage.getItem('systemBlink.backup.v1')).settings.format") == 1, 'format-1 copy kept before moving')
     page.click('#sblink-fab'); page.click('#sblink-win [data-tab="quests"]')
     check(ev(page, "!!document.querySelector('.sblink-quest')"), 'old quest shows')
+    check(not errors, f'no errors {errors[:3]}')
+    page.close()
+
+
+def long_chat(browser):
+    print('--- long chat (3000 messages) and the System log')
+    page, errors = open_page(browser, 'fresh&lang=en&long=3000')
+    page.click('#sblink-fab')
+    page.click('[data-act="roomOn"]'); page.wait_for_timeout(500)
+    page.click('#sblink-pop [data-pop="second"]'); page.wait_for_timeout(400)
+    close_pops(page)
+    page.click('[data-act="close"]')
+    # lots of records: 1500 clears, 1000 daily-life changes, 600 item uses, on old and new messages
+    ev(page, """(() => {
+        const c = SillyTavern.getContext(); const r = c.extensionSettings.systemBlink.chats[c.getCurrentChatId()];
+        const keys = c.chat.map(m => 'd:' + m.send_date);
+        const q = r.quests[0];
+        for (let i = 0; i < 1500; i++) r.ledger.push({ id: 'L' + i, questId: q.id, cond: null, pts: 0, key: keys[(i * 2) % 3000], reason: 'old line ' + i, at: i });
+        for (let i = 0; i < 1000; i++) r.lifeLog.push({ key: keys[(i * 2 + 2) % 3000], t: i, life: { place: 'street ' + i }, lifeFrom: {} });
+        for (let i = 0; i < 600; i++) r.uses.push({ id: 'U' + i, name: 'Warm Tea', rarity: 'common', icon: 'tea', kind: 'item', at: i, key: keys[(i * 2 + 1) % 3000] });
+    })()""")
+    t_cards = ev(page, """(async () => { const m = await import('/src/ui/pop.js'); const t0 = performance.now(); for (let i = 0; i < 5; i++) m.renderCards(); return (performance.now() - t0) / 5; })()""")
+    check(t_cards < 60, f'cards for 100 shown messages: {t_cards:.1f} ms')
+    t_pts = ev(page, """(async () => { const m = await import('/src/engine.js'); const t0 = performance.now(); for (let i = 0; i < 5; i++) m.points(); return (performance.now() - t0) / 5; })()""")
+    check(t_pts < 60, f'points over 3000 messages: {t_pts:.1f} ms')
+    check(ev(page, "document.querySelectorAll('.sblink-card').length") > 30, 'old records still show as cards (more than the last 12)')
+    t0 = ev(page, 'performance.now()')
+    turn(page, 'Go on.', 'Okay.')
+    shot(page, 'long_01_cards')
+    page.click('#sblink-fab'); page.click('#sblink-win [data-tab="quests"]')
+    t_open = ev(page, f'performance.now()') - t0
+    check(t_open < 3500, f'a reply + opening the window stays quick ({t_open:.0f} ms incl. waits)')
+    # the System log export
+    page.click('[data-act="gear"]')
+    page.click('[data-fold="data"]')
+    with page.expect_download() as d:
+        page.click('#sblink-win [data-run="logTxt"]')
+    txt = open(d.value.path(), encoding='utf-8').read()
+    check('#2999 ' in txt and '[SYS] CLEAR' in txt and 'Used · Warm Tea' in txt, 'text log has messages and System lines')
+    check(txt.index('#0 ') < txt.index('[SYS]'), 'System lines sit under their message')
+    open(os.path.join(SHOTS, 'long_log.txt'), 'w', encoding='utf-8').write(txt)
+    with page.expect_download() as d:
+        page.click('#sblink-win [data-run="logJson"]')
+    import json
+    j = json.load(open(d.value.path(), encoding='utf-8'))
+    check(len(j['messages']) == 3002 and any(m['system'] for m in j['messages']), f'json log ({len(j["messages"])} messages)')
+    check(not ev(page, "!!document.querySelector('#sblink-win [data-run=\"oldBackup\"]')"), 'a new install keeps no old-data copy')
+    shot(page, 'long_02_data')
     check(not errors, f'no errors {errors[:3]}')
     page.close()
 
