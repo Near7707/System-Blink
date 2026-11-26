@@ -33,13 +33,35 @@
     let lastPrompt = '';
     let sentPrompt = '';
     window.__calls = { check: 0, quests: 0, shop: 0 };
+    // the dice: never by default (tests turn them on)
+    window.__sblinkRandom = () => 0.99;
+    // answer YES to the check lines that contain one of `subs`; `extra` adds lines (SUDDEN / HIDDEN)
+    window.__yes = (subs = [], extra = '') => {
+        window.__checkAnswer = (user) => {
+            const out = [];
+            for (const m of user.matchAll(/^Q(\d+): (.*)$/gm)) out.push(`Q${m[1]}: ${subs.some(x => m[2].includes(x)) ? 'YES - "it happened right there"' : 'NO'}`);
+            return out.concat(['TIME: -', 'WEATHER: -', 'PLACE: -', 'DATE: -', 'DAYS: 0', 'NEXT: -']).join('\n') + (extra ? `\n${extra}` : '');
+        };
+    };
     async function fakeAI(sys, user) {
         await new Promise(r => setTimeout(r, window.__aiDelay ?? 150));
         const ko = /in Korean/.test(user);
         if (/careful referee/.test(sys)) {
             window.__calls.check++; window.__checkLast = user;
+            if (typeof window.__checkAnswer === 'function') return window.__checkAnswer(user);
             if (window.__checkAnswer) return window.__checkAnswer;
             return 'TIME: -\nWEATHER: -\nPLACE: -\nDATE: -\nDAYS: 0\nNEXT: -';
+        }
+        if (/NEXT stage of the main goal/.test(sys)) {
+            window.__calls.stage = (window.__calls.stage || 0) + 1;
+            if (window.__stageFail) return 'nope';
+            return ko ? '{"name":"주인에게 일 배우기","conds":["일을 돕겠다고 말하기","하루 동안 혼자 가게 보기"],"reward":200}'
+                : '{"name":"Learn the work from the owner","conds":["Offer to help the owner","Watch the shop alone for a day"],"reward":200}';
+        }
+        if (/ONE main goal/.test(sys)) {
+            window.__calls.goal = (window.__calls.goal || 0) + 1;
+            return ko ? '{"title":"작은 찻집을 내 가게로 만들기","total":4,"stage":{"name":"찻집의 단골 되기","conds":[],"reward":100}}'
+                : '{"title":"Make the little tea house my own","total":4,"stage":{"name":"Become a regular at the tea house","conds":[],"reward":100}}';
         }
         if (/daily quests/.test(sys)) {
             window.__calls.quests++;

@@ -67,6 +67,9 @@ def main():
             browser = p.chromium.launch(executable_path='/usr/bin/google-chrome', args=['--no-sandbox'])
             flow(browser, 'en')
             flow(browser, 'ko')
+            quests2(browser, 'en')
+            quests2(browser, 'ko')
+            upgrade(browser)
             pc(browser)
             button(browser)
             browser.close()
@@ -113,7 +116,7 @@ def flow(browser, lang):
     check(points(page) == 0, f're-roll takes the points back ({points(page)})')
     check(ev(page, "document.querySelectorAll('.sblink-card').length") == 0, 'card goes away with the re-roll')
     page.click('#sblink-fab')
-    page.click('[data-tab="quests"]')
+    page.click('#sblink-win [data-tab="quests"]')
     check(ev(page, "!!document.querySelector('.sblink-rerolled')"), 'quest shows "re-rolled, taken back"')
     shot(page, L('07_rerolled'))
 
@@ -230,6 +233,149 @@ def flow(browser, lang):
         page.click('[data-off="on"]')
         page.wait_for_timeout(300)
         check(ev(page, "!!document.getElementById('sblink-fab')"), 'turned on again from the wand')
+    check(not errors, f'no errors {errors[:3]}')
+    page.close()
+
+
+def room_js(expr):
+    return "(() => { const r = SillyTavern.getContext().extensionSettings.systemBlink.chats[SillyTavern.getContext().getCurrentChatId()]; return " + expr + "; })()"
+
+
+def quests2(browser, lang):
+    print(f'--- stage 2-A quests ({lang})')
+    ko = lang == 'ko'
+    page, errors = open_page(browser, f'fresh&lang={lang}')
+    L = lambda n: f'{lang}_2a_{n}'
+    page.click('#sblink-fab')
+    page.click('[data-act="roomOn"]'); page.wait_for_timeout(500)
+    page.click('#sblink-pop [data-pop="second"]')  # skip the tutorial
+    page.wait_for_timeout(500)
+    close_pops(page)
+    page.click('#sblink-win [data-tab="quests"]')
+    check(ev(page, "!!document.querySelector('.sblink-goalnone')"), 'no goal yet: a small line to set one')
+    page.click('[data-act="close"]')
+
+    # dice hit: a hidden quest and a sudden quest come with the same check (no extra request)
+    sudden = '골목 끝에서 들려온 소리의 정체 확인하기' if ko else 'Find out what made the noise down the alley'
+    hidden = '길고양이에게 이름 지어 주기' if ko else 'Give the stray cat a name'
+    why = '같은 고양이 앞에서 세 번 멈춰 섰음' if ko else 'Stopped by the same cat three times'
+    ev(page, 'window.__sblinkRandom = () => 0')
+    ev(page, f"window.__yes([], {('SUDDEN: ' + sudden + ' | 50' + chr(10) + 'HIDDEN: ' + hidden + ' | 120 | ' + why)!r})")
+    calls = ev(page, 'window.__calls.check')
+    turn(page, 'I walk home.', 'A strange noise comes from the alley. A stray cat watches.')
+    check(ev(page, 'window.__calls.check') == calls + 1, 'one check request only')
+    check('Also write SUDDEN' in ev(page, 'window.__checkLast'), 'the check asked for a sudden quest')
+    ev(page, 'window.__sblinkRandom = () => 0.99')
+    check(ev(page, "!!document.querySelector('.sblink-v-hidden')"), 'hidden quest popup (purple)')
+    page.wait_for_timeout(1500)
+    shot(page, L('01_hidden_popup'))
+    page.click('#sblink-pop [data-pop="ok"]'); page.wait_for_timeout(400)
+    check(ev(page, "!!document.querySelector('.sblink-v-sudden')"), 'sudden quest popup (orange)')
+    shot(page, L('02_sudden_popup'))
+    page.click('#sblink-pop [data-pop="ok"]'); page.wait_for_timeout(300)  # accept
+    check(ev(page, room_js("r.quests.find(q => q.kind === 'sudden').state")) == 'accepted', 'sudden quest accepted')
+    check(('accepted a sudden quest (3 replies left)' in ev(page, 'window.__fakeST.livePrompt')), 'the AI is told about the sudden quest')
+
+    # its time runs: a re-roll gives the reply back
+    ev(page, "window.__yes([])")
+    turn(page, 'I look around.', 'Nothing there yet.')
+    left = lambda: ev(page, "document.querySelector('.sblink-k-sudden .sblink-left') ? document.querySelectorAll('.sblink-k-sudden .sblink-left i.sblink-on').length : -1")
+    page.click('#sblink-fab'); page.click('#sblink-win [data-tab="quests"]')
+    check(left() == 2, f'2 replies left ({left()})')
+    shot(page, L('03_quests_tab'))
+    page.click('[data-act="close"]')
+    ev(page, 'window.__fakeST.swipe()'); page.wait_for_timeout(1300)
+    page.click('#sblink-fab'); page.click('#sblink-win [data-tab="quests"]')
+    check(left() == 2, f're-roll: still 2 left ({left()})')
+    page.click('[data-act="close"]')
+    # clear it on the next reply
+    ev(page, f"window.__yes([{sudden[:8]!r}])")
+    turn(page, 'I check the alley.', 'It was only a cat knocking a can.')
+    st = ev(page, room_js("r.quests.find(q => q.kind === 'sudden').id"))
+    check(points(page) == 50, f'sudden quest cleared +50P ({points(page)})')
+
+    # the hidden quest
+    ev(page, f"window.__yes([{hidden[:6]!r}])")
+    turn(page, 'I call the cat Biscuit.', 'The cat seems to like the name.')
+    check(points(page) == 170, f'hidden quest cleared +120P ({points(page)})')
+
+    # a sudden offer whose reply is re-rolled before answering goes away
+    ev(page, 'window.__sblinkRandom = () => 0')
+    ev(page, f"window.__yes([], {('SUDDEN: ' + ('다시 나타난 그림자 쫓기' if ko else 'Follow the shadow') + ' | 40')!r})")
+    ev(page, room_js('r.suddenRest = 0'))
+    turn(page, 'Next.', 'A shadow moves.')
+    ev(page, 'window.__sblinkRandom = () => 0.99')
+    check(ev(page, "!!document.querySelector('.sblink-v-sudden')"), 'another sudden offer')
+    ev(page, "window.__yes([])")
+    ev(page, 'window.__fakeST.swipe()'); page.wait_for_timeout(1300)
+    check(ev(page, room_js("r.quests.filter(q => q.kind === 'sudden' && q.state === 'offered').length")) == 0, 're-rolled offer is dropped')
+    close_pops(page)
+
+    # the main goal: the AI suggests it, I save it
+    page.click('#sblink-fab'); page.click('#sblink-win [data-tab="quests"]')
+    page.click('.sblink-goalnone [data-act="goalNew"]'); page.wait_for_timeout(600)
+    check(ev(page, "document.querySelector('[data-goal=\"title\"]').value") != '', 'the AI filled the goal')
+    shot(page, L('04_goal_edit'))
+    page.fill('[data-goal="title"]', ('작은 찻집 지키기' if ko else 'Keep the little tea house'))
+    page.click('[data-gtotal="3"]')
+    check(ev(page, "document.querySelector('[data-goal=\"title\"]').value") == ('작은 찻집 지키기' if ko else 'Keep the little tea house'), 'typed text kept after a redraw')
+    page.click('[data-act="goalSave"]'); page.wait_for_timeout(300)
+    check(ev(page, "!!document.querySelector('.sblink-goalbig')"), 'goal page')
+    check(ev(page, room_js('r.goal.total')) == 3, '3 stages')
+    shot(page, L('05_goal_page'))
+    page.click('[data-act="back"]')
+    shot(page, L('06_quests_goal'))
+    page.click('[data-act="close"]')
+
+    # stage 1 cleared → popup, the AI makes stage 2 (two conditions)
+    ev(page, "window.__yes([" + ("'찻집의 단골'" if ko else "'Become a regular'") + "])")
+    turn(page, 'I come again.', 'The owner greets you by name now.')
+    check(points(page) == 270, f'stage 1 +100P ({points(page)})')
+    check(ev(page, "!!document.querySelector('#sblink-pop')"), 'stage popup')
+    close_pops(page)
+    page.wait_for_timeout(500)
+    check(ev(page, room_js("r.quests.filter(q => q.kind === 'goal').length")) == 2, 'stage 2 was made')
+    # condition 1 only: no points yet
+    c1 = '일을 돕겠다고' if ko else 'Offer to help'
+    c2 = '혼자 가게' if ko else 'shop alone'
+    ev(page, f"window.__yes([{c1!r}])")
+    turn(page, 'Can I help?', 'Sure, says the owner.')
+    check(points(page) == 270, f'one condition: no points yet ({points(page)})')
+    page.click('#sblink-fab'); page.click('#sblink-win [data-tab="quests"]'); page.click('[data-act="goalOpen"]')
+    check(ev(page, "document.querySelectorAll('.sblink-stage-now .sblink-cond-on').length") == 1, 'condition 1 ticked')
+    shot(page, L('07_goal_conds'))
+    page.click('[data-act="close"]')
+    ev(page, f"window.__yes([{c2!r}])")
+    turn(page, 'I watch the shop.', 'You watch the shop alone all day.')
+    check(points(page) == 470, f'both conditions: +200P ({points(page)})')
+    close_pops(page)
+    # a re-roll of the first condition takes the stage back
+    tall = 0
+    page.click('#sblink-fab'); page.click('#sblink-win [data-tab="quests"]')
+    tall = ev(page, "[...document.querySelectorAll('.sblink-btn, .sblink-chip, .sblink-tab')].filter(b => b.offsetHeight > 44).length")
+    check(tall == 0, f'no button grows taller ({tall})')
+    page.click('[data-act="gear"]')
+    page.evaluate("document.querySelector('.sblink-body').scrollTop = 600")
+    shot(page, L('08_gear_quests'))
+    check(not errors, f'no errors {errors[:3]}')
+    page.close()
+
+
+def upgrade(browser):
+    print('--- old data moves to the new format')
+    page, errors = open_page(browser, 'fresh&lang=en')
+    old = {'systemBlink': {'format': 1, 'enabled': True, 'lang': 'en', 'langChosen': True, 'chats': {'Mira - 2026-01-01': {
+        'on': True, 'lifeMode': True, 'day': 2, 'quests': [{'id': 'q1', 'name': 'Old quest', 'reward': 10, 'day': 2, 'failed': False}],
+        'ledger': [{'id': 'l1', 'questId': 'q1', 'pts': 10, 'key': None, 'reason': ''}], 'spend': [], 'bag': [], 'uses': [], 'notes': [], 'checks': [],
+        'tutorial': {'state': 'done', 'done': [True, True, True, True], 'rewarded': True}}}}}
+    ev(page, f"localStorage.setItem('sblink_test_settings', JSON.stringify({old!r})); localStorage.removeItem('systemBlink.backup.v1')".replace('True', 'true').replace('False', 'false').replace('None', 'null'))
+    page.goto(f'{BASE}?x=1'); page.wait_for_function('window.__loaded === true'); page.wait_for_timeout(300)
+    check(ev(page, 'SillyTavern.getContext().extensionSettings.systemBlink.format') == 2, 'format 2')
+    check(ev(page, room_js('r.quests[0].kind')) == 'daily', 'old quests became daily quests')
+    check(points(page) == 10, 'points kept')
+    check(ev(page, "JSON.parse(localStorage.getItem('systemBlink.backup.v1')).settings.format") == 1, 'format-1 copy kept before moving')
+    page.click('#sblink-fab'); page.click('#sblink-win [data-tab="quests"]')
+    check(ev(page, "!!document.querySelector('.sblink-quest')"), 'old quest shows')
     check(not errors, f'no errors {errors[:3]}')
     page.close()
 

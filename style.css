@@ -15,6 +15,8 @@
     --sb-rare: #5AA9FF;
     --sb-epic: #B38CFF;
     --sb-legendary: #F2C14E;
+    --sb-orange: #FF9F43;
+    --sb-purple: #B38CFF;
     --sb-mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
     --sb-cut: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
     --sb-cut-s: polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px);
@@ -339,5 +341,81 @@
 .sblink-panel .sblink-pta { resize: vertical; }
 .sblink-pre { white-space: pre-wrap; text-align: left; font-size: 12px; max-height: 70vh; overflow: auto; }
 
+
+/* ---------- stage 2-A: more quests ---------- */
+.sblink-orange { color: var(--sb-orange); }
+.sblink-qtext { flex: 1 1 auto; min-width: 0; word-break: break-word; }
+.sblink-left { display: inline-flex; gap: 4px; vertical-align: middle; margin-left: 6px; }
+.sblink-left i { width: 9px; height: 9px; transform: rotate(45deg); border: 1.5px solid var(--sb-orange); }
+.sblink-left i.sblink-on { background: var(--sb-orange); }
+.sblink-popcalm { margin-top: 10px; font-size: 12px; color: var(--sb-dim); border-left: 2px solid var(--sb-dim); padding-left: 8px; }
+
+/* popup colours: sudden = orange, hidden = purple */
+.sblink-v-sudden .sblink-pop { border-color: var(--sb-orange); box-shadow: 0 0 22px rgba(255, 159, 67, 0.35); }
+.sblink-v-sudden .sblink-tag { background: var(--sb-orange); }
+.sblink-v-sudden .sblink-stripes { background: repeating-linear-gradient(-45deg, rgba(255, 159, 67, 0.4) 0 6px, transparent 6px 12px); }
+.sblink-v-sudden .sblink-cn, .sblink-v-hidden .sblink-cn { border-color: currentColor; }
+.sblink-v-sudden .sblink-cn { color: var(--sb-orange); }
+.sblink-v-sudden .sblink-code, .sblink-v-sudden .sblink-dia, .sblink-v-sudden .sblink-cursor { color: var(--sb-orange); }
+.sblink-v-sudden .sblink-btn-main { background: var(--sb-orange); border-color: var(--sb-orange); color: #1E1000; }
+.sblink-moving.sblink-v-sudden .sblink-pop { animation: sblink-in 0.28s ease-out, sblink-breathe-o 2.4s ease-in-out infinite 0.3s; }
+@keyframes sblink-breathe-o { 50% { box-shadow: 0 0 34px rgba(255, 159, 67, 0.6); } }
+.sblink-v-hidden .sblink-pop { border-color: var(--sb-purple); box-shadow: 0 0 22px rgba(179, 140, 255, 0.4); }
+.sblink-v-hidden .sblink-tag { background: var(--sb-purple); color: #14082A; }
+.sblink-v-hidden .sblink-stripes { background: repeating-linear-gradient(-45deg, rgba(179, 140, 255, 0.4) 0 6px, transparent 6px 12px); }
+.sblink-v-hidden .sblink-cn { color: var(--sb-purple); }
+.sblink-v-hidden .sblink-code, .sblink-v-hidden .sblink-dia, .sblink-v-hidden .sblink-cursor, .sblink-v-hidden .sblink-pts { color: var(--sb-purple); }
+.sblink-v-hidden .sblink-btn-main { background: var(--sb-purple); border-color: var(--sb-purple); color: #14082A; }
+.sblink-moving.sblink-v-hidden .sblink-pop { animation: sblink-in 0.28s ease-out, sblink-breathe-p 3s ease-in-out infinite 0.3s; }
+@keyframes sblink-breathe-p { 50% { box-shadow: 0 0 34px rgba(179, 140, 255, 0.65); } }
+.sblink-v-hidden [data-decode] { font-family: var(--sb-mono); letter-spacing: 0.02em; }
+
+/* quest rows by kind */
+.sblink-k-sudden { border-color: rgba(255, 159, 67, 0.45); }
+.sblink-k-sudden .sblink-qdia { border-color: var(--sb-orange); }
+.sblink-k-sudden.sblink-q-done .sblink-qdia { background: var(--sb-orange); border-color: var(--sb-orange); }
+.sblink-k-hidden { border-color: rgba(179, 140, 255, 0.5); background: rgba(60, 36, 100, 0.35); }
+.sblink-k-hidden .sblink-qdia { border-color: var(--sb-purple); }
+.sblink-k-hidden .sblink-pts { color: var(--sb-purple); }
+.sblink-k-hidden.sblink-q-done .sblink-qdia { background: var(--sb-purple); border-color: var(--sb-purple); }
+.sblink-conds { margin: 6px 0 0 22px; display: flex; flex-direction: column; gap: 3px; }
+.sblink-cond { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; }
+.sblink-condbox { width: 12px; height: 12px; margin-top: 3px; flex: none; border: 1.5px solid var(--sb-acc-dim); }
+.sblink-cond-on .sblink-condbox { background: var(--sb-acc); border-color: var(--sb-acc); }
+.sblink-cond-on .sblink-condtext { color: var(--sb-dim); text-decoration: line-through; }
+.sblink-condtext { min-width: 0; word-break: break-word; }
+.sblink-qwhy.sblink-condwhy { margin: 0 0 2px 20px; }
+.sblink-k-hidden .sblink-cond-on .sblink-condbox { background: var(--sb-purple); border-color: var(--sb-purple); }
+
+/* main goal block in the Quests tab */
+.sblink-goalnone { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px dashed rgba(169, 192, 211, 0.35); color: var(--sb-dim); font-size: 13px; }
+.sblink-goalnone > .sblink-ell { flex: 1 1 auto; }
+.sblink-goalcard { width: 100%; text-align: left; color: var(--sb-text); padding: 10px 12px; cursor: pointer; border: 1px solid rgba(242, 193, 78, 0.45); background: linear-gradient(90deg, rgba(242, 193, 78, 0.12), rgba(242, 193, 78, 0.02)); clip-path: var(--sb-cut); display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+.sblink-goaltitle { font-weight: 800; word-break: break-word; }
+.sblink-goalnow { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 13px; }
+.sblink-goalnow > .sblink-ell { flex: 1 1 auto; }
+.sblink-goalnow .sblink-code { color: var(--sb-gold); }
+.sblink-stagebar { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 4px; }
+.sblink-stagebar i { height: 8px; background: rgba(242, 193, 78, 0.12); border: 1px solid rgba(242, 193, 78, 0.45); transform: skewX(-24deg); }
+.sblink-stagebar i.sblink-on { background: var(--sb-gold); }
+.sblink-stagebar i.sblink-now { box-shadow: 0 0 8px rgba(242, 193, 78, 0.7); border-color: var(--sb-gold); }
+
+/* main goal page */
+.sblink-goalbig { font-size: 18px; font-weight: 800; margin: 4px 0 2px; word-break: break-word; }
+.sblink-stages { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; }
+.sblink-stage { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid rgba(90, 209, 255, 0.2); background: var(--sb-cell); clip-path: var(--sb-cut-s); }
+.sblink-stage[role="button"] { cursor: pointer; }
+.sblink-stagenum { width: 24px; height: 24px; flex: none; display: flex; align-items: center; justify-content: center; font-family: var(--sb-mono); font-weight: 800; font-size: 13px; border: 1px solid rgba(242, 193, 78, 0.6); color: var(--sb-gold); transform: skewX(-12deg); }
+.sblink-stagebody { flex: 1 1 auto; min-width: 0; }
+.sblink-stagebody .sblink-qmeta, .sblink-stagebody .sblink-conds, .sblink-stagebody .sblink-qacts { margin-left: 0; }
+.sblink-stagename { word-break: break-word; }
+.sblink-stage-done .sblink-stagenum { background: var(--sb-gold); color: #1A1200; }
+.sblink-stage-done .sblink-stagename { color: var(--sb-dim); text-decoration: line-through; }
+.sblink-stage-now { border-color: rgba(242, 193, 78, 0.6); }
+.sblink-stage-locked { opacity: 0.6; border-style: dashed; }
+.sblink-stage-locked .sblink-pts { color: var(--sb-dim); }
+.sblink-suggest { margin-bottom: 4px; }
+.sblink-suggest + .sblink-hint { margin-bottom: 12px; }
+
 /* motion off: everything stands still */
-.sblink-win:not(.sblink-moving) *, .sblink-fab:not(.sblink-moving) * { animation: none !important; }
+.sblink-win:not(.sblink-moving) *, .sblink-fab:not(.sblink-moving) *, .sblink-popwrap:not(.sblink-moving) * { animation: none !important; }

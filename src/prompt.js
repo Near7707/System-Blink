@@ -2,7 +2,7 @@
 // requests other extensions make in the background ("quiet") get nothing.
 
 import { settings, room } from './store.js';
-import { active, chatView, lastMine, todays, questState, lifeNow, ownerName } from './engine.js';
+import { active, chatView, lastMine, todays, questState, lifeNow, ownerName, goalNow, condsOf, suddenLeft } from './engine.js';
 
 const CHANCE = {
     off: 'Just know about them; do not push them into the story.',
@@ -23,8 +23,24 @@ export function buildPrompt(genType = 'normal') {
     lines.push('- The extension shows quest, point and shop notices itself: do not write such System notices in the reply. Keep writing any other status blocks (info blocks, trackers) as usual.');
     lines.push('- Points and bag items are managed by the extension. Do not give or take them in the story.');
     const open = todays(r).filter(q => questState(r, q, view).status === 'active');
-    if (open.length) {
-        lines.push(`- ${who}'s quests today: ${open.map(q => `"${q.name}"`).join('; ')}. ${CHANCE[s.questChance] || CHANCE.some}`);
+    const extra = [];
+    const g = r.goal ? goalNow(r, view) : null;
+    if (g?.current) {
+        const conds = condsOf(g.current);
+        const st = questState(r, g.current, view);
+        const left = conds ? conds.filter((_, i) => !st.condDone?.[i]) : null;
+        extra.push(`- ${who}'s main goal: "${r.goal.title}". Stage ${g.done + 1} of ${g.total} now: "${g.current.name}"${left ? ` (still to do: ${left.map(c => `"${c}"`).join('; ')})` : ''}.`);
+    }
+    for (const q of r.quests) {
+        if (q.kind === 'sudden' && questState(r, q, view).status === 'active') extra.push(`- ${who} accepted a sudden quest (${suddenLeft(q, view)} replies left): "${q.name}".`);
+        if (q.kind === 'hidden' && questState(r, q, view).status === 'active') extra.push(`- ${who} found a hidden quest: "${q.name}".`);
+    }
+    const anyQuest = open.length + extra.length > 0;
+    if (g?.complete) extra.push(`- ${who} has reached the main goal "${r.goal.title}".`);
+    if (open.length) lines.push(`- ${who}'s quests today: ${open.map(q => `"${q.name}"`).join('; ')}.`);
+    lines.push(...extra);
+    if (anyQuest) {
+        lines.push(`- ${CHANCE[s.questChance] || CHANCE.some}`);
         lines.push(`- Never do the quests for ${who}'s character. Only open chances; ${who} decides and acts.`);
     }
     const bag = r.bag.filter(b => b.count > 0 && b.kind === 'item');

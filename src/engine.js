@@ -63,35 +63,93 @@ export function rate(reward) { return Math.max(1, Math.round(Number(reward || 0)
 export function points(r = room(), view = chatView()) {
     if (!r) return 0;
     let earned = 0;
-    for (const e of r.ledger) if (!e.undone && alive(e.key, view)) earned += Number(e.pts) || 0;
+    const byId = new Map(r.quests.map(q => [q.id, q]));
+    const doneCache = new Map();
+    const isDone = (q) => { if (!doneCache.has(q.id)) doneCache.set(q.id, questState(r, q, view).status === 'done'); return doneCache.get(q.id); };
+    for (const e of r.ledger) {
+        if (e.undone || !alive(e.key, view)) continue;
+        // a single condition counts only once the whole quest is done
+        if (e.cond != null) { const q = byId.get(e.questId); if (!q || !isDone(q)) continue; }
+        earned += Number(e.pts) || 0;
+    }
     const spent = r.spend.reduce((a, x) => a + (Number(x.pts) || 0), 0);
     return Math.max(0, earned - spent);
 }
 
 // ---------- quests ----------
-export function todays(r = room()) { return (r?.quests || []).filter(q => q.day === r.day); }
+export const SUDDEN_LIMIT = 3;
+const SUDDEN_ODDS = { off: 0, rare: 1 / 20, normal: 1 / 10, often: 1 / 5 };
+const HIDDEN_ODDS = 1 / 8;
 
-/** { status: 'done' | 'active' | 'failed', entry, rerolled } */
-export function questState(r, q, view = chatView()) {
-    const entries = r.ledger.filter(e => e.questId === q.id && !e.undone);
-    const entry = entries.find(e => alive(e.key, view));
-    if (entry) return { status: 'done', entry };
-    const rerolled = entries.some(e => e.key != null && !view.index.has(e.key));
-    return { status: q.failed ? 'failed' : 'active', entry: null, rerolled };
+/** Today's daily quests. */
+export function todays(r = room()) { return (r?.quests || []).filter(q => q.kind === 'daily' && q.day === r.day); }
+
+export const condsOf = (q) => (Array.isArray(q?.conds) && q.conds.length > 1 ? q.conds : null);
+
+/** Replies left for an accepted sudden quest (re-rolled replies give their reply back). */
+export function suddenLeft(q, view = chatView()) {
+    const used = (q.seen || []).filter(k => view.index.has(k)).length;
+    return Math.max(0, (q.limit || SUDDEN_LIMIT) - used);
 }
 
+/**
+ * { status: 'done' | 'active' | 'failed' | 'offered' | 'declined', entry, rerolled, condDone: [bool] | null }
+ */
+export function questState(r, q, view = chatView()) {
+    const entries = r.ledger.filter(e => e.questId === q.id && !e.undone);
+    const live = entries.filter(e => alive(e.key, view));
+    const conds = condsOf(q);
+    const whole = live.find(e => e.cond == null);
+    const condDone = conds ? conds.map((_, i) => !!whole || live.some(e => e.cond === i)) : null;
+    if (whole || (condDone && condDone.every(Boolean))) {
+        const entry = whole || [...live].sort((a, b) => (b.pts || 0) - (a.pts || 0))[0];
+        return { status: 'done', entry, condDone };
+    }
+    const rerolled = entries.some(e => e.key != null && !view.index.has(e.key));
+    let status = q.failed ? 'failed' : 'active';
+    if (q.kind === 'sudden') {
+        if (q.state === 'offered') status = 'offered';
+        else if (q.state === 'declined') status = 'declined';
+        else if (suddenLeft(q, view) <= 0) status = 'failed';
+    }
+    return { status, entry: null, rerolled, condDone };
+}
+
+/** The main goal's stages (in order) and the one being worked on now. */
+export function goalStages(r = room()) {
+    if (!r?.goal) return [];
+    return r.quests.filter(q => q.kind === 'goal' && q.goalId === r.goal.id).sort((a, b) => a.stage - b.stage);
+}
+
+export function goalNow(r = room(), view = chatView()) {
+    const list = goalStages(r);
+    const done = list.filter(q => questState(r, q, view).status === 'done').length;
+    let idx = list.findIndex(q => questState(r, q, view).status !== 'done');
+    const current = idx >= 0 ? list[idx] : null;
+    const complete = !!r?.goal && done >= r.goal.total;
+    return { list, current, done, total: r?.goal?.total || 0, complete, pending: !!r?.goal && !current && !complete };
+}
+
+/** Every quest that can still be cleared now (what the story check asks about). */
 export function openQuests(r = room(), view = chatView()) {
-    return todays(r).filter(q => questState(r, q, view).status === 'active');
+    if (!r) return [];
+    const out = todays(r).filter(q => questState(r, q, view).status === 'active');
+    for (const q of r.quests) if ((q.kind === 'sudden' || q.kind === 'hidden') && questState(r, q, view).status === 'active') out.push(q);
+    const g = goalNow(r, view).current;
+    if (g) out.push(g);
+    return out;
 }
 
 export function clearByHand(questId) {
     const r = room();
     const q = r?.quests.find(x => x.id === questId);
     if (!q || questState(r, q).status !== 'active') return;
-    r.ledger.push({ id: uid('l'), questId, pts: rate(q.reward), key: null, reason: '', at: Date.now(), byHand: true });
-    tutorialStep(r, 1);
+    const pts = rate(q.reward);
+    r.ledger.push({ id: uid('l'), questId, cond: null, pts, key: null, reason: '', at: Date.now(), byHand: true });
+    if (q.kind === 'daily') tutorialStep(r, 1);
     save(); changed();
-    bus.emit('cleared', [{ q, pts: rate(q.reward) }]);
+    bus.emit('cleared', [{ q, pts }]);
+    if (q.kind === 'goal') bus.emit('stageCleared', q);
 }
 
 export function undoClear(questId) {
@@ -101,34 +159,200 @@ export function undoClear(questId) {
     save(); changed();
 }
 
+// ----- sudden quests -----
+/** Answer a sudden quest's popup (or its buttons in the Quests tab). */
+export function answerSudden(questId, accept) {
+    const r = room();
+    const q = r?.quests.find(x => x.id === questId && x.kind === 'sudden');
+    if (!q || q.state !== 'offered') return;
+    q.state = accept ? 'accepted' : 'declined';
+    q.acceptKey = lastReply()?.key || '';
+    q.seen = [];
+    save(); changed();
+}
+
+/**
+ * The dice for the newest reply: may a sudden quest come, may a hidden one be found?
+ * Rolled once per reply (a re-rolled reply is a new reply). Nothing during the tutorial.
+ */
+export function rollFor(r, key) {
+    if (!r || !key) return { sudden: false, hidden: false };
+    if (r.roll?.key === key) return r.roll;
+    const s = settings();
+    const rnd = typeof globalThis.__sblinkRandom === 'function' ? globalThis.__sblinkRandom : Math.random;
+    const view = chatView();
+    const busy = r.quests.some(q => q.kind === 'sudden' && ['offered', 'active'].includes(questState(r, q, view).status));
+    const tut = r.tutorial?.state === 'active';
+    let sudden = false;
+    if (!tut && !busy) {
+        if (r.suddenRest > 0) r.suddenRest -= 1;
+        else sudden = rnd() < (SUDDEN_ODDS[s.suddenFreq] || 0);
+    }
+    const hiddenOpen = r.quests.some(q => q.kind === 'hidden' && questState(r, q, view).status === 'active');
+    const hidden = !tut && s.hiddenOn && !hiddenOpen && rnd() < HIDDEN_ODDS;
+    r.roll = { key, sudden, hidden };
+    save();
+    return r.roll;
+}
+
+/** An accepted sudden quest is waiting: every reply must be checked so its time runs. */
+export function needsEveryCheck(r = room(), view = chatView()) {
+    return !!r?.quests.some(q => q.kind === 'sudden' && questState(r, q, view).status === 'active');
+}
+
+// ----- main goal -----
+/** Set (or replace) the main goal with its first stage. */
+export function setGoal({ title, total, stage }) {
+    const r = room();
+    if (!r) return null;
+    // stages of an old goal stay only if they gave points (so points are not lost)
+    r.quests = r.quests.filter(q => q.kind !== 'goal' || r.ledger.some(e => e.questId === q.id && !e.undone));
+    r.goal = { id: uid('g'), title: String(title || '').slice(0, 80), total: Math.max(2, Math.min(5, Math.round(Number(total) || 4))), done: false };
+    addStage(r, 0, stage);
+    save(); changed();
+    return r.goal;
+}
+
+/** Change the goal's title and the current stage's text (by hand). */
+export function editGoal({ title, total, stage }) {
+    const r = room();
+    if (!r?.goal) return;
+    r.goal.title = String(title || r.goal.title).slice(0, 80);
+    const st = goalStages(r);
+    const nowDone = st.filter(q => questState(r, q).status === 'done').length;
+    r.goal.total = Math.max(nowDone + 1, Math.min(5, Math.round(Number(total) || r.goal.total)));
+    const cur = goalNow(r).current;
+    if (cur && stage) {
+        cur.name = String(stage.name || cur.name).slice(0, 80);
+        const conds = (stage.conds || []).map(c => String(c || '').trim().slice(0, 80)).filter(Boolean);
+        cur.conds = conds.length > 1 ? conds : undefined;
+        if (stage.reward) cur.reward = stageReward(stage.reward, cur.stage);
+    }
+    save(); changed();
+}
+
+const stageReward = (v, i) => Math.min(300, Math.max(100, Math.round(Number(v) || (100 + i * 50))));
+
+function addStage(r, i, stage) {
+    const conds = (stage?.conds || []).map(c => String(c || '').trim().slice(0, 80)).filter(Boolean).slice(0, 3);
+    const q = {
+        id: uid('q'), kind: 'goal', goalId: r.goal.id, stage: i, name: String(stage?.name || '?').slice(0, 80),
+        reward: stageReward(stage?.reward, i), day: r.day, failed: false,
+    };
+    if (conds.length > 1) q.conds = conds;
+    r.quests = r.quests.filter(x => !(x.kind === 'goal' && x.goalId === r.goal.id && x.stage === i));
+    r.quests.push(q);
+    return q;
+}
+
+let makingStage = false;
+export const isMakingStage = () => makingStage;
+
+/** After a stage is cleared: the AI makes the next one from the story now (or the goal is complete). */
+export async function nextStage(chatId = currentChatId()) {
+    if (makingStage) return null;
+    makingStage = true;
+    try { return await makeNextStage(chatId); } finally { makingStage = false; changed(); }
+}
+
+async function makeNextStage(chatId) {
+    const r = room(chatId);
+    if (!active(r) || !r.goal) return null;
+    const g = goalNow(r);
+    if (g.complete) {
+        if (!r.goal.done) { r.goal.done = true; save(); changed(); bus.emit('goalDone', r.goal); }
+        return null;
+    }
+    if (!g.pending) return null;
+    const i = g.list.length;
+    let made = null;
+    try { made = await bus.ask('stage', { title: r.goal.title, done: g.list.map(q => q.name), index: i, total: r.goal.total }); } catch (e) { console.warn('[System Blink] stage', e); }
+    const rr = room(chatId);
+    if (!rr?.goal || !made?.name) { changed(); return null; }
+    if (goalNow(rr).list.length !== i) return null;
+    const q = addStage(rr, i, made);
+    save(); changed();
+    if (chatId === currentChatId()) bus.emit('stageArrived', q);
+    return q;
+}
+
 // ---------- AI checks (stored per AI reply) ----------
 const KEEP_CHECKS = 12;
 
-/** Store one check result for an AI reply and apply its quest clears. Returns the cleared quests. */
+/**
+ * Store one check result for an AI reply and apply what it found: quest (and condition) clears,
+ * sudden quests' time, a new sudden or hidden quest. Returns { cleared, failed, sudden, hidden, stages }.
+ */
 export function storeCheck(chatId, key, res) {
+    const out = { cleared: [], failed: [], sudden: null, hidden: null, stages: [] };
     const r = room(chatId);
-    if (!r) return [];
+    if (!r) return out;
     const view = chatView();
     r.checks = r.checks.filter(c => c.key !== key);
     const prev = lifeNow(r, view);
     const life = {}, lifeFrom = {};
     if (r.lifeMode) for (const [k, v] of Object.entries(res.life || {})) if (v && v !== prev[k]) { life[k] = v; lifeFrom[k] = prev[k] || ''; }
     const check = { key, t: Date.now(), quests: [], life, lifeFrom, days: res.days || 0, dayReason: res.dayReason || '', nextTime: res.nextTime || '', dismissed: false };
-    const cleared = [];
-    for (const { questId, reason } of res.quests || []) {
+    for (const { questId, cond = null, reason } of res.quests || []) {
         const q = r.quests.find(x => x.id === questId);
         if (!q || questState(r, q, view).status !== 'active') continue;
-        check.quests.push({ questId, reason });
-        const pts = rate(q.reward);
-        r.ledger.push({ id: uid('l'), questId, pts, key, reason, at: Date.now() });
-        cleared.push({ q, pts, reason });
+        const conds = condsOf(q);
+        const c = conds && cond != null && cond >= 0 && cond < conds.length ? cond : null;
+        if (conds && c == null) continue;
+        if (c != null && questState(r, q, view).condDone?.[c]) continue;
+        check.quests.push({ questId, cond: c, reason });
+        const entry = { id: uid('l'), questId, cond: c, pts: 0, key, reason, at: Date.now() };
+        r.ledger.push(entry);
+        if (questState(r, q, view).status === 'done') {
+            // the last condition (or the only one) carries the reward
+            const others = r.ledger.filter(e => e !== entry && e.questId === q.id && !e.undone && alive(e.key, view)).reduce((a, e) => a + (Number(e.pts) || 0), 0);
+            entry.pts = Math.max(0, rate(q.reward) - others);
+            out.cleared.push({ q, pts: entry.pts, reason });
+            if (q.kind === 'goal') out.stages.push(q);
+        }
     }
-    if (cleared.length) tutorialStep(r, 1);
+    if (out.cleared.some(c => c.q.kind === 'daily')) tutorialStep(r, 1);
+    // accepted sudden quests: this reply used one of their replies
+    for (const q of r.quests) {
+        if (q.kind !== 'sudden' || q.state !== 'accepted' || key === q.acceptKey) continue;
+        if (questState(r, q, view).status !== 'active') continue;
+        q.seen = [...(q.seen || []).filter(k => k !== key), key];
+        if (questState(r, q, view).status === 'failed') out.failed.push(q);
+    }
+    // something new
+    if (res.sudden?.name && r.roll?.key === key && r.roll.sudden) {
+        const q = { id: uid('q'), kind: 'sudden', name: String(res.sudden.name).slice(0, 80), reward: Math.min(100, Math.max(30, Math.round(Number(res.sudden.reward) || 50))), day: r.day, failed: false, state: 'offered', limit: SUDDEN_LIMIT, seen: [], fromKey: key };
+        r.quests.push(q);
+        r.suddenRest = settings().suddenRest;
+        out.sudden = q;
+    }
+    if (res.hidden?.name && r.roll?.key === key && r.roll.hidden) {
+        const q = { id: uid('q'), kind: 'hidden', name: String(res.hidden.name).slice(0, 80), reward: Math.min(200, Math.max(50, Math.round(Number(res.hidden.reward) || 100))), day: r.day, failed: false, why: String(res.hidden.why || '').slice(0, 120), fromKey: key };
+        r.quests.push(q);
+        out.hidden = q;
+    }
+    trimQuests(r);
     r.checks.push(check);
     if (r.checks.length > KEEP_CHECKS) r.checks.splice(0, r.checks.length - KEEP_CHECKS);
     r.lastCheckKey = key;
     save();
-    return cleared;
+    return out;
+}
+
+/** Sudden quests whose reply was re-rolled before they were answered go away; old finished ones too. */
+function trimQuests(r, view = chatView()) {
+    r.quests = r.quests.filter(q => !(q.kind === 'sudden' && q.state === 'offered' && q.fromKey && !view.index.has(q.fromKey)));
+    const extra = r.quests.filter(q => (q.kind === 'sudden' || q.kind === 'hidden') && q.day < r.day - 7 && !['active', 'offered'].includes(questState(r, q, view).status));
+    if (extra.length) r.quests = r.quests.filter(q => !extra.includes(q) || r.ledger.some(e => e.questId === q.id && !e.undone));
+}
+
+/** Run on redraws: drops a sudden offer whose reply is gone. */
+export function tidy() {
+    const r = room();
+    if (!r) return;
+    const n = r.quests.length;
+    trimQuests(r);
+    if (r.quests.length !== n) save();
 }
 
 export function checkFor(r, key) { return r?.checks.find(c => c.key === key) || null; }
@@ -157,7 +381,7 @@ export function suggestion(r = room(), view = chatView()) {
     if (!c) return null;
     const life = lifeNow(r, view);
     const days = Math.min(30, c.days);
-    return { key: c.key, days, reason: c.dayReason, fromDay: r.day, toDay: r.day + days, fromTime: life.time, nextTime: c.nextTime, open: openQuests(r, view) };
+    return { key: c.key, days, reason: c.dayReason, fromDay: r.day, toDay: r.day + days, fromTime: life.time, nextTime: c.nextTime, open: todays(r).filter(q => questState(r, q, view).status === 'active') };
 }
 
 export function dismissSuggestion(key) {
@@ -204,11 +428,11 @@ export async function newQuests(chatId = currentChatId(), { replaceOpen = false 
     const rr = room(chatId);
     if (!rr) return;
     let list = Array.isArray(made) && made.length ? made : fallbackQuests(want, keep.map(q => q.name));
-    list = list.slice(0, want).map(q => ({ id: uid('q'), name: String(q.name).slice(0, 80), reward: Math.min(30, Math.max(10, Math.round(Number(q.reward) || 10))), day: rr.day, failed: false }));
+    list = list.slice(0, want).map(q => ({ id: uid('q'), kind: 'daily', name: String(q.name).slice(0, 80), reward: Math.min(30, Math.max(10, Math.round(Number(q.reward) || 10))), day: rr.day, failed: false }));
     rr.quests.push(...list);
     // keep the list short: drop quests of old days beyond the last few
     const minDay = rr.day - 7;
-    rr.quests = rr.quests.filter(q => q.day >= minDay || rr.ledger.some(e => e.questId === q.id));
+    rr.quests = rr.quests.filter(q => q.kind !== 'daily' || q.day >= minDay || rr.ledger.some(e => e.questId === q.id));
     save(); changed();
     if (list.length && chatId === currentChatId()) bus.emit('questsArrived', list);
 }
@@ -360,7 +584,7 @@ function finishTutorial(r) {
     t.state = 'done';
     if (t.rewarded) return;
     t.rewarded = true;
-    r.ledger.push({ id: uid('l'), questId: 'tutorial', pts: TUTORIAL_REWARD, key: null, reason: '', at: Date.now() });
+    r.ledger.push({ id: uid('l'), questId: 'tutorial', cond: null, pts: TUTORIAL_REWARD, key: null, reason: '', at: Date.now() });
     const ko = langOf() === 'ko';
     r.bag.push({ id: uid('i'), name: ko ? '뽑기권' : 'Gacha Ticket', desc: ko ? '한 번 뽑을 수 있다. (2단계에서 열림)' : 'One draw. (Opens in stage 2.)', rarity: 'rare', icon: 'ticket', kind: 'gacha', count: 1 });
     const title = ko ? '튜토리얼 수료자' : 'Tutorial Graduate';

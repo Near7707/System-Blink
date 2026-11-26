@@ -2,7 +2,7 @@
 // both drawn from it and share the same saved values.
 
 import { t, setLanguage, lang } from './i18n.js';
-import { settings, save, room, currentChatId, device, saveDevice, exportData, importData, VERSION } from './store.js';
+import { settings, save, room, currentChatId, device, saveDevice, exportData, importData, oldBackup, VERSION } from './store.js';
 import { switchOn, switchOff, bus } from './engine.js';
 import { getProfiles, sentLog } from './ai.js';
 import { esc } from './ui/util.js';
@@ -25,6 +25,12 @@ export const SCHEMA = [
         { k: 'visibility', kind: 'choice', opts: ['me', 'all'] },
         { k: 'lifeToAI', kind: 'toggle' },
         { k: 'questChance', kind: 'choice', opts: ['off', 'some', 'more'] },
+    ] },
+    { group: 'quests', rows: [
+        { k: 'suddenFreq', kind: 'choice', opts: ['off', 'rare', 'normal', 'often'] },
+        { k: 'suddenRest', kind: 'choice', opts: [3, 5, 10], needs: 'suddenFreq' },
+        { k: 'hiddenOn', kind: 'toggle' },
+        { k: 'goalSuggest', kind: 'toggle' },
     ] },
     { group: 'screen', rows: [
         { k: 'lang', kind: 'choice', opts: ['en', 'ko'] },
@@ -50,6 +56,7 @@ export const SCHEMA = [
         { k: 'export', kind: 'button' },
         { k: 'import', kind: 'button' },
         { k: 'sent', kind: 'button' },
+        { k: 'oldBackup', kind: 'button', when: () => !!oldBackup() },
         { k: 'allOff', kind: 'button', danger: true },
     ] },
 ];
@@ -73,7 +80,7 @@ export function getValue(k) {
 const isDisabled = (row) => {
     if (row.scope === 'room' && !currentChatId()) return true;
     if (row.k === 'lifeMode' || row.k === 'world') return !room()?.on;
-    if (row.needs && !settings()[row.needs]) return true;
+    if (row.needs && (!settings()[row.needs] || settings()[row.needs] === 'off')) return true;
     return false;
 };
 
@@ -89,6 +96,7 @@ export async function setValue(k, v) {
         case 'lang': s.lang = v === 'ko' ? 'ko' : 'en'; s.langChosen = true; setLanguage(s.lang); save(); break;
         case 'btnSize': case 'btnRing': { const d = device(); d[k === 'btnSize' ? 'size' : 'ring'] = v; saveDevice(d); break; }
         case 'pointRate': s.pointRate = Number(v); save(); break;
+        case 'suddenRest': s.suddenRest = Number(v); save(); break;
         default: s[k] = v; save();
     }
     bus.emit('change');
@@ -98,6 +106,7 @@ export async function setValue(k, v) {
 export async function runButton(k) {
     if (k === 'btnReset') { resetPos(); globalThis.toastr?.info?.(t('btn_reset_done'), t('ext_name')); return; }
     if (k === 'export') return doExport();
+    if (k === 'oldBackup') return download(oldBackup(), 'system-blink-before-0.2.json');
     if (k === 'import') return doImport();
     if (k === 'sent') return hooks.showText(sentText());
     if (k === 'allOn') { settings().enabled = true; save(); hooks.turnedOn(); return; }
@@ -109,11 +118,16 @@ export async function runButton(k) {
 }
 
 function doExport() {
-    const blob = new Blob([JSON.stringify(exportData(), null, 1)], { type: 'application/json' });
+    const d = new Date();
+    download(exportData(), `system-blink-backup-${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}.json`);
+}
+
+function download(obj, name) {
+    if (!obj) return;
+    const blob = new Blob([JSON.stringify(obj, null, 1)], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    const d = new Date();
-    a.download = `system-blink-backup-${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}.json`;
+    a.download = name;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 }
@@ -156,7 +170,7 @@ function sentText() {
 // ---------- the ⚙ page in the window ----------
 const label = (row) => t(`set_${row.k}`);
 const hint = (row) => t(`set_${row.k}_hint`);
-const optLabel = (row, o) => (row.k === 'lang' ? (o === 'ko' ? '한국어' : 'English') : row.k === 'pointRate' ? `${o}×` : t(`opt_${row.k}_${o}`));
+const optLabel = (row, o) => (row.k === 'lang' ? (o === 'ko' ? '한국어' : 'English') : row.k === 'pointRate' ? `${o}×` : row.k === 'suddenRest' ? t('opt_suddenRest', { n: o }) : t(`opt_${row.k}_${o}`));
 
 let openGroups = new Set();
 export function toggleGroup(g) { if (openGroups.has(g)) openGroups.delete(g); else openGroups.add(g); }
@@ -168,7 +182,7 @@ export function gearHtml() {
         const isOpen = !g.folded || openGroups.has(g.group);
         out.push(`<div class="sblink-sec${g.folded ? ' sblink-fold' : ''}">
           <div class="sblink-sechead"${g.folded ? ` data-fold="${g.group}" role="button" tabindex="0"` : ''}><span class="sblink-dia">◆</span><span>${esc(t(`grp_${g.group}`))}</span><i class="sblink-secline"></i>${g.folded ? `<span class="sblink-foldmark">${isOpen ? '▴' : '▾'}</span>` : ''}</div>
-          ${isOpen ? g.rows.map(gearRow).join('') : ''}
+          ${isOpen ? g.rows.filter(r => !r.when || r.when()).map(gearRow).join('') : ''}
         </div>`);
     }
     if (!s.enabled) out.unshift(`<div class="sblink-note">${esc(t('off_where'))}</div>`);
@@ -214,7 +228,7 @@ export function panelHtml() {
     if (!s.enabled) out.push(`<div class="sblink-phint"><b>${esc(t('off_short'))}</b> <button type="button" class="menu_button sblink-pbtn" data-run="allOn">${esc(t('turn_on'))}</button></div>`);
     for (const g of SCHEMA) {
         out.push(`<h4 class="sblink-ph">${esc(t(`grp_${g.group}`))}</h4>`);
-        for (const row of g.rows) out.push(panelRow(row));
+        for (const row of g.rows) if (!row.when || row.when()) out.push(panelRow(row));
     }
     out.push(`<div class="sblink-phint">v${VERSION}</div>`);
     return out.join('');
@@ -246,7 +260,7 @@ export function panelChange(e) {
     const row = ROWS[k];
     let v;
     if (row.kind === 'toggle') v = el.checked;
-    else if (row.k === 'pointRate') v = Number(el.value);
+    else if (row.k === 'pointRate' || row.k === 'suddenRest') v = Number(el.value);
     else v = el.value;
     setValue(k, v);
 }

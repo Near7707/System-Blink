@@ -6,8 +6,8 @@ A game-like **System** for SillyTavern roleplay, in the style of Korean system n
 In the middle of the story, a translucent System window pops up — *"[Daily quests have arrived]"* —
 you clear quests in the story, earn points, and spend them in your own **personal shop**.
 
-Stage 1 (this version): the System window, the tutorial, daily quests, the shop, the bag and daily-life mode,
-in the **Game** voice.
+This version (0.2.0): the System window, the tutorial, daily quests, the shop, the bag and daily-life mode,
+in the **Game** voice — plus sudden quests, hidden quests, a main goal and quests with several conditions.
 
 ## Install
 
@@ -27,6 +27,14 @@ https://github.com/Near7707/System-Blink
   After each AI reply, one small side request reads the story and judges them. The reason (a quote from the story)
   is shown in the Quests tab. A wrong call? Tap the quest: *Clear by hand* / *Undo clear*.
   If you re-roll or delete that reply, the clear and its points go with it.
+- **Sudden quests**: after each reply the dice may bring one — *"[A sudden quest has appeared]"* —
+  with a limit of 3 replies. *[Accept]* or *[Decline]*. It comes in the same story-check request (no extra call).
+  A re-rolled reply gives its reply back to the count.
+- **Hidden quests**: now and then the check looks for something you did by chance and opens a purple hidden quest.
+  No time limit, no penalty.
+- **Main goal**: one big goal per chat in 3–5 stages. The AI suggests it from the character card (you can edit every line);
+  each next stage is made from the story when you clear the one before. A stage may have two conditions —
+  each is checked on its own, and the points come when both are done.
 - **Shop**: the *Daily* shop (4–6 random, unusual things, restocked every day) and the *Standing* shop
   (everyday items, plus an AI-made set with *[Restock]*). Prices by rarity: Common / Rare / Epic / Legendary.
 - **Bag**: *[Use]* an item and the AI hears about it in your next message's reply (and its re-rolls).
@@ -44,20 +52,22 @@ https://github.com/Near7707/System-Blink
   to keep other status blocks as usual, and never to do your quests for you.
 - No slash commands. Switched off, there are no popups, no AI calls and no cards.
 - Branch a chat → the System is copied. Rename a chat → it follows.
+- Updating from 0.1: saved data moves to the new format by itself. A copy of the old data is kept first in this
+  device's browser storage (*Data → Data from before 0.2* downloads it).
 
 ## Settings
 
 Everything is both in the window's ⚙ page and in SillyTavern's extension settings (same values).
 Highlights: point rate, story date / real time as the day basis, how often the story is checked
 (every reply / every 3rd / by hand), who sees the System, telling the AI the daily-life fields,
-opening chances for quests, a **world note** per chat (used when making quests and items), your own
+opening chances for quests, how often sudden quests come (and the rest after one), hidden quests on/off,
+the AI suggesting the main goal, a **world note** per chat (used when making quests and items), your own
 shop items, a connection profile for the side requests (a cheap, fast model is enough), backup / restore,
 and *What was sent*.
 
 ## Coming later
 
-Other voices (sponsor, threat) and spectator reactions, sudden and hidden quests, a main goal, gacha and skills,
-penalties and difficulty, and more world modes (regression, possession, hunter, martial arts, sentinel,
+Penalties and difficulty, gacha and skills, other voices (sponsor, threat) and spectator reactions, and more world modes (regression, possession, hunter, martial arts, sentinel,
 apocalypse, survival/competition, magic, streamer).
 
 ## Test page

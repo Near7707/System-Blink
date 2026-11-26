@@ -6,18 +6,22 @@ import { settings, room, currentChatId, save } from '../store.js';
 import {
     active, chatView, points, todays, questState, clearByHand, undoClear, lifeNow, setLife, nextDay, ownerName,
     standingItems, dailyReady, stockDaily, restockStanding, buy, useItem, tutorialStep, skipTutorial, switchOn, rate, bus,
+    goalNow, condsOf, suddenLeft, answerSudden, setGoal, editGoal, nextStage, isMakingStage,
 } from '../engine.js';
 import { runCheck, isChecking, cancelCheck } from '../ai.js';
 import { gearHtml, setValue, runButton, toggleGroup, ROWS, getValue } from '../prefs.js';
 import { icon, hexMark } from '../icons.js';
 import { esc, $id, viewport, safeInsets, isPhone, motionOn } from './util.js';
-import { notice, popup } from './pop.js';
+import { notice, popup, diamonds } from './pop.js';
 
 const TABS = ['status', 'shop', 'bag', 'quests'];
 const ui = {
     view: 'status', back: 'status', shopSide: 'daily', selShop: null, selBag: null, openQuest: null,
     modal: null, textKey: '', titlePick: false, stocking: false, restocking: false, checkingNow: false,
+    goalDraft: null, goalMode: 'new', suggesting: false, makingStage: false,
 };
+const SUBS = ['gear', 'text', 'life', 'goal', 'goalEdit'];
+const SUB_CODE = { gear: 'CONFIG', life: 'DAY', text: 'TEXT', goal: 'GOAL', goalEdit: 'GOAL' };
 let hooks = { opened: () => {}, closed: () => {} };
 export function setWinHooks(h) { hooks = { ...hooks, ...h }; }
 
@@ -30,7 +34,7 @@ const rarityTag = (r) => `<b class="sblink-rar ${RC[r] || ''}">${esc(t(`rarity_$
 export function openWindow(tab) {
     if (!settings().enabled) return openOffline();
     if (tab && TABS.includes(tab)) ui.view = tab;
-    if (!TABS.includes(ui.view) && !['gear', 'text', 'life'].includes(ui.view)) ui.view = 'status';
+    if (!TABS.includes(ui.view) && !SUBS.includes(ui.view)) ui.view = 'status';
     let win = $id('sblink-win');
     if (!win) {
         const shade = document.createElement('div');
@@ -59,7 +63,7 @@ export function closeWindow() {
     $id('sblink-win')?.remove();
     $id('sblink-shade')?.remove();
     ui.modal = null; ui.titlePick = false;
-    if (['gear', 'text', 'life'].includes(ui.view)) ui.view = ui.back || 'status';
+    if (SUBS.includes(ui.view)) ui.view = ui.back || 'status';
     hooks.closed();
 }
 
@@ -110,11 +114,13 @@ function render() {
     if (!win) return;
     const body = win.querySelector('.sblink-body');
     const keep = body && body.dataset.view === ui.view ? body.scrollTop : 0;
-    const inSub = ['gear', 'text', 'life'].includes(ui.view);
+    if (ui.view === 'goalEdit' && !ui.freshDraft) readDraft();
+    ui.freshDraft = false;
+    const inSub = SUBS.includes(ui.view);
     const r = room();
     const tabs = inSub
         ? `<button type="button" class="sblink-backbtn" data-act="back"><span class="sblink-ell">‹ ${esc(t('back'))}</span></button>
-           <div class="sblink-subtitle sblink-ell">${esc(t(`sub_${ui.view}`))} <span class="sblink-code">// ${ui.view === 'gear' ? 'CONFIG' : ui.view === 'life' ? 'DAY' : 'TEXT'}</span></div>`
+           <div class="sblink-subtitle sblink-ell">${esc(t(`sub_${ui.view}`))} <span class="sblink-code">// ${SUB_CODE[ui.view]}</span></div>`
         : TABS.map(k => `<button type="button" class="sblink-tab${ui.view === k ? ' sblink-tab-on' : ''}" data-tab="${k}"><span class="sblink-ell">${esc(t(`tab_${k}`))}</span></button>`).join('');
     const content = inSub ? subBody() : !currentChatId() ? empty(t('no_chat')) : !active(r) ? roomOff() : tabBody(r);
     win.innerHTML = `
@@ -270,6 +276,69 @@ function bagTab(r) {
 }
 
 // ----- quests -----
+const KIND_CLASS = { daily: '', sudden: ' sblink-k-sudden', hidden: ' sblink-k-hidden', goal: ' sblink-k-goal' };
+
+function questRow(r, q, view) {
+    const st = questState(r, q, view);
+    const isOpenRow = ui.openQuest === q.id;
+    const conds = condsOf(q);
+    const cls = { done: 'sblink-q-done', failed: 'sblink-q-failed', declined: 'sblink-q-failed' }[st.status] || 'sblink-q-active';
+    let extra = '';
+    if (st.status === 'done') {
+        extra += `<div class="sblink-qmeta"><span class="sblink-code sblink-clear">CLEAR</span> · ${esc(st.entry?.byHand || !st.entry?.key ? t('by_hand') : t('by_ai'))}</div>`;
+        if (!conds && st.entry?.reason) extra += `<div class="sblink-qwhy"><span class="sblink-code">${esc(t('evidence'))}</span> “${esc(st.entry.reason)}”</div>`;
+    } else if (st.status === 'offered') {
+        extra += `<div class="sblink-qmeta"><span class="sblink-code sblink-orange">${esc(t('limit_replies', { n: q.limit }))}</span></div>
+          <div class="sblink-qacts"><button type="button" class="sblink-btn sblink-btn-sm" data-sudden="no" data-id="${esc(q.id)}"><span class="sblink-ell">${esc(t('decline'))}</span></button>
+          <button type="button" class="sblink-btn sblink-btn-sm sblink-btn-main" data-sudden="yes" data-id="${esc(q.id)}"><span class="sblink-ell">${esc(t('accept'))}</span></button></div>`;
+    } else if (st.status === 'declined') extra += `<div class="sblink-qmeta">${esc(t('declined'))}</div>`;
+    else if (st.rerolled && !conds) {
+        extra += `<div class="sblink-qwhy sblink-rerolled">${icon('undo')}<span>${esc(t('rerolled', { pts: rate(q.reward) }))}</span></div>`;
+    } else if (st.status === 'failed') extra += `<div class="sblink-qmeta">${esc(q.kind === 'sudden' ? t('sudden_failed') : t('failed'))}</div>`;
+    else {
+        const bits = ['<span class="sblink-code">IN PROGRESS</span>'];
+        if (conds) bits.push(esc(t('cond_n', { n: st.condDone.filter(Boolean).length, all: conds.length })));
+        if (q.kind === 'sudden') bits.push(`<span class="sblink-orange">${esc(t('replies_left', { n: suddenLeft(q, view) }))}</span>${diamonds(suddenLeft(q, view), q.limit)}`);
+        if (q.kind === 'hidden') bits.push(esc(t('hidden_meta')));
+        extra += `<div class="sblink-qmeta">${bits.join(' · ')}</div>`;
+    }
+    if (conds && st.status !== 'offered') {
+        const live = r.ledger.filter(e => e.questId === q.id && !e.undone && view.index.has(e.key));
+        extra += `<div class="sblink-conds">${conds.map((c, i) => {
+            const e = live.find(x => x.cond === i);
+            return `<div class="sblink-cond${st.condDone[i] ? ' sblink-cond-on' : ''}"><i class="sblink-condbox"></i><span class="sblink-condtext">${esc(c)}</span></div>
+              ${e?.reason ? `<div class="sblink-qwhy sblink-condwhy"><span class="sblink-code">${esc(t('evidence'))}</span> 「${esc(e.reason)}」</div>` : ''}`;
+        }).join('')}</div>`;
+        if (st.rerolled && st.status !== 'done') extra += `<div class="sblink-qwhy sblink-rerolled">${icon('undo')}<span>${esc(t('rerolled_cond'))}</span></div>`;
+    }
+    let actions = '';
+    if (isOpenRow && st.status === 'done') actions = `<div class="sblink-qacts"><button type="button" class="sblink-btn sblink-btn-sm sblink-btn-danger" data-undo="${esc(q.id)}"><span class="sblink-ell">${esc(t('undo_clear'))}</span></button></div>`;
+    if (isOpenRow && st.status === 'active') actions = `<div class="sblink-qacts"><button type="button" class="sblink-btn sblink-btn-sm" data-clear="${esc(q.id)}"><span class="sblink-ell">${esc(t('clear_hand'))}</span></button></div>`;
+    return `<div class="sblink-quest ${cls}${KIND_CLASS[q.kind] || ''}${isOpenRow ? ' sblink-quest-open' : ''}" data-quest="${esc(q.id)}" role="button" tabindex="0">
+      <div class="sblink-qmain"><i class="sblink-qdia"></i><span class="sblink-qname">${esc(q.name)}</span><b class="sblink-pts">+${rate(q.reward)}P</b></div>
+      ${extra}${actions}</div>`;
+}
+
+const stageBar = (done, total, now) => `<div class="sblink-stagebar">${Array.from({ length: total }, (_, i) => `<i class="${i < done ? 'sblink-on' : i === now ? 'sblink-now' : ''}"></i>`).join('')}</div>`;
+
+function goalBlock(r, view) {
+    if (!r.goal) {
+        return sec(t('main_goal')) + `<div class="sblink-goalnone"><span class="sblink-ell">${esc(t('no_goal'))}</span>
+          <button type="button" class="sblink-btn sblink-btn-sm" data-act="goalNew"><span class="sblink-ell">${esc(t('goal_set'))}</span></button></div>`;
+    }
+    const g = goalNow(r, view);
+    let now = '';
+    if (g.complete) now = `<span class="sblink-code sblink-clear">CLEAR</span> <span class="sblink-ell">${esc(t('goal_complete'))}</span>`;
+    else if (g.current) now = `<span class="sblink-code">${esc(t('stage_now'))} ▸</span> <span class="sblink-ell">${esc(g.current.name)}</span><b class="sblink-pts">+${rate(g.current.reward)}P</b>`;
+    else now = `<span class="sblink-ell">${esc((ui.makingStage || isMakingStage()) ? t('stage_making') : t('stage_failed'))}</span>`;
+    return sec(t('main_goal'), `<span class="sblink-code">${esc(t('stage_of', { n: Math.min(g.done + (g.complete ? 0 : 1), g.total), all: g.total }))}</span>`)
+        + `<button type="button" class="sblink-goalcard" data-act="goalOpen">
+            ${stageBar(g.done, g.total, g.complete ? -1 : g.done)}
+            <div class="sblink-goaltitle">${esc(r.goal.title)}</div>
+            <div class="sblink-goalnow">${now}<span>▸</span></div>
+          </button>`;
+}
+
 function questsTab(r) {
     const view = chatView();
     let body = '';
@@ -280,29 +349,17 @@ function questsTab(r) {
             + `<div class="sblink-tutbar">${tut.done.map((d, i) => `<i class="${d ? 'sblink-on' : i === next ? 'sblink-now' : ''}"></i>`).join('')}</div>
                <div class="sblink-tutnext"><span class="sblink-code">${next >= 0 ? 'NEXT' : 'CLEAR'}</span> ▸ <span class="sblink-ell">${esc(next >= 0 ? t(`tut_${next}`) : '')}</span></div>`;
     }
+    body += goalBlock(r, view);
+    const shown = (q) => q.day === r.day || ['active', 'offered'].includes(questState(r, q, view).status);
+    const sudden = r.quests.filter(q => q.kind === 'sudden' && shown(q));
+    if (sudden.length) body += sec(t('sudden_quests')) + sudden.map(q => questRow(r, q, view)).join('');
     const list = todays(r);
     const done = list.filter(q => questState(r, q, view).status === 'done').length;
     body += sec(t('daily_quests'), `<span class="sblink-code">${esc(t('day_n', { n: r.day }))} · ${done} / ${list.length}</span>`);
     if (!list.length) body += `<div class="sblink-hint sblink-center">${esc(t('no_quests'))}</div>`;
-    for (const q of list) {
-        const st = questState(r, q, view);
-        const isOpenRow = ui.openQuest === q.id;
-        const cls = st.status === 'done' ? 'sblink-q-done' : st.status === 'failed' ? 'sblink-q-failed' : 'sblink-q-active';
-        let extra = '';
-        if (st.status === 'done') {
-            extra += `<div class="sblink-qmeta"><span class="sblink-code sblink-clear">CLEAR</span> · ${esc(st.entry.byHand ? t('by_hand') : st.entry.key ? t('by_ai') : t('by_hand'))}</div>`;
-            if (st.entry.reason) extra += `<div class="sblink-qwhy"><span class="sblink-code">${esc(t('evidence'))}</span> “${esc(st.entry.reason)}”</div>`;
-        } else if (st.rerolled) {
-            extra += `<div class="sblink-qwhy sblink-rerolled">${icon('undo')}<span>${esc(t('rerolled', { pts: rate(q.reward) }))}</span></div>`;
-        } else if (st.status === 'failed') extra += `<div class="sblink-qmeta">${esc(t('failed'))}</div>`;
-        else extra += `<div class="sblink-qmeta"><span class="sblink-code">IN PROGRESS</span></div>`;
-        let actions = '';
-        if (isOpenRow && st.status === 'done') actions = `<div class="sblink-qacts"><button type="button" class="sblink-btn sblink-btn-sm sblink-btn-danger" data-undo="${esc(q.id)}"><span class="sblink-ell">${esc(t('undo_clear'))}</span></button></div>`;
-        if (isOpenRow && st.status === 'active') actions = `<div class="sblink-qacts"><button type="button" class="sblink-btn sblink-btn-sm" data-clear="${esc(q.id)}"><span class="sblink-ell">${esc(t('clear_hand'))}</span></button></div>`;
-        body += `<div class="sblink-quest ${cls}${isOpenRow ? ' sblink-quest-open' : ''}" data-quest="${esc(q.id)}" role="button" tabindex="0">
-          <div class="sblink-qmain"><i class="sblink-qdia"></i><span class="sblink-qname">${esc(q.name)}</span><b class="sblink-pts">+${rate(q.reward)}P</b></div>
-          ${extra}${actions}</div>`;
-    }
+    body += list.map(q => questRow(r, q, view)).join('');
+    const hidden = r.quests.filter(q => q.kind === 'hidden' && shown(q));
+    if (hidden.length) body += sec(t('hidden_quests')) + hidden.map(q => questRow(r, q, view)).join('');
     body += `<div class="sblink-hint sblink-center">${esc(t('settle_note'))}</div>`;
     const checking = isChecking();
     const foot = checking
@@ -311,9 +368,115 @@ function questsTab(r) {
     return { body, foot };
 }
 
+// ----- the main goal (⑳) -----
+function goalPage() {
+    const r = room();
+    if (!r?.goal) return { body: '', foot: '' };
+    const view = chatView();
+    const g = goalNow(r, view);
+    let rows = '';
+    for (let i = 0; i < g.total; i++) {
+        const q = g.list[i];
+        const st = q ? questState(r, q, view) : null;
+        const locked = !q || (i > g.done);
+        const isNow = q && q === g.current;
+        let inner;
+        if (locked && !isNow) {
+            inner = `<div class="sblink-stagename">${esc(i === g.total - 1 ? t('stage_last_locked') : '???')}</div><div class="sblink-qmeta">${esc(!q && i === g.list.length && g.pending ? ((ui.makingStage || isMakingStage()) ? t('stage_making') : t('stage_failed')) : t('stage_locked'))}</div>`;
+        } else {
+            inner = `<div class="sblink-stagename">${esc(q.name)}</div>`;
+            const conds = condsOf(q);
+            if (st.status === 'done') inner += `<div class="sblink-qmeta"><span class="sblink-code sblink-clear">CLEAR</span></div>`;
+            else inner += `<div class="sblink-qmeta"><span class="sblink-code">IN PROGRESS</span>${conds ? ` · ${esc(t('cond_n', { n: st.condDone.filter(Boolean).length, all: conds.length }))}` : ''}</div>`;
+            if (conds) inner += `<div class="sblink-conds">${conds.map((c, k) => `<div class="sblink-cond${st.condDone[k] ? ' sblink-cond-on' : ''}"><i class="sblink-condbox"></i><span class="sblink-condtext">${esc(c)}</span></div>`).join('')}</div>`;
+            if (isNow && ui.openQuest === q.id) inner += `<div class="sblink-qacts"><button type="button" class="sblink-btn sblink-btn-sm" data-clear="${esc(q.id)}"><span class="sblink-ell">${esc(t('clear_hand'))}</span></button></div>`;
+            if (st.status === 'done' && ui.openQuest === q.id && i === g.done - 1) inner += `<div class="sblink-qacts"><button type="button" class="sblink-btn sblink-btn-sm sblink-btn-danger" data-undo="${esc(q.id)}"><span class="sblink-ell">${esc(t('undo_clear'))}</span></button></div>`;
+        }
+        const cls = st?.status === 'done' ? ' sblink-stage-done' : isNow ? ' sblink-stage-now' : ' sblink-stage-locked';
+        rows += `<div class="sblink-stage${cls}"${q && !locked ? ` data-quest="${esc(q.id)}" role="button" tabindex="0"` : ''}>
+          <span class="sblink-stagenum">${i + 1}</span><div class="sblink-stagebody">${inner}</div><b class="sblink-pts">${q ? `+${rate(q.reward)}P` : '+?P'}</b></div>`;
+    }
+    const retry = g.pending && !ui.makingStage && !isMakingStage() ? `<button type="button" class="sblink-btn sblink-btn-sm" data-act="stageRetry"><span class="sblink-ell">${esc(t('stage_retry'))}</span></button>` : '';
+    const body = `<div class="sblink-code">SYS.GOAL // MAIN</div>
+      <div class="sblink-goalbig">${esc(r.goal.title)}</div>
+      <div class="sblink-hint">${esc(t('goal_hint'))}</div>
+      ${sec(t('stages'), `<span class="sblink-code">${g.done} / ${g.total}</span>`)}${stageBar(g.done, g.total, g.complete ? -1 : g.done)}
+      <div class="sblink-stages">${rows}</div>${retry}
+      <div class="sblink-hint">${esc(t('goal_note'))}</div>`;
+    const foot = `<button type="button" class="sblink-btn" data-act="goalEdit"><span class="sblink-ell">${esc(t('goal_edit'))}</span></button>
+      <button type="button" class="sblink-btn sblink-btn-main" data-act="goalNew"><span class="sblink-ell">${esc(t('goal_new'))}</span></button>`;
+    return { body, foot };
+}
+
+function blankDraft() { return { title: '', total: 4, stage: { name: '', conds: ['', ''] } }; }
+
+function draftFromGoal(r) {
+    const g = goalNow(r);
+    const cur = g.current;
+    const conds = condsOf(cur) || [];
+    return { title: r.goal.title, total: r.goal.total, stage: { name: cur?.name || '', conds: [conds[0] || '', conds[1] || ''] }, minTotal: g.done + 1, hasStage: !!cur };
+}
+
+/** Keep what was typed when the window is drawn again. */
+function readDraft() {
+    const win = $id('sblink-win');
+    const d = ui.goalDraft;
+    if (!win || !d) return;
+    const v = (k) => win.querySelector(`[data-goal="${k}"]`);
+    if (v('title')) d.title = v('title').value;
+    if (v('name')) d.stage.name = v('name').value;
+    if (v('c0')) d.stage.conds[0] = v('c0').value;
+    if (v('c1')) d.stage.conds[1] = v('c1').value;
+}
+
+function goalEditPage() {
+    const d = ui.goalDraft || (ui.goalDraft = blankDraft());
+    const f = (k, label, val, ph) => `<label class="sblink-field"><span class="sblink-code">${esc(label)}</span><input class="sblink-input" data-goal="${k}" maxlength="80" value="${esc(val)}" placeholder="${esc(ph)}"></label>`;
+    const totals = [3, 4, 5].filter(n => n >= (d.minTotal || 2));
+    let body = '';
+    if (ui.goalMode === 'new' && settings().goalSuggest) {
+        body += `<button type="button" class="sblink-btn sblink-btn-wide sblink-suggest" data-act="goalSuggest"${ui.suggesting ? ' disabled' : ''}>${ui.suggesting ? hexMark('sblink-spin') : ''}<span class="sblink-ell">${esc(ui.suggesting ? t('goal_suggesting') : t('goal_suggest'))}</span></button>
+          <div class="sblink-hint">${esc(t('goal_suggest_hint'))}</div>`;
+    }
+    body += f('title', t('goal_title'), d.title, t('goal_title_ph'));
+    body += `<div class="sblink-row"><div class="sblink-rowlabel">${esc(t('goal_total'))}</div><div class="sblink-chips">${totals.map(n => `<button type="button" class="sblink-chip${n === d.total ? ' sblink-chip-on' : ''}" data-gtotal="${n}"><span class="sblink-ell">${esc(t('stage_count', { n }))}</span></button>`).join('')}</div></div>`;
+    if (ui.goalMode === 'new' || d.hasStage) {
+        body += sec(t('stage_now'));
+        body += f('name', t('stage_name'), d.stage.name, t('stage_name_ph'));
+        body += f('c0', t('cond_label', { n: 1 }), d.stage.conds[0] || '', t('cond_ph'));
+        body += f('c1', t('cond_label', { n: 2 }), d.stage.conds[1] || '', t('cond_ph2'));
+        body += `<div class="sblink-hint">${esc(t('cond_hint'))}</div>`;
+    }
+    const foot = `<button type="button" class="sblink-btn" data-act="back"><span class="sblink-ell">${esc(t('cancel'))}</span></button>
+      <button type="button" class="sblink-btn sblink-btn-main" data-act="goalSave"><span class="sblink-ell">${esc(t('save'))}</span></button>`;
+    return { body, foot };
+}
+
+async function suggestGoal() {
+    if (ui.suggesting) return;
+    ui.suggesting = true; render();
+    const chatId = currentChatId();
+    let made = null;
+    try { made = await bus.ask('goal', {}); } catch (e) { console.warn('[System Blink] goal', e); }
+    ui.suggesting = false;
+    if (currentChatId() !== chatId || ui.view !== 'goalEdit') return render();
+    if (!made) { notice(t('make_failed'), 'warn'); return render(); }
+    const c = made.stage?.conds || [];
+    ui.freshDraft = true;
+    ui.goalDraft = { title: made.title, total: [3, 4, 5].includes(Math.round(made.total)) ? Math.round(made.total) : 4, stage: { name: made.stage?.name || '', conds: [c[0] || '', c[1] || ''], reward: made.stage?.reward } };
+    render();
+}
+
+async function retryStage() {
+    ui.makingStage = true; render();
+    try { const q = await nextStage(); if (!q) notice(t('make_failed'), 'warn'); } finally { ui.makingStage = false; render(); }
+}
+
 // ----- sub pages -----
 function subBody() {
     if (ui.view === 'gear') return { body: gearHtml(), foot: '' };
+    if (ui.view === 'goal') return goalPage();
+    if (ui.view === 'goalEdit') return goalEditPage();
     if (ui.view === 'text') {
         const k = ui.textKey;
         const row = ROWS[k];
@@ -361,6 +524,8 @@ async function onClick(e) {
     if (d.shop) { ui.selShop = ui.selShop === d.shop ? null : d.shop; return render(); }
     if (d.bag) { ui.selBag = ui.selBag === d.bag ? null : d.bag; return render(); }
     if (d.title !== undefined) { const r = room(); if (r) { r.title = d.title; save(); } ui.titlePick = false; bus.emit('change'); return render(); }
+    if (d.sudden) { answerSudden(d.id, d.sudden === 'yes'); if (d.sudden === 'yes') notice(t('toast_accepted')); return render(); }
+    if (d.gtotal) { readDraft(); ui.goalDraft.total = Number(d.gtotal); return render(); }
     if (d.clear) { clearByHand(d.clear); ui.openQuest = null; return render(); }
     if (d.undo) { undoClear(d.undo); ui.openQuest = null; return render(); }
     if (d.quest && !e.target.closest('button')) { ui.openQuest = ui.openQuest === d.quest ? null : d.quest; return render(); }
@@ -369,7 +534,7 @@ async function onClick(e) {
         const row = ROWS[d.set];
         let v = d.val;
         if (row.kind === 'toggle') v = d.val === '1';
-        else if (row.k === 'pointRate') v = Number(v);
+        else if (row.k === 'pointRate' || row.k === 'suddenRest') v = Number(v);
         await setValue(d.set, v);
         return;
     }
@@ -378,7 +543,27 @@ async function onClick(e) {
     switch (d.act) {
         case 'close': return closeWindow();
         case 'gear': ui.back = TABS.includes(ui.view) ? ui.view : 'status'; ui.view = 'gear'; return render();
-        case 'back': ui.view = ui.view === 'text' ? 'gear' : (ui.back || 'status'); return render();
+        case 'back': ui.view = ui.view === 'text' ? 'gear' : ui.view === 'goalEdit' && room()?.goal ? 'goal' : (ui.back || 'status'); ui.goalDraft = null; return render();
+        case 'goalOpen': ui.back = 'quests'; ui.view = 'goal'; ui.openQuest = null; return render();
+        case 'goalEdit': { const r = room(); if (!r?.goal) return; ui.goalMode = 'edit'; ui.goalDraft = draftFromGoal(r); ui.freshDraft = true; ui.view = 'goalEdit'; return render(); }
+        case 'goalNew': {
+            const go = () => { ui.back = 'quests'; ui.goalMode = 'new'; ui.goalDraft = blankDraft(); ui.freshDraft = true; ui.view = 'goalEdit'; render(); if (settings().goalSuggest) suggestGoal(); };
+            if (room()?.goal && !goalNow().complete) { ui.modal = { title: t('goal_new_q'), body: t('goal_new_body'), yes: t('goal_new'), code: 'SYS.CONFIRM // GOAL', run: go }; return render(); }
+            return go();
+        }
+        case 'goalSuggest': return suggestGoal();
+        case 'stageRetry': return retryStage();
+        case 'goalSave': {
+            readDraft();
+            const d = ui.goalDraft;
+            const conds = d.stage.conds.map(x => x.trim()).filter(Boolean);
+            if (!d.title.trim() || ((ui.goalMode === 'new' || d.hasStage) && !d.stage.name.trim())) { notice(t('goal_need'), 'warn'); return; }
+            const stage = { name: d.stage.name.trim(), conds, reward: d.stage.reward };
+            if (ui.goalMode === 'new') setGoal({ title: d.title.trim(), total: d.total, stage });
+            else editGoal({ title: d.title.trim(), total: d.total, stage: d.hasStage ? stage : null });
+            ui.goalDraft = null; ui.view = 'goal'; ui.back = 'quests';
+            return render();
+        }
         case 'roomOn': await switchOn(); return render();
         case 'titlePick': ui.titlePick = !ui.titlePick; return render();
         case 'lifeEdit': ui.back = 'status'; ui.view = 'life'; return render();

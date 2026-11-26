@@ -3,7 +3,7 @@
 
 import { t } from '../i18n.js';
 import { settings, room } from '../store.js';
-import { active, chatView, suggestion, nextDay, dismissSuggestion, checkFor, isAI, todays } from '../engine.js';
+import { active, chatView, suggestion, nextDay, dismissSuggestion, checkFor, isAI, todays, questState, condsOf } from '../engine.js';
 import { icon, hexMark } from '../icons.js';
 import { esc, $id, typeIn, motionOn, inputTop, viewport } from './util.js';
 
@@ -46,7 +46,7 @@ function draw(p) {
     $id('sblink-pop')?.remove();
     const wrap = document.createElement('div');
     wrap.id = 'sblink-pop';
-    wrap.className = `sblink-popwrap${motionOn() ? ' sblink-moving' : ''}`;
+    wrap.className = `sblink-popwrap${motionOn() ? ' sblink-moving' : ''}${p.variant ? ` sblink-v-${p.variant}` : ''}`;
     const more = queue.length;
     const dots = more ? `<span class="sblink-popdots">${'◆'.repeat(1)}${'◇'.repeat(Math.min(4, more))}</span>` : '';
     const head = p.kind === 'awaken'
@@ -62,6 +62,7 @@ function draw(p) {
         ${p.lines?.length ? `<div class="sblink-poplines">${p.lines.map(l => `<div class="sblink-popline">${l}</div>`).join('')}</div>` : ''}
         ${p.body ? `<div class="sblink-popbody">${p.body}</div>` : ''}
         ${p.warn ? `<div class="sblink-popwarn">${esc(p.warn)}</div>` : ''}
+        ${p.calm ? `<div class="sblink-popcalm">${esc(p.calm)}</div>` : ''}
         <div class="sblink-popbtns">
           ${p.second ? `<button type="button" class="sblink-btn" data-pop="second"><span class="sblink-ell">${esc(p.second)}</span></button>` : ''}
           <button type="button" class="sblink-btn sblink-btn-main" data-pop="ok"><span class="sblink-ell">${esc(p.ok || t('ok'))}</span></button>
@@ -69,6 +70,8 @@ function draw(p) {
       </div>`;
     document.body.appendChild(wrap);
     typeIn(wrap.querySelector('.sblink-typed'), p.title || '');
+    const dec = wrap.querySelector('[data-decode]');
+    if (dec) decode(dec, dec.dataset.decode);
     wrap.addEventListener('click', (e) => {
         const b = e.target.closest('[data-pop]');
         if (b) closePopup(b.dataset.pop);
@@ -178,12 +181,19 @@ function cardFor(r, m, key, i) {
     if (isAI(m)) {
         const c = checkFor(r, key);
         if (!c) return '';
-        const qs = c.quests.map(x => ({ x, q: r.quests.find(q => q.id === x.questId) })).filter(o => o.q && r.ledger.some(e => e.key === key && e.questId === o.q.id && !e.undone));
+        const view = chatView();
+        const qs = c.quests.map(x => ({ x, q: r.quests.find(q => q.id === x.questId) }))
+            .map(o => ({ ...o, e: o.q && r.ledger.find(l => l.key === key && l.questId === o.q.id && (l.cond ?? null) === (o.x.cond ?? null) && !l.undone) }))
+            .filter(o => o.q && o.e);
         const life = Object.keys(c.life || {}).filter(k => ['time', 'weather', 'place', 'date'].includes(k));
         if (!qs.length && !life.length) return '';
-        const lines = qs.map(({ q }) => {
-            const e = r.ledger.find(l => l.key === key && l.questId === q.id && !l.undone);
-            return `<div class="sblink-cardline"><span class="sblink-dia">◆</span><span class="sblink-code sblink-clear">CLEAR</span><span class="sblink-ell">${esc(q.name)}</span><b class="sblink-pts">+${e?.pts || 0}P</b></div>`;
+        const lines = qs.map(({ q, x, e }) => {
+            const conds = condsOf(q);
+            const st = questState(r, q, view);
+            const name = conds && x.cond != null ? `${q.name} · ${conds[x.cond]}` : q.name;
+            const tag = st.status === 'done' ? '<span class="sblink-code sblink-clear">CLEAR</span>'
+                : `<span class="sblink-code">${(st.condDone || []).filter(Boolean).length} / ${conds?.length || 1}</span>`;
+            return `<div class="sblink-cardline"><span class="sblink-dia">◆</span>${tag}<span class="sblink-ell">${esc(name)}</span>${e.pts && st.status === 'done' ? `<b class="sblink-pts">+${e.pts}P</b>` : ''}</div>`;
         });
         if (life.length) {
             const bits = life.map(k => `${esc(t(`life_${k}`))} ${c.lifeFrom?.[k] ? `${esc(c.lifeFrom[k])} ▸ ` : ''}${esc(c.life[k])}`).join(' · ');
@@ -248,6 +258,63 @@ export function questsPopup(list) {
         lines: list.map(q => `<span class="sblink-dia">◆</span><span class="sblink-ell">${esc(q.name)}</span><b class="sblink-pts">${q.pts ? `+${q.pts}P` : ''}</b>`),
         warn: t('penalty_warn'), second: t('view_quests'), ok: t('ok'),
         onClose: (act) => { if (act === 'second') hooks.openTab('quests'); },
+    });
+}
+
+/** Broken letters that settle into the real text one by one. */
+function decode(el, text) {
+    if (!motionOn()) { el.textContent = text; return; }
+    const chars = Array.from(text);
+    let done = 0;
+    const step = () => {
+        if (!el.isConnected) return;
+        done += 1;
+        el.textContent = chars.map((c, i) => (i < done || c === ' ' ? c : '▒')).join('');
+        if (done < chars.length) setTimeout(step, 45);
+    };
+    el.textContent = chars.map(c => (c === ' ' ? ' ' : '▒')).join('');
+    setTimeout(step, 500);
+}
+
+const diamonds = (left, all) => `<span class="sblink-left">${Array.from({ length: all }, (_, i) => `<i class="${i < left ? 'sblink-on' : ''}"></i>`).join('')}</span>`;
+export { diamonds };
+
+/** ⑱ A sudden quest: [Decline] / [Accept]. */
+export function suddenPopup(q, pts, answer) {
+    popup({
+        variant: 'sudden', tag: 'SUDDEN', code: 'SYS.NOTICE // SUDDEN', title: t('pop_sudden'),
+        lines: [`<span class="sblink-dia">◆</span><span class="sblink-qtext">${esc(q.name)}</span><b class="sblink-pts">+${pts}P</b>`,
+            `<span class="sblink-code">${esc(t('limit_replies', { n: q.limit }))}</span>${diamonds(q.limit, q.limit)}`],
+        calm: t('decline_ok'), second: t('decline'), ok: t('accept'),
+        onClose: (act) => answer(act === 'ok'),
+    });
+}
+
+/** ㉑ A hidden quest was found. */
+export function hiddenPopup(q, pts) {
+    popup({
+        variant: 'hidden', tag: 'HIDDEN', code: 'SYS.NOTICE // HIDDEN', title: t('pop_hidden'),
+        lines: [`<span class="sblink-dia">◆</span><span class="sblink-qtext" data-decode="${esc(q.name)}"></span><b class="sblink-pts">+${pts}P</b>`],
+        body: `${q.why ? `<div><span class="sblink-code">${esc(t('found_why'))}</span> · ${esc(q.why)}</div>` : ''}<div>${esc(t('hidden_free'))}</div>`,
+        second: t('view_quests'), ok: t('ok'),
+        onClose: (act) => { if (act === 'second') hooks.openTab('quests'); },
+    });
+}
+
+/** A stage of the main goal was cleared. */
+export function stagePopup(q, pts) {
+    popup({
+        tag: 'CLEAR', code: 'SYS.GOAL // MAIN', title: t('pop_stage'),
+        lines: [`<span class="sblink-dia">◆</span><span class="sblink-qtext">${esc(q.name)}</span><b class="sblink-pts">+${pts}P</b>`],
+        body: esc(t('stage_next')),
+    });
+}
+
+export function goalDonePopup(g) {
+    popup({
+        tag: 'CLEAR', code: 'SYS.GOAL // COMPLETE', title: t('pop_goal_done'),
+        lines: [`<span class="sblink-dia">◆</span><span class="sblink-qtext">${esc(g.title)}</span>`],
+        body: esc(t('goal_done_body')),
     });
 }
 

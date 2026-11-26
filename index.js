@@ -5,7 +5,7 @@
 
 import { t, setLanguage, lang } from './src/i18n.js';
 import { ctx, settings, save, uiLang, room, currentChatId, onChatRenamed, onChatDeleted, copyFromParent, VERSION } from './src/store.js';
-import { bus, storeCheck, bindUses, markDelivered, active, checkRealDay, setLangGetter, skipTutorial, rate, lastReply, chatView } from './src/engine.js';
+import { bus, storeCheck, bindUses, markDelivered, active, checkRealDay, setLangGetter, skipTutorial, rate, lastReply, chatView, nextStage, tidy, answerSudden } from './src/engine.js';
 import { runCheck } from './src/ai.js';
 import { buildPrompt } from './src/prompt.js';
 import { panelHtml, panelChange, runButton, setPrefsHooks } from './src/prefs.js';
@@ -14,7 +14,7 @@ import { openWindow, closeWindow, isOpen, refreshWin, place as placeWin, setWinH
 import { mountFab, unmountFab, setFabHidden, setFabCount, setFabHooks, place as placeFab, endDrag } from './src/ui/fab.js';
 import {
     popup, notice, hold, waiting, setPopHooks, renderStrip, placeStrip, foldStrip, stripShown, renderCards, renderCardsSoon,
-    removeCards, clearPopups, questsPopup,
+    removeCards, clearPopups, questsPopup, suddenPopup, hiddenPopup, stagePopup, goalDonePopup,
 } from './src/ui/pop.js';
 import { esc } from './src/ui/util.js';
 
@@ -40,6 +40,7 @@ function redrawSoon() {
     redrawTimer = setTimeout(() => { try { redraw(); } catch (e) { console.error('[System Blink]', e); } }, 50);
 }
 function redraw() {
+    try { tidy(); } catch (e) { console.error('[System Blink]', e); }
     refreshWin();
     renderStrip();
     renderCards();
@@ -75,10 +76,19 @@ function checkSoon(force = false) {
         let res = null;
         try { res = await runCheck({ force }); } catch (e) { console.error('[System Blink] check', e); }
         if (!res || currentChatId() !== chatId) { redrawSoon(); return; }
-        const cleared = storeCheck(chatId, res.key, res);
-        for (const c of cleared) notice(t('toast_cleared', { pts: c.pts, name: c.q.name }));
+        const out = storeCheck(chatId, res.key, res);
+        afterCheck(out, chatId);
         redraw();
     }, force ? 0 : 700);
+}
+
+/** What a story check found, shown to me. */
+function afterCheck(out, chatId) {
+    for (const c of out.cleared) if (c.q.kind !== 'goal') notice(t('toast_cleared', { pts: c.pts, name: c.q.name }));
+    for (const q of out.failed) notice(t('toast_sudden_failed', { name: q.name }), 'warn');
+    for (const q of out.stages) { stagePopup(q, rate(q.reward)); nextStage(chatId); }
+    if (out.hidden) hiddenPopup(out.hidden, rate(out.hidden.reward));
+    if (out.sudden) suddenPopup(out.sudden, rate(out.sudden.reward), (yes) => { answerSudden(out.sudden.id, yes); if (yes) notice(t('toast_accepted')); });
 }
 
 // ---------- bus: things the rules tell the screen ----------
@@ -86,7 +96,10 @@ function wireBus() {
     bus.on('change', redrawSoon);
     bus.on('checkNow', () => checkSoon(true));
     bus.on('checkFailed', () => notice(t('check_failed'), 'warn'));
-    bus.on('cleared', (list) => { for (const c of list) notice(t('toast_cleared', { pts: c.pts, name: c.q.name })); });
+    bus.on('cleared', (list) => { for (const c of list) if (c.q.kind !== 'goal') notice(t('toast_cleared', { pts: c.pts, name: c.q.name })); });
+    bus.on('stageCleared', (q) => { stagePopup(q, rate(q.reward)); nextStage(); });
+    bus.on('stageArrived', (q) => notice(t('toast_stage_new', { name: q.name })));
+    bus.on('goalDone', (g) => goalDonePopup(g));
     bus.on('questsArrived', (list) => questsPopup(list.map(q => ({ name: q.name, pts: rate(q.reward) }))));
     bus.on('dayMoved', ({ days, failed }) => {
         notice(days === 1 ? t('toast_day') : t('toast_days', { n: days }));
