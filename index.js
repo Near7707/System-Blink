@@ -5,7 +5,7 @@
 
 import { t, setLanguage, lang } from './src/i18n.js';
 import { ctx, settings, save, uiLang, room, currentChatId, onChatRenamed, onChatDeleted, copyFromParent, VERSION } from './src/store.js';
-import { bus, storeCheck, bindUses, markDelivered, active, checkRealDay, setLangGetter, skipTutorial, rate, lastReply, chatView, nextStage, tidy, answerSudden } from './src/engine.js';
+import { bus, storeCheck, bindUses, markDelivered, active, checkRealDay, setLangGetter, skipTutorial, rate, lastReply, chatView, nextStage, tidy, answerSudden, penaltyFor } from './src/engine.js';
 import { runCheck } from './src/ai.js';
 import { buildPrompt } from './src/prompt.js';
 import { panelHtml, panelChange, runButton, setPrefsHooks } from './src/prefs.js';
@@ -14,7 +14,7 @@ import { openWindow, closeWindow, isOpen, refreshWin, place as placeWin, setWinH
 import { mountFab, unmountFab, setFabHidden, setFabCount, setFabHooks, place as placeFab, endDrag } from './src/ui/fab.js';
 import {
     popup, notice, hold, waiting, setPopHooks, renderStrip, placeStrip, foldStrip, stripShown, renderCards, renderCardsSoon,
-    removeCards, clearPopups, questsPopup, suddenPopup, hiddenPopup, stagePopup, goalDonePopup,
+    removeCards, clearPopups, questsPopup, suddenPopup, hiddenPopup, stagePopup, goalDonePopup, failPopup,
 } from './src/ui/pop.js';
 import { esc } from './src/ui/util.js';
 
@@ -82,13 +82,26 @@ function checkSoon(force = false) {
     }, force ? 0 : 700);
 }
 
+const clearedNotice = (c) => notice(c.q.kind === 'penalty' ? t('toast_lifted', { name: c.q.name }) : t('toast_cleared', { pts: c.pts, name: c.q.name }));
+
+function answered(id, yes) {
+    const pts = answerSudden(id, yes);
+    if (yes) notice(t('toast_accepted'));
+    else if (pts) notice(t('toast_declined', { pts }), 'warn');
+}
+
 /** What a story check found, shown to me. */
 function afterCheck(out, chatId) {
-    for (const c of out.cleared) if (c.q.kind !== 'goal') notice(t('toast_cleared', { pts: c.pts, name: c.q.name }));
-    for (const q of out.failed) notice(t('toast_sudden_failed', { name: q.name }), 'warn');
+    for (const c of out.cleared) if (c.q.kind !== 'goal') clearedNotice(c);
+    for (const q of out.failed) {
+        const pts = penaltyFor(q);
+        // Off / Easy: a small notice; from Normal up the failure costs points and gets the big popup
+        if (pts) failPopup({ items: [{ name: q.name, pts, kind: 'sudden' }] });
+        else notice(t('toast_sudden_failed', { name: q.name }), 'warn');
+    }
     for (const q of out.stages) { stagePopup(q, rate(q.reward)); nextStage(chatId); }
     if (out.hidden) hiddenPopup(out.hidden, rate(out.hidden.reward));
-    if (out.sudden) suddenPopup(out.sudden, rate(out.sudden.reward), (yes) => { answerSudden(out.sudden.id, yes); if (yes) notice(t('toast_accepted')); });
+    if (out.sudden) suddenPopup(out.sudden, rate(out.sudden.reward), (yes) => answered(out.sudden.id, yes));
 }
 
 // ---------- bus: things the rules tell the screen ----------
@@ -96,14 +109,16 @@ function wireBus() {
     bus.on('change', redrawSoon);
     bus.on('checkNow', () => checkSoon(true));
     bus.on('checkFailed', () => notice(t('check_failed'), 'warn'));
-    bus.on('cleared', (list) => { for (const c of list) if (c.q.kind !== 'goal') notice(t('toast_cleared', { pts: c.pts, name: c.q.name })); });
+    bus.on('cleared', (list) => { for (const c of list) if (c.q.kind !== 'goal') clearedNotice(c); });
     bus.on('stageCleared', (q) => { stagePopup(q, rate(q.reward)); nextStage(); });
     bus.on('stageArrived', (q) => notice(t('toast_stage_new', { name: q.name })));
     bus.on('goalDone', (g) => goalDonePopup(g));
-    bus.on('questsArrived', (list) => questsPopup(list.map(q => ({ name: q.name, pts: rate(q.reward) }))));
-    bus.on('dayMoved', ({ days, failed }) => {
+    bus.on('questsArrived', (list) => questsPopup(list.map(q => ({ name: q.name, pts: q.kind === 'penalty' ? 0 : rate(q.reward), penalty: q.kind === 'penalty', conds: q.conds || null, diff: q.diff }))));
+    bus.on('sudden', ({ id, yes }) => answered(id, yes));
+    bus.on('dayMoved', ({ days, failed, pen = [], debuff, lost }) => {
         notice(days === 1 ? t('toast_day') : t('toast_days', { n: days }));
-        if (failed.length) notice(t('toast_failed', { n: failed.length }), 'warn');
+        if (pen.length || debuff || lost) failPopup({ items: pen.map(x => ({ name: x.q.name, pts: x.pts, kind: 'daily' })), debuff, lost });
+        else if (failed.length) notice(t('toast_failed', { n: failed.length }), 'warn');
     });
     bus.on('awaken', () => {
         popup({

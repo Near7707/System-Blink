@@ -2,8 +2,8 @@
 // counts while that AI reply is still there, so re-rolling or deleting the reply takes it back.
 // Purchases, manual clears and the tutorial reward always count.
 
-import { ctx, settings, save, uid, room, currentChatId } from './store.js';
-import { standingDefaults, dailyPool, questPool, parseCustomShop, shuffle, TUTORIAL_REWARD } from './data.js';
+import { ctx, settings, save, uid, room, currentChatId, DIFFS } from './store.js';
+import { standingDefaults, dailyPool, questPool, penaltyPool, parseCustomShop, shuffle, TUTORIAL_REWARD } from './data.js';
 
 // ---------- a tiny event bus (engine → screens) ----------
 const subs = {};
@@ -62,19 +62,87 @@ export function rate(reward) { return Math.max(1, Math.round(Number(reward || 0)
 
 export function points(r = room(), view = chatView()) {
     if (!r) return 0;
-    let earned = 0;
     const byId = new Map(r.quests.map(q => [q.id, q]));
     const doneCache = new Map();
     const isDone = (q) => { if (!doneCache.has(q.id)) doneCache.set(q.id, questState(r, q, view).status === 'done'); return doneCache.get(q.id); };
+    const counted = [];
     for (const e of r.ledger) {
         if (e.undone || !alive(e.key, view)) continue;
         // a single condition counts only once the whole quest is done
         if (e.cond != null) { const q = byId.get(e.questId); if (!q || !isDone(q)) continue; }
-        earned += Number(e.pts) || 0;
+        counted.push(e);
     }
-    const spent = r.spend.reduce((a, x) => a + (Number(x.pts) || 0), 0);
-    return Math.max(0, earned - spent);
+    const pens = penaltyList(r, view);
+    if (!pens.length) {
+        const earned = counted.reduce((a, e) => a + (Number(e.pts) || 0), 0);
+        const spent = r.spend.reduce((a, x) => a + (Number(x.pts) || 0), 0);
+        return Math.max(0, earned - spent);
+    }
+    // with penalties: in time order, and a penalty never takes the points below 0
+    const evs = [];
+    for (const e of counted) evs.push({ at: Number(e.at) || 0, v: Number(e.pts) || 0 });
+    for (const x of r.spend) evs.push({ at: Number(x.at) || 0, v: -(Number(x.pts) || 0) });
+    for (const p of pens) evs.push({ at: Number(p.at) || 0, v: -p.pts, pen: true });
+    evs.sort((a, b) => a.at - b.at);
+    let bal = 0;
+    for (const x of evs) bal += x.pen ? -Math.min(-x.v, Math.max(0, bal)) : x.v;
+    return Math.max(0, bal);
 }
+
+// ---------- difficulty (2-B) ----------
+const MUL = { off: 1, easy: 0.8, normal: 1, hard: 1.5, hell: 2 };
+const SUDDEN_LIMITS = { off: 3, easy: 5, normal: 3, hard: 2, hell: 1 };
+const PENALIZED = ['normal', 'hard', 'hell'];
+export const PRICEY = 1.2;
+
+/** The difficulty that applies now in this chat (none during the tutorial). */
+export function diffOf(r = room()) {
+    if (!r || r.tutorial?.state === 'active') return 'off';
+    return DIFFS.includes(r.difficulty) ? r.difficulty : 'off';
+}
+export const diffAtLeast = (d, min) => DIFFS.indexOf(d) >= DIFFS.indexOf(min);
+const withMul = (base, diff) => Math.max(1, Math.round(base * (MUL[diff] || 1)));
+export const suddenLimitFor = (r = room()) => SUDDEN_LIMITS[diffOf(r)] || SUDDEN_LIMIT;
+
+/** What failing (or declining) this quest costs: half its reward, from Normal up. Others: 0. */
+export function penaltyFor(q) {
+    if (!q || !['daily', 'sudden'].includes(q.kind) || !PENALIZED.includes(q.diff)) return 0;
+    return Math.max(1, Math.round(rate(q.reward) / 2));
+}
+
+/** Penalties that count now. Worked out again every time, so a re-roll that revives a sudden quest gives its points back. */
+export function penaltyList(r = room(), view = chatView()) {
+    const out = [];
+    if (!r) return out;
+    for (const q of r.quests) {
+        const pts = penaltyFor(q);
+        if (!pts) continue;
+        if (q.kind === 'daily') { if (q.failed && q.failedAt) out.push({ q, pts, at: q.failedAt, why: 'daily' }); continue; }
+        const st = questState(r, q, view).status;
+        if (st === 'declined') out.push({ q, pts, at: q.answeredAt || 0, why: 'declined' });
+        else if (st === 'failed') out.push({ q, pts, at: q.failAt || q.answeredAt || 0, why: 'timeout' });
+    }
+    return out;
+}
+
+/** Debuffs in effect now: they last for their day, or until their penalty quest is cleared. */
+export function debuffsNow(r = room(), view = chatView()) {
+    if (!r) return [];
+    return (r.debuffs || []).filter(d => {
+        if (d.day !== r.day) return false;
+        const q = d.questId && r.quests.find(x => x.id === d.questId);
+        return !(q && questState(r, q, view).status === 'done');
+    });
+}
+
+/** A shop price with debuffs. */
+export function priceOf(item, r = room()) {
+    const p = Number(item?.price) || 0;
+    return debuffsNow(r).some(d => d.kind === 'pricey') ? Math.ceil(p * PRICEY) : p;
+}
+
+/** Penalty quests of today. */
+export function penaltyQuests(r = room()) { return (r?.quests || []).filter(q => q.kind === 'penalty' && q.day === r.day); }
 
 // ---------- quests ----------
 export const SUDDEN_LIMIT = 3;
@@ -134,6 +202,7 @@ export function goalNow(r = room(), view = chatView()) {
 export function openQuests(r = room(), view = chatView()) {
     if (!r) return [];
     const out = todays(r).filter(q => questState(r, q, view).status === 'active');
+    for (const q of penaltyQuests(r)) if (questState(r, q, view).status === 'active') out.push(q);
     for (const q of r.quests) if ((q.kind === 'sudden' || q.kind === 'hidden') && questState(r, q, view).status === 'active') out.push(q);
     const g = goalNow(r, view).current;
     if (g) out.push(g);
@@ -144,7 +213,7 @@ export function clearByHand(questId) {
     const r = room();
     const q = r?.quests.find(x => x.id === questId);
     if (!q || questState(r, q).status !== 'active') return;
-    const pts = rate(q.reward);
+    const pts = q.kind === 'penalty' ? 0 : rate(q.reward);
     r.ledger.push({ id: uid('l'), questId, cond: null, pts, key: null, reason: '', at: Date.now(), byHand: true });
     if (q.kind === 'daily') tutorialStep(r, 1);
     save(); changed();
@@ -167,8 +236,10 @@ export function answerSudden(questId, accept) {
     if (!q || q.state !== 'offered') return;
     q.state = accept ? 'accepted' : 'declined';
     q.acceptKey = lastReply()?.key || '';
+    q.answeredAt = Date.now();
     q.seen = [];
     save(); changed();
+    return accept ? 0 : penaltyFor(q);
 }
 
 /**
@@ -226,7 +297,7 @@ export function editGoal({ title, total, stage }) {
         cur.name = String(stage.name || cur.name).slice(0, 80);
         const conds = (stage.conds || []).map(c => String(c || '').trim().slice(0, 80)).filter(Boolean);
         cur.conds = conds.length > 1 ? conds : undefined;
-        if (stage.reward) cur.reward = stageReward(stage.reward, cur.stage);
+        if (stage.reward) cur.reward = withMul(stageReward(stage.reward, cur.stage), cur.diff || 'off');
     }
     save(); changed();
 }
@@ -235,9 +306,10 @@ const stageReward = (v, i) => Math.min(300, Math.max(100, Math.round(Number(v) |
 
 function addStage(r, i, stage) {
     const conds = (stage?.conds || []).map(c => String(c || '').trim().slice(0, 80)).filter(Boolean).slice(0, 3);
+    const diff = diffOf(r);
     const q = {
         id: uid('q'), kind: 'goal', goalId: r.goal.id, stage: i, name: String(stage?.name || '?').slice(0, 80),
-        reward: stageReward(stage?.reward, i), day: r.day, failed: false,
+        reward: withMul(stageReward(stage?.reward, i), diff), day: r.day, failed: false, diff,
     };
     if (conds.length > 1) q.conds = conds;
     r.quests = r.quests.filter(x => !(x.kind === 'goal' && x.goalId === r.goal.id && x.stage === i));
@@ -306,7 +378,7 @@ export function storeCheck(chatId, key, res) {
         if (questState(r, q, view).status === 'done') {
             // the last condition (or the only one) carries the reward
             const others = r.ledger.filter(e => e !== entry && e.questId === q.id && !e.undone && alive(e.key, view)).reduce((a, e) => a + (Number(e.pts) || 0), 0);
-            entry.pts = Math.max(0, rate(q.reward) - others);
+            entry.pts = q.kind === 'penalty' ? 0 : Math.max(0, rate(q.reward) - others);
             out.cleared.push({ q, pts: entry.pts, reason });
             if (q.kind === 'goal') out.stages.push(q);
         }
@@ -321,17 +393,19 @@ export function storeCheck(chatId, key, res) {
         if (q.kind !== 'sudden' || q.state !== 'accepted' || key === q.acceptKey) continue;
         if (questState(r, q, view).status !== 'active') continue;
         q.seen = [...(q.seen || []).filter(k => k !== key), key];
-        if (questState(r, q, view).status === 'failed') out.failed.push(q);
+        if (questState(r, q, view).status === 'failed') { q.failAt = Date.now(); out.failed.push(q); }
     }
     // something new
     if (res.sudden?.name && r.roll?.key === key && r.roll.sudden) {
-        const q = { id: uid('q'), kind: 'sudden', name: String(res.sudden.name).slice(0, 80), reward: Math.min(100, Math.max(30, Math.round(Number(res.sudden.reward) || 50))), day: r.day, failed: false, state: 'offered', limit: SUDDEN_LIMIT, seen: [], fromKey: key };
+        const diff = diffOf(r);
+        const q = { id: uid('q'), kind: 'sudden', name: String(res.sudden.name).slice(0, 80), reward: withMul(Math.min(100, Math.max(30, Math.round(Number(res.sudden.reward) || 50))), diff), day: r.day, failed: false, state: 'offered', limit: SUDDEN_LIMITS[diff] || SUDDEN_LIMIT, seen: [], fromKey: key, diff };
         r.quests.push(q);
         r.suddenRest = settings().suddenRest;
         out.sudden = q;
     }
     if (res.hidden?.name && r.roll?.key === key && r.roll.hidden) {
-        const q = { id: uid('q'), kind: 'hidden', name: String(res.hidden.name).slice(0, 80), reward: Math.min(200, Math.max(50, Math.round(Number(res.hidden.reward) || 100))), day: r.day, failed: false, why: String(res.hidden.why || '').slice(0, 120), fromKey: key };
+        const diff = diffOf(r);
+        const q = { id: uid('q'), kind: 'hidden', name: String(res.hidden.name).slice(0, 80), reward: withMul(Math.min(200, Math.max(50, Math.round(Number(res.hidden.reward) || 100))), diff), day: r.day, failed: false, why: String(res.hidden.why || '').slice(0, 120), fromKey: key, diff };
         r.quests.push(q);
         out.hidden = q;
     }
@@ -346,7 +420,8 @@ export function storeCheck(chatId, key, res) {
 /** Sudden quests whose reply was re-rolled before they were answered go away; old finished ones too. */
 function trimQuests(r, view = chatView()) {
     r.quests = r.quests.filter(q => !(q.kind === 'sudden' && q.state === 'offered' && q.fromKey && !view.index.has(q.fromKey)));
-    const extra = r.quests.filter(q => (q.kind === 'sudden' || q.kind === 'hidden') && q.day < r.day - 7 && !['active', 'offered'].includes(questState(r, q, view).status));
+    // (failed / declined sudden quests that cost points stay: the points are worked out from them)
+    const extra = r.quests.filter(q => ['sudden', 'hidden', 'penalty'].includes(q.kind) && q.day < r.day - 7 && !['active', 'offered'].includes(questState(r, q, view).status) && !penaltyFor(q));
     if (extra.length) r.quests = r.quests.filter(q => !extra.includes(q) || r.ledger.some(e => e.questId === q.id && !e.undone));
 }
 
@@ -404,36 +479,80 @@ export async function nextDay(days = 1, nextTime = '') {
     if (!active(r)) return;
     days = Math.max(1, Math.min(30, Math.round(days) || 1));
     const view = chatView();
+    const now = Date.now();
     const failed = [];
-    for (const q of todays(r)) if (questState(r, q, view).status === 'active') { q.failed = true; failed.push(q); }
+    for (const q of todays(r)) if (questState(r, q, view).status === 'active') { q.failed = true; q.failedAt = now; failed.push(q); }
+    // a penalty quest not done just ends with its day (no more penalty)
+    for (const q of penaltyQuests(r)) if (questState(r, q, view).status === 'active') q.failed = true;
+    // penalties of the quests' own difficulty: Normal = points, Hard = + a debuff, Hell = + an item lost
+    const pen = failed.map(q => ({ q, pts: penaltyFor(q) })).filter(x => x.pts);
+    const worst = failed.reduce((a, q) => (DIFFS.indexOf(q.diff) > DIFFS.indexOf(a) ? q.diff : a), 'off');
     for (const c of r.checks) c.dismissed = true;
     r.day += days;
+    let debuff = null, lost = null;
+    if (diffAtLeast(worst, 'hard')) {
+        debuff = { id: uid('x'), kind: 'pricey', day: r.day, questId: null, at: now };
+        r.debuffs.push(debuff);
+        if (r.debuffs.length > 30) r.debuffs.splice(0, r.debuffs.length - 30);
+    }
+    if (worst === 'hell') lost = loseItem(r);
     const life = lifeNow(r, view);
-    r.lifeBase = { ...life, time: nextTime || '', at: Date.now() };
-    r.notes.push({ id: uid('n'), text: days === 1 ? 'One day has passed in the story. It is now a new day.' : `${days} days have passed in the story.`, at: Date.now(), deliveredKey: null });
+    r.lifeBase = { ...life, time: nextTime || '', at: now };
+    r.notes.push({ id: uid('n'), text: days === 1 ? 'One day has passed in the story. It is now a new day.' : `${days} days have passed in the story.`, at: now, deliveredKey: null });
+    if (lost) r.notes.push({ id: uid('n'), text: `As a penalty, the System took "${lost.name}" from ${ownerName(r)}'s bag. It is gone.`, at: now, deliveredKey: null });
     if (r.notes.length > 10) r.notes.splice(0, r.notes.length - 10);
     r.shop.daily = []; r.shop.dailyDay = 0;
     save(); changed();
-    bus.emit('dayMoved', { days, failed });
-    await newQuests(chatId);
+    bus.emit('dayMoved', { days, failed, pen, debuff, lost });
+    await newQuests(chatId, { penalty: !!debuff });
+}
+
+/** Hell: one random thing leaves the bag (not a gacha ticket). */
+function loseItem(r) {
+    const list = r.bag.filter(b => b.count > 0 && b.kind !== 'gacha');
+    if (!list.length) return null;
+    const rnd = typeof globalThis.__sblinkRandom === 'function' ? globalThis.__sblinkRandom : Math.random;
+    const b = list[Math.min(list.length - 1, Math.floor(rnd() * list.length))];
+    b.count -= 1;
+    if (b.count <= 0) r.bag = r.bag.filter(x => x !== b);
+    const lost = { id: uid('o'), name: b.name, icon: b.icon, rarity: b.rarity, at: Date.now(), day: r.day };
+    r.lost.push(lost);
+    if (r.lost.length > 60) r.lost.splice(0, r.lost.length - 60);
+    return lost;
 }
 
 /** Today's daily quests (2–3). AI first, the built-in list if that fails. */
-export async function newQuests(chatId = currentChatId(), { replaceOpen = false } = {}) {
+export async function newQuests(chatId = currentChatId(), { replaceOpen = false, penalty = false } = {}) {
     const r = room(chatId);
     if (!active(r)) return;
     const view = chatView();
     const keep = replaceOpen ? todays(r).filter(q => questState(r, q, view).status !== 'active') : todays(r);
     if (!replaceOpen && keep.length) return;
     const want = replaceOpen ? Math.max(1, todays(r).length - keep.length) : 3;
-    if (replaceOpen) r.quests = r.quests.filter(q => q.day !== r.day || keep.includes(q));
+    // keep only daily quests of today that stay; other kinds are not touched
+    if (replaceOpen) r.quests = r.quests.filter(q => q.kind !== 'daily' || q.day !== r.day || keep.includes(q));
+    const diff = diffOf(r);
     let made = null;
-    try { made = await bus.ask('quests', { count: want, avoid: keep.map(q => q.name) }); } catch (e) { console.warn('[System Blink] quests', e); }
+    try { made = await bus.ask('quests', { count: want, avoid: keep.map(q => q.name), diff, penalty }); } catch (e) { console.warn('[System Blink] quests', e); }
     const rr = room(chatId);
     if (!rr) return;
-    let list = Array.isArray(made) && made.length ? made : fallbackQuests(want, keep.map(q => q.name));
-    list = list.slice(0, want).map(q => ({ id: uid('q'), kind: 'daily', name: String(q.name).slice(0, 80), reward: Math.min(30, Math.max(10, Math.round(Number(q.reward) || 10))), day: rr.day, failed: false }));
+    const aiList = Array.isArray(made) ? made : made?.quests;
+    let list = Array.isArray(aiList) && aiList.length ? aiList : fallbackQuests(want, keep.map(q => q.name), diff);
+    list = list.slice(0, want).map(q => {
+        const o = { id: uid('q'), kind: 'daily', name: String(q.name).slice(0, 80), reward: withMul(Math.min(30, Math.max(10, Math.round(Number(q.reward) || 10))), diff), day: rr.day, failed: false, diff };
+        const conds = cleanConds(q.conds, diff);
+        if (conds) o.conds = conds;
+        return o;
+    });
     rr.quests.push(...list);
+    if (penalty) {
+        const name = made?.penalty?.name || shuffle(penaltyPool(langOf()))[0].name;
+        const pq = { id: uid('q'), kind: 'penalty', name: String(name).slice(0, 80), reward: 0, day: rr.day, failed: false };
+        rr.quests.push(pq);
+        const d = [...rr.debuffs].reverse().find(x => x.day === rr.day && !x.questId);
+        if (d) d.questId = pq.id;
+        list.push(pq);
+    }
     // keep the list short: drop quests of old days beyond the last few
     const minDay = rr.day - 7;
     rr.quests = rr.quests.filter(q => q.kind !== 'daily' || q.day >= minDay || rr.ledger.some(e => e.questId === q.id));
@@ -441,10 +560,28 @@ export async function newQuests(chatId = currentChatId(), { replaceOpen = false 
     if (list.length && chatId === currentChatId()) bus.emit('questsArrived', list);
 }
 
-export function fallbackQuests(n, avoid = []) {
+/** Conditions as the difficulty wants them: Hard 2, Hell 2–3, else none. */
+function cleanConds(conds, diff) {
+    if (!diffAtLeast(diff, 'hard') || !Array.isArray(conds)) return undefined;
+    const list = conds.map(c => String(c || '').trim().slice(0, 80)).filter(Boolean).slice(0, diff === 'hell' ? 3 : 2);
+    return list.length > 1 ? list : undefined;
+}
+
+/** The built-in list. Hard and Hell join two or three of them into one quest with conditions. */
+export function fallbackQuests(n, avoid = [], diff = 'off') {
     const s = settings();
-    const pool = questPool(langOf(), s.oddities).filter(q => !avoid.includes(q.name));
-    return shuffle(pool).slice(0, n);
+    const pool = shuffle(questPool(langOf(), s.oddities).filter(q => !avoid.includes(q.name)));
+    if (!diffAtLeast(diff, 'hard')) return pool.slice(0, n);
+    const out = [];
+    let i = 0;
+    for (let j = 0; j < n; j++) {
+        const k = diff === 'hell' && Math.random() < 0.5 ? 3 : 2;
+        const parts = pool.slice(i, i + k);
+        i += k;
+        if (parts.length < 2) break;
+        out.push({ name: parts.map(p => p.name).join(' + '), conds: parts.map(p => p.name), reward: Math.min(30, parts.reduce((a, p) => a + p.reward, 0)) });
+    }
+    return out;
 }
 
 let langGetter = () => 'en';
@@ -524,13 +661,14 @@ export function cleanItem(x) {
 export function buy(item, where) {
     const r = room();
     if (!active(r) || !item) return false;
-    if (points(r) < item.price) return false;
+    const price = priceOf(item, r);
+    if (points(r) < price) return false;
     if (where === 'daily') {
         const d = r.shop.daily.find(x => x.id === item.id);
         if (!d || d.sold) return false;
         d.sold = true;
     }
-    r.spend.push({ id: uid('p'), what: item.name, pts: item.price, at: Date.now() });
+    r.spend.push({ id: uid('p'), what: item.name, pts: price, at: Date.now() });
     const same = r.bag.find(b => b.name === item.name && b.kind === (item.kind || 'item') && b.rarity === item.rarity);
     if (same) same.count += 1;
     else r.bag.push({ id: uid('i'), name: item.name, desc: item.desc, rarity: item.rarity, icon: item.icon, kind: item.kind || 'item', count: 1 });

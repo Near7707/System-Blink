@@ -64,6 +64,16 @@ export function questPool(lang, oddities = true) {
     return DAILY_QUESTS.filter(q => oddities || !q[3]).map(q => ({ name: lang === 'ko' ? q[1] : q[0], reward: q[2], odd: !!q[3] }));
 }
 
+// Penalty quests (Hard / Hell): a small chore that lifts the debuff. No reward.
+const PENALTY_QUESTS = [
+    ['Do a chore you have been putting off', '미뤄 둔 집안일 하나 하기'],
+    ['Run an errand for someone', '누군가의 심부름 하기'],
+    ['Apologize to someone for something', '누군가에게 사과하기'],
+    ['Clean something until it shines', '무언가를 반짝이게 닦기'],
+];
+
+export function penaltyPool(lang) { return PENALTY_QUESTS.map(q => ({ name: lang === 'ko' ? q[1] : q[0] })); }
+
 /** "name | price | rarity | description" lines → shop items. */
 export function parseCustomShop(text) {
     const out = [];

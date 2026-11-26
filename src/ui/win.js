@@ -6,7 +6,8 @@ import { settings, room, currentChatId, save } from '../store.js';
 import {
     active, chatView, points, todays, questState, clearByHand, undoClear, lifeNow, setLife, nextDay, ownerName,
     standingItems, dailyReady, stockDaily, restockStanding, buy, useItem, tutorialStep, skipTutorial, switchOn, rate, bus,
-    goalNow, condsOf, suddenLeft, answerSudden, setGoal, editGoal, nextStage, isMakingStage,
+    goalNow, condsOf, suddenLeft, setGoal, editGoal, nextStage, isMakingStage,
+    diffOf, penaltyFor, debuffsNow, priceOf, penaltyQuests,
 } from '../engine.js';
 import { runCheck, isChecking, cancelCheck } from '../ai.js';
 import { gearHtml, setValue, runButton, toggleGroup, ROWS, getValue } from '../prefs.js';
@@ -118,6 +119,7 @@ function render() {
     ui.freshDraft = false;
     const inSub = SUBS.includes(ui.view);
     const r = room();
+    win.classList.toggle('sblink-hell', active(r) && diffOf(r) === 'hell');
     const tabs = inSub
         ? `<button type="button" class="sblink-backbtn" data-act="back"><span class="sblink-ell">‹ ${esc(t('back'))}</span></button>
            <div class="sblink-subtitle sblink-ell">${esc(t(`sub_${ui.view}`))} <span class="sblink-code">// ${SUB_CODE[ui.view]}</span></div>`
@@ -172,7 +174,8 @@ function statusTab(r) {
     const life = lifeNow(r, view);
     const cell = (k, ic) => `<div class="sblink-lifecell">${icon(ic)}<div class="sblink-code">${esc(t(`life_${k}`))}</div><div class="sblink-lifeval sblink-ell">${esc(k === 'date' ? (life.date || t('day_n', { n: r.day })) : (life[k] || '—'))}</div></div>`;
     const titles = r.titles || [];
-    let body = `
+    let body = diffOf(r) === 'hell' ? `<div class="sblink-hellband"><span class="sblink-hellchip">HELL</span><span class="sblink-ell">${esc(t('hell_band'))}</span></div>` : '';
+    body += `
       <div class="sblink-me">
         <div class="sblink-avatar"><i class="sblink-dashhex"></i>${hexMark('sblink-avhex')}<span class="sblink-initial">${esc(initial)}</span></div>
         <div class="sblink-meinfo">
@@ -192,6 +195,12 @@ function statusTab(r) {
         body += sec(t('life'), `<span class="sblink-code">${esc(t('day_n', { n: r.day }))}</span>`)
             + `<div class="sblink-lifegrid">${cell('date', 'calendar')}${cell('time', 'clock')}${cell('weather', 'sun')}${cell('place', 'pin')}</div>
                <div class="sblink-plan"><span class="sblink-code">${esc(t('life_plan'))}</span><span class="sblink-ell">${esc(life.plan || t('no_plan'))}</span></div>`;
+    }
+    const debuffs = debuffsNow(r, view);
+    if (debuffs.length) {
+        body += sec(t('debuffs'), `<span class="sblink-code sblink-neg">${debuffs.length}</span>`)
+            + debuffs.map(d => `<div class="sblink-debuff"><span class="sblink-debuffchip">${esc(t('debuff_pricey'))}</span><span class="sblink-code sblink-neg">${esc(t('until_next_day'))}</span></div>`).join('')
+            + (debuffs.some(d => d.questId) ? `<div class="sblink-hint">${esc(t('debuff_lift_hint'))}</div>` : '');
     }
     body += `<button type="button" class="sblink-todayline" data-tab="quests"><span class="sblink-code">TODAY</span><span class="sblink-ell">${esc(t('today_quests', { done, all: list.length }))}</span><span>▸</span></button>`;
     body += sec(t('skills')) + `<div class="sblink-hint sblink-lockline">${esc(t('skills_soon'))}</div>`;
@@ -213,12 +222,14 @@ function shopTab(r) {
         } else items = r.shop.daily;
     } else items = standingItems(r);
     const sel = items.find(x => x.id === ui.selShop) || null;
+    const pricey = debuffsNow(r).some(d => d.kind === 'pricey');
+    const selPrice = sel ? priceOf(sel, r) : 0;
     const cells = items.map(x => `
       <button type="button" class="sblink-cell ${RC[x.rarity] || ''}${x.id === ui.selShop ? ' sblink-cell-on' : ''}${x.sold ? ' sblink-sold' : ''}" data-shop="${esc(x.id)}">
         <span class="sblink-cellrar">${esc(t(`rarity_${x.rarity}`).slice(0, lang() === 'ko' ? 2 : 1))}</span>
         ${x.limited ? `<span class="sblink-limited">${esc(t('limited'))}</span>` : ''}
         ${icon(x.icon, 'sblink-cellico')}
-        <span class="sblink-price">${x.price}P</span>
+        <span class="sblink-price${pricey ? ' sblink-neg' : ''}">${priceOf(x, r)}P${pricey ? '▴' : ''}</span>
         ${x.sold ? '<span class="sblink-stamp">SOLD</span>' : ''}
       </button>`).join('');
     const top = `<div class="sblink-shoptop">
@@ -228,10 +239,11 @@ function shopTab(r) {
         </div>
         <b class="sblink-ptsmall">${pts}P</b>
       </div>
-      <div class="sblink-hint sblink-ell">${esc(side === 'daily' ? t('shop_next') : t('shop_standing_hint'))}</div>`;
+      <div class="sblink-hint sblink-ell">${esc(side === 'daily' ? t('shop_next') : t('shop_standing_hint'))}</div>
+      ${pricey ? `<div class="sblink-debuff"><span class="sblink-debuffchip">${esc(t('debuff_pricey'))}</span><span class="sblink-code sblink-neg">${esc(t('until_next_day'))}</span></div>` : ''}`;
     let detail = '';
     if (sel) {
-        const after = pts - sel.price;
+        const after = pts - selPrice;
         detail = `<div class="sblink-detail">
           <div class="sblink-detailhead">${icon(sel.icon, 'sblink-bigico')}<div><div class="sblink-detailname">${esc(sel.name)}</div>${rarityTag(sel.rarity)}</div></div>
           <div class="sblink-detaildesc">${esc(sel.desc || '')}</div>
@@ -239,10 +251,10 @@ function shopTab(r) {
         </div>`;
     } else if (items.length) detail = `<div class="sblink-hint sblink-center">${esc(t('pick_item'))}</div>`;
     const grid = items.length ? `<div class="sblink-grid sblink-grid3">${cells}</div>` : status || `<div class="sblink-hint sblink-center">${esc(t('shop_empty'))}</div>`;
-    const can = sel && !sel.sold && pts >= sel.price;
+    const can = sel && !sel.sold && pts >= selPrice;
     let foot = '';
     if (side === 'standing') foot += `<button type="button" class="sblink-btn" data-act="restock"${ui.restocking ? ' disabled' : ''}><span class="sblink-ell">${esc(ui.restocking ? t('stocking') : t('restock'))}</span></button>`;
-    foot += `<button type="button" class="sblink-btn sblink-btn-main" data-act="buy"${can ? '' : ' disabled'}><span class="sblink-ell">${esc(!sel ? t('buy') : sel.sold ? t('sold_out') : pts < sel.price ? t('not_enough') : `${t('buy')} ${sel.price}P`)}</span></button>`;
+    foot += `<button type="button" class="sblink-btn sblink-btn-main" data-act="buy"${can ? '' : ' disabled'}><span class="sblink-ell">${esc(!sel ? t('buy') : sel.sold ? t('sold_out') : pts < selPrice ? t('not_enough') : `${t('buy')} ${selPrice}P`)}</span></button>`;
     return { body: top + grid + detail, foot };
 }
 
@@ -276,30 +288,34 @@ function bagTab(r) {
 }
 
 // ----- quests -----
-const KIND_CLASS = { daily: '', sudden: ' sblink-k-sudden', hidden: ' sblink-k-hidden', goal: ' sblink-k-goal' };
+const KIND_CLASS = { daily: '', sudden: ' sblink-k-sudden', hidden: ' sblink-k-hidden', goal: ' sblink-k-goal', penalty: ' sblink-k-penalty' };
 
 function questRow(r, q, view) {
     const st = questState(r, q, view);
     const isOpenRow = ui.openQuest === q.id;
     const conds = condsOf(q);
     const cls = { done: 'sblink-q-done', failed: 'sblink-q-failed', declined: 'sblink-q-failed' }[st.status] || 'sblink-q-active';
+    const pen = penaltyFor(q);
+    const penBit = (on) => (on && pen ? ` · <b class="sblink-neg">−${pen}P</b>` : '');
     let extra = '';
     if (st.status === 'done') {
         extra += `<div class="sblink-qmeta"><span class="sblink-code sblink-clear">CLEAR</span> · ${esc(st.entry?.byHand || !st.entry?.key ? t('by_hand') : t('by_ai'))}</div>`;
         if (!conds && st.entry?.reason) extra += `<div class="sblink-qwhy"><span class="sblink-code">${esc(t('evidence'))}</span> “${esc(st.entry.reason)}”</div>`;
     } else if (st.status === 'offered') {
-        extra += `<div class="sblink-qmeta"><span class="sblink-code sblink-orange">${esc(t('limit_replies', { n: q.limit }))}</span></div>
+        extra += `<div class="sblink-qmeta"><span class="sblink-code sblink-orange">${esc(t('limit_replies', { n: q.limit }))}</span>${pen ? ` · <span class="sblink-neg">${esc(t('penalty_short', { pts: pen }))}</span>` : ''}</div>
           <div class="sblink-qacts"><button type="button" class="sblink-btn sblink-btn-sm" data-sudden="no" data-id="${esc(q.id)}"><span class="sblink-ell">${esc(t('decline'))}</span></button>
           <button type="button" class="sblink-btn sblink-btn-sm sblink-btn-main" data-sudden="yes" data-id="${esc(q.id)}"><span class="sblink-ell">${esc(t('accept'))}</span></button></div>`;
-    } else if (st.status === 'declined') extra += `<div class="sblink-qmeta">${esc(t('declined'))}</div>`;
+    } else if (st.status === 'declined') extra += `<div class="sblink-qmeta">${esc(t('declined'))}${penBit(true)}</div>`;
     else if (st.rerolled && !conds) {
         extra += `<div class="sblink-qwhy sblink-rerolled">${icon('undo')}<span>${esc(t('rerolled', { pts: rate(q.reward) }))}</span></div>`;
-    } else if (st.status === 'failed') extra += `<div class="sblink-qmeta">${esc(q.kind === 'sudden' ? t('sudden_failed') : t('failed'))}</div>`;
+    } else if (st.status === 'failed') extra += `<div class="sblink-qmeta">${esc(q.kind === 'sudden' ? t('sudden_failed') : q.kind === 'penalty' ? t('penalty_expired') : t('failed'))}${penBit(q.kind === 'sudden' || !!q.failedAt)}</div>`;
     else {
         const bits = ['<span class="sblink-code">IN PROGRESS</span>'];
         if (conds) bits.push(esc(t('cond_n', { n: st.condDone.filter(Boolean).length, all: conds.length })));
         if (q.kind === 'sudden') bits.push(`<span class="sblink-orange">${esc(t('replies_left', { n: suddenLeft(q, view) }))}</span>${diamonds(suddenLeft(q, view), q.limit)}`);
         if (q.kind === 'hidden') bits.push(esc(t('hidden_meta')));
+        if (q.kind === 'penalty') bits.push(esc(t('penalty_meta')));
+        if (q.kind === 'daily' && pen) bits.push(`<span class="sblink-neg">${esc(t('fail_cost', { pts: pen }))}</span>`);
         extra += `<div class="sblink-qmeta">${bits.join(' · ')}</div>`;
     }
     if (conds && st.status !== 'offered') {
@@ -315,7 +331,7 @@ function questRow(r, q, view) {
     if (isOpenRow && st.status === 'done') actions = `<div class="sblink-qacts"><button type="button" class="sblink-btn sblink-btn-sm sblink-btn-danger" data-undo="${esc(q.id)}"><span class="sblink-ell">${esc(t('undo_clear'))}</span></button></div>`;
     if (isOpenRow && st.status === 'active') actions = `<div class="sblink-qacts"><button type="button" class="sblink-btn sblink-btn-sm" data-clear="${esc(q.id)}"><span class="sblink-ell">${esc(t('clear_hand'))}</span></button></div>`;
     return `<div class="sblink-quest ${cls}${KIND_CLASS[q.kind] || ''}${isOpenRow ? ' sblink-quest-open' : ''}" data-quest="${esc(q.id)}" role="button" tabindex="0">
-      <div class="sblink-qmain"><i class="sblink-qdia"></i><span class="sblink-qname">${esc(q.name)}</span><b class="sblink-pts">+${rate(q.reward)}P</b></div>
+      <div class="sblink-qmain"><i class="sblink-qdia"></i><span class="sblink-qname">${esc(q.name)}</span>${q.kind === 'penalty' ? `<b class="sblink-pts sblink-dimpts">${esc(t('no_reward'))}</b>` : `<b class="sblink-pts">+${rate(q.reward)}P</b>`}</div>
       ${extra}${actions}</div>`;
 }
 
@@ -353,6 +369,8 @@ function questsTab(r) {
     const shown = (q) => q.day === r.day || ['active', 'offered'].includes(questState(r, q, view).status);
     const sudden = r.quests.filter(q => q.kind === 'sudden' && shown(q));
     if (sudden.length) body += sec(t('sudden_quests')) + sudden.map(q => questRow(r, q, view)).join('');
+    const pq = penaltyQuests(r);
+    if (pq.length) body += sec(t('penalty_quests')) + pq.map(q => questRow(r, q, view)).join('');
     const list = todays(r);
     const done = list.filter(q => questState(r, q, view).status === 'done').length;
     body += sec(t('daily_quests'), `<span class="sblink-code">${esc(t('day_n', { n: r.day }))} · ${done} / ${list.length}</span>`);
@@ -524,7 +542,7 @@ async function onClick(e) {
     if (d.shop) { ui.selShop = ui.selShop === d.shop ? null : d.shop; return render(); }
     if (d.bag) { ui.selBag = ui.selBag === d.bag ? null : d.bag; return render(); }
     if (d.title !== undefined) { const r = room(); if (r) { r.title = d.title; save(); } ui.titlePick = false; bus.emit('change'); return render(); }
-    if (d.sudden) { answerSudden(d.id, d.sudden === 'yes'); if (d.sudden === 'yes') notice(t('toast_accepted')); return render(); }
+    if (d.sudden) { bus.emit('sudden', { id: d.id, yes: d.sudden === 'yes' }); return render(); }
     if (d.gtotal) { readDraft(); ui.goalDraft.total = Number(d.gtotal); return render(); }
     if (d.clear) { clearByHand(d.clear); ui.openQuest = null; return render(); }
     if (d.undo) { undoClear(d.undo); ui.openQuest = null; return render(); }
@@ -589,7 +607,7 @@ async function onClick(e) {
             const it = items.find(x => x.id === ui.selShop);
             if (!it) return;
             ui.modal = {
-                title: t('buy_q', { name: it.name }), body: `${points(r)}P → ${points(r) - it.price}P`, yes: `${t('buy')} ${it.price}P`, code: 'SYS.CONFIRM // SHOP',
+                title: t('buy_q', { name: it.name }), body: `${points(r)}P → ${points(r) - priceOf(it, r)}P`, yes: `${t('buy')} ${priceOf(it, r)}P`, code: 'SYS.CONFIRM // SHOP',
                 run: async () => { if (buy(it, ui.shopSide)) notice(t('bought', { name: it.name })); else notice(t('not_enough')); render(); },
             };
             return render();

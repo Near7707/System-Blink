@@ -113,6 +113,22 @@ const EN = {
     log_cond: 'CONDITION', log_kind_daily: 'Daily', log_kind_sudden: 'Sudden', log_kind_hidden: 'Hidden', log_kind_goal: 'Main goal',
     log_sudden: 'Sudden quest appeared', log_hidden: 'Hidden quest found', log_note: 'Told to the AI', log_loose: 'Not tied to a message',
     log_answer_offered: 'not answered', log_answer_accepted: 'accepted', log_answer_declined: 'declined',
+    // stage 2-B: difficulty and penalties
+    set_difficulty: 'Difficulty',
+    set_difficulty_hint: 'Changes only how hard quests are, their rewards and penalties. The mood still comes from the story. It never changes by itself, and judging is the same at every level. New quests follow it; quests you already have keep theirs. Not during the tutorial. Points never go below 0.',
+    opt_difficulty_off: 'Off', opt_difficulty_easy: 'Easy', opt_difficulty_normal: 'Normal', opt_difficulty_hard: 'Hard', opt_difficulty_hell: 'Hell',
+    opt_difficulty_off_d: 'As before · no penalties', opt_difficulty_easy_d: 'Doable right away · reward ×0.8 · no penalties',
+    opt_difficulty_normal_d: 'A little effort · reward ×1 · fail = −half', opt_difficulty_hard_d: '2 conditions · reward ×1.5 · −half + debuff',
+    opt_difficulty_hell_d: '2–3 conditions · ×2 · −half + debuff + lose an item',
+    warn_normal: 'Not clearing one costs half its reward.', warn_hard: 'Not clearing one costs half its reward, and a debuff follows.',
+    warn_hell: 'Not clearing one costs half its reward, a debuff follows and something leaves your bag.', no_penalty: 'No penalty for not clearing them.',
+    penalty_line: '[Decline or run out of time: −{pts}P]', penalty_short: 'Decline / time out −{pts}P', fail_cost: 'Fail −{pts}P',
+    toast_declined: 'Declined · −{pts}P', settle_penalty: 'Penalties for unfinished quests',
+    pop_failed: '[You failed to clear the quest]', debuff_pricey: '[Rip-off] Shop prices +20%', until_next_day: 'until the next day',
+    penalty_quest_line: 'Clear it to lift the debuff · no reward', lost_item: '[{name} has vanished from your bag]', floor_zero: 'Points never go below 0.',
+    hell_band: '[Hell difficulty is in effect]', debuffs: 'Debuffs', debuff_lift_hint: 'Clear the penalty quest to lift it.',
+    penalty_quests: 'Penalty', penalty_meta: 'Lifts the debuff', penalty_expired: 'Ended with the day', no_reward: 'No reward',
+    toast_lifted: 'Debuff lifted · {name}', log_kind_penalty: 'Penalty', log_debuff: 'Debuff', log_lifted: 'lifted', log_lost: 'Lost from the bag',
 };
 
 const KO = {
@@ -219,6 +235,21 @@ const KO = {
     log_cond: '조건', log_kind_daily: '일일', log_kind_sudden: '돌발', log_kind_hidden: '히든', log_kind_goal: '메인 목표',
     log_sudden: '돌발 퀘스트 발생', log_hidden: '히든 퀘스트 발견', log_note: 'AI에게 알림', log_loose: '메시지에 묶이지 않은 기록',
     log_answer_offered: '답 안 함', log_answer_accepted: '수락', log_answer_declined: '거절',
+    set_difficulty: '난이도',
+    set_difficulty_hint: '퀘스트 어려움·보상·페널티만 바꿔요. 분위기는 이야기를 따라가요. 저절로 바뀌지 않고, 판정 기준은 모든 단계가 같아요. 새로 오는 퀘스트부터 적용되고, 이미 받은 퀘스트는 그대로예요. 튜토리얼 중엔 적용 안 돼요. 포인트는 0 밑으로 내려가지 않아요.',
+    opt_difficulty_off: 'Off', opt_difficulty_easy: 'Easy', opt_difficulty_normal: 'Normal', opt_difficulty_hard: 'Hard', opt_difficulty_hell: 'Hell',
+    opt_difficulty_off_d: '지금과 같음 · 페널티 없음', opt_difficulty_easy_d: '바로 할 수 있는 것 · 보상 ×0.8 · 페널티 없음',
+    opt_difficulty_normal_d: '조금 움직여야 함 · 보상 ×1 · 실패 시 절반 차감', opt_difficulty_hard_d: '조건 2개 · 보상 ×1.5 · 차감 + 디버프',
+    opt_difficulty_hell_d: '조건 2~3개 · 보상 ×2 · 차감 + 디버프 + 물건 잃기',
+    warn_normal: '완료하지 못하면 보상의 절반이 차감됩니다.', warn_hard: '완료하지 못하면 보상의 절반이 차감되고 디버프가 걸립니다.',
+    warn_hell: '완료하지 못하면 보상의 절반이 차감되고, 디버프가 걸리고, 가방에서 물건 하나를 잃습니다.', no_penalty: '못 깨도 페널티는 없어요.',
+    penalty_line: '[거절하거나 시간 안에 못 하면 −{pts}P]', penalty_short: '거절·시간 초과 −{pts}P', fail_cost: '실패 −{pts}P',
+    toast_declined: '거절 · −{pts}P', settle_penalty: '못 깬 퀘스트 페널티 적용',
+    pop_failed: '[퀘스트를 완료하지 못했습니다]', debuff_pricey: '[바가지] 상점 가격 +20%', until_next_day: '다음 날까지',
+    penalty_quest_line: '깨면 디버프 풀림 · 보상 없음', lost_item: '[가방에서 {name}이(가) 사라졌습니다]', floor_zero: '포인트는 0 밑으로 내려가지 않아요.',
+    hell_band: '[지옥 난이도가 적용 중입니다]', debuffs: '디버프', debuff_lift_hint: '페널티 퀘스트를 깨면 풀려요.',
+    penalty_quests: '페널티', penalty_meta: '깨면 디버프 풀림', penalty_expired: '하루가 지나 끝남', no_reward: '보상 없음',
+    toast_lifted: '디버프 풀림 · {name}', log_kind_penalty: '페널티', log_debuff: '디버프', log_lifted: '풀림', log_lost: '가방에서 잃음',
 };
 
 const DICT = { en: EN, ko: KO };

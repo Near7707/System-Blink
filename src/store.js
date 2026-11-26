@@ -3,7 +3,8 @@
 
 export const MODULE = 'systemBlink';
 export const FORMAT = 2;
-export const VERSION = '0.2.1';
+export const VERSION = '0.3.0';
+export const DIFFS = ['off', 'easy', 'normal', 'hard', 'hell'];
 
 const DEFAULTS = Object.freeze({
     format: FORMAT,
@@ -91,6 +92,7 @@ export function newRoom() {
     return {
         on: false,              // the system is switched on in this chat
         lifeMode: true,         // daily-life mode
+        difficulty: 'off',      // off | easy | normal | hard | hell (stage 2-B; each chat its own)
         name: '',               // '' = the persona's name
         title: '', titles: [],
         world: '',              // world note (used when making quests, items and titles)
@@ -100,7 +102,8 @@ export function newRoom() {
         lifeBase: { date: '', time: '', weather: '', place: '', plan: '', at: 0 },
         // { id, kind: daily | sudden | hidden | goal, name, reward, day, failed, conds?: [text],
         //   sudden: state offered | accepted | declined, limit, seen: [reply keys judged], fromKey, acceptKey
-        //   hidden: why · goal: stage (0-based) }
+        //   hidden: why · goal: stage (0-based) · penalty: a chore that lifts a debuff (no reward)
+        //   diff: the difficulty it was made under · failedAt / failAt / answeredAt: when it was failed or answered }
         quests: [],
         ledger: [],             // { id, questId, cond (index) | null, pts, key (AI reply) | null, reason, at, undone }
         spend: [],              // { id, what, pts, at }
@@ -110,6 +113,8 @@ export function newRoom() {
         lifeLog: [],            // every daily-life change, kept for good: { key, t, life, lifeFrom }
         checks: [],             // { key, t, quests: [{ questId, reason }], life: {}, days, dayReason, nextTime, dismissed }
         shop: { standing: [], dailyDay: 0, daily: [] },
+        debuffs: [],            // { id, kind: 'pricey', day (the day it lasts), questId (its penalty quest) | null, at }
+        lost: [],               // items taken from the bag as a Hell penalty: { id, name, icon, rarity, at, day }
         goal: null,             // { id, title, total, done: false } — its stages are quests of kind 'goal'
         roll: { key: '', sudden: false, hidden: false }, // the dice for the newest reply
         suddenRest: 0,          // replies left before another sudden quest may come
@@ -133,7 +138,8 @@ function fixRoom(r) {
     r.day = Math.max(1, Math.round(Number(r.day) || 1));
     if (r.goal !== null && (typeof r.goal !== 'object' || Array.isArray(r.goal))) r.goal = null;
     r.quests = r.quests.filter(q => q && typeof q === 'object');
-    for (const q of r.quests) if (!['daily', 'sudden', 'hidden', 'goal'].includes(q.kind)) q.kind = 'daily';
+    for (const q of r.quests) if (!['daily', 'sudden', 'hidden', 'goal', 'penalty'].includes(q.kind)) q.kind = 'daily';
+    if (!DIFFS.includes(r.difficulty)) r.difficulty = 'off';
     return r;
 }
 

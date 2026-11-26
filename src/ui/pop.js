@@ -3,7 +3,7 @@
 
 import { t } from '../i18n.js';
 import { settings, room } from '../store.js';
-import { active, chatView, suggestion, nextDay, dismissSuggestion, isAI, todays, questState, condsOf } from '../engine.js';
+import { active, chatView, suggestion, nextDay, dismissSuggestion, isAI, todays, questState, condsOf, penaltyFor } from '../engine.js';
 import { icon, hexMark } from '../icons.js';
 import { esc, $id, typeIn, motionOn, inputTop, viewport } from './util.js';
 
@@ -138,6 +138,7 @@ export function renderStrip() {
         ${sug.reason ? `<div class="sblink-why"><span class="sblink-code">${esc(t('evidence'))}</span> “${esc(sug.reason)}”</div>` : ''}
         <div class="sblink-settle"><div class="sblink-code">${esc(t('settle_once'))}</div>
           ${open.length ? `<div>◇ ${esc(t('settle_failed', { list: open.map(q => `「${q.name}」`).join(' ') }))}</div>` : ''}
+          ${open.some(q => penaltyFor(q)) ? `<div class="sblink-neg">◇ ${esc(t('settle_penalty'))}</div>` : ''}
           <div>◇ ${esc(t('settle_new'))}</div>
           <div>◇ ${esc(t('settle_shop'))}</div>
           <div>◇ ${esc(t(one ? 'settle_ai_one' : 'settle_ai_many'))}</div>
@@ -177,13 +178,21 @@ export const stripShown = () => !!$id('sblink-strip');
 const RARITY_CLASS = { common: 'sblink-r-common', rare: 'sblink-r-rare', epic: 'sblink-r-epic', legendary: 'sblink-r-legendary' };
 
 /** Records grouped by message, made once per redraw (long chats: no search per message). */
-function indexRecords(r) {
+function indexRecords(r, view) {
     const clears = new Map(), lives = new Map(), uses = new Map();
     const add = (map, k, v) => { if (k == null) return; const a = map.get(k); if (a) a.push(v); else map.set(k, [v]); };
     for (const e of r.ledger) if (!e.undone && e.key) add(clears, e.key, e);
     for (const l of r.lifeLog || []) lives.set(l.key, l);
     for (const u of r.uses) add(uses, u.key, u);
-    return { clears, lives, uses, quests: new Map(r.quests.map(q => [q.id, q])) };
+    // a sudden quest whose time ran out: under the reply that used its last turn
+    const fails = new Map();
+    for (const q of r.quests) {
+        if (q.kind !== 'sudden' || q.state !== 'accepted' || !q.seen?.length) continue;
+        if (questState(r, q, view).status !== 'failed') continue;
+        const k = [...q.seen].reverse().find(x => view.index.has(x));
+        add(fails, k, q);
+    }
+    return { clears, lives, uses, fails, quests: new Map(r.quests.map(q => [q.id, q])) };
 }
 
 function cardFor(r, m, key, i, idx, view) {
@@ -192,7 +201,8 @@ function cardFor(r, m, key, i, idx, view) {
         const list = (idx.clears.get(key) || []).map(e => ({ e, q: idx.quests.get(e.questId) })).filter(o => o.q);
         const l = idx.lives.get(key);
         const life = l ? Object.keys(l.life || {}).filter(k => ['time', 'weather', 'place', 'date'].includes(k)) : [];
-        if (!list.length && !life.length) return '';
+        const fails = idx.fails.get(key) || [];
+        if (!list.length && !life.length && !fails.length) return '';
         const lines = list.map(({ q, e }) => {
             const conds = condsOf(q);
             const st = questState(r, q, view);
@@ -201,6 +211,10 @@ function cardFor(r, m, key, i, idx, view) {
                 : `<span class="sblink-code">${(st.condDone || []).filter(Boolean).length} / ${conds?.length || 1}</span>`;
             return `<div class="sblink-cardline"><span class="sblink-dia">◆</span>${tag}<span class="sblink-ell">${esc(name)}</span>${e.pts && st.status === 'done' ? `<b class="sblink-pts">+${e.pts}P</b>` : ''}</div>`;
         });
+        for (const q of fails) {
+            const pts = penaltyFor(q);
+            lines.push(`<div class="sblink-cardline sblink-cardfail"><span class="sblink-dia">◆</span><span class="sblink-code sblink-failtag">FAILED</span><span class="sblink-ell">${esc(q.name)}</span>${pts ? `<b class="sblink-pts sblink-neg">−${pts}P</b>` : ''}</div>`);
+        }
         if (life.length) {
             const bits = life.map(k => `${esc(t(`life_${k}`))} ${l.lifeFrom?.[k] ? `${esc(l.lifeFrom[k])} ▸ ` : ''}${esc(l.life[k])}`).join(' · ');
             lines.push(`<div class="sblink-cardline sblink-cardlife"><span class="sblink-dia">◇</span><span class="sblink-ell">${bits}</span></div>`);
@@ -226,7 +240,7 @@ export function renderCards() {
     const r = room();
     const show = !held && s.logCards && active(r);
     const view = chatView();
-    const idx = show ? indexRecords(r) : null;
+    const idx = show ? indexRecords(r, view) : null;
     chatEl.querySelectorAll('.mes[mesid]').forEach(mes => {
         const i = Number(mes.getAttribute('mesid'));
         const m = view.list[i];
@@ -259,11 +273,16 @@ export function removeCards() { document.querySelectorAll('.sblink-card').forEac
 function hashStr(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return h; }
 
 // popup builders used by index.js
+const WARN = { normal: 'warn_normal', hard: 'warn_hard', hell: 'warn_hell' };
+
 export function questsPopup(list) {
+    const diff = list.find(q => !q.penalty)?.diff || 'off';
     popup({
         tag: 'QUEST', code: 'SYS.NOTICE // DAILY', title: t('pop_daily'),
-        lines: list.map(q => `<span class="sblink-dia">◆</span><span class="sblink-ell">${esc(q.name)}</span><b class="sblink-pts">${q.pts ? `+${q.pts}P` : ''}</b>`),
-        warn: t('penalty_warn'), second: t('view_quests'), ok: t('ok'),
+        lines: list.map(q => (q.penalty
+            ? `<span class="sblink-dia sblink-neg">◆</span><span class="sblink-code sblink-failtag">PENALTY</span><span class="sblink-ell">${esc(q.name)}</span><b class="sblink-pts sblink-dimpts">${esc(t('no_reward'))}</b>`
+            : `<span class="sblink-dia">◆</span><span class="sblink-ell">${esc(q.name)}</span>${q.conds ? `<span class="sblink-code">×${q.conds.length}</span>` : ''}<b class="sblink-pts">${q.pts ? `+${q.pts}P` : ''}</b>`)),
+        warn: WARN[diff] ? t(WARN[diff]) : '', calm: WARN[diff] ? '' : t('no_penalty'), second: t('view_quests'), ok: t('ok'),
         onClose: (act) => { if (act === 'second') hooks.openTab('quests'); },
     });
 }
@@ -292,8 +311,25 @@ export function suddenPopup(q, pts, answer) {
         variant: 'sudden', tag: 'SUDDEN', code: 'SYS.NOTICE // SUDDEN', title: t('pop_sudden'),
         lines: [`<span class="sblink-dia">◆</span><span class="sblink-qtext">${esc(q.name)}</span><b class="sblink-pts">+${pts}P</b>`,
             `<span class="sblink-code">${esc(t('limit_replies', { n: q.limit }))}</span>${diamonds(q.limit, q.limit)}`],
-        calm: t('decline_ok'), second: t('decline'), ok: t('accept'),
+        ...(penaltyFor(q) ? { warn: t('penalty_line', { pts: penaltyFor(q) }) } : { calm: t('decline_ok') }),
+        second: t('decline'), ok: t('accept'),
         onClose: (act) => answer(act === 'ok'),
+    });
+}
+
+/** ㉓ Quests failed with a penalty (from Normal up): points, a debuff and its penalty quest, a lost item. */
+export function failPopup({ items = [], debuff = null, lost = null }) {
+    const lines = items.map(x => `<span class="sblink-dia">◆</span><span class="sblink-qtext">${esc(x.name)}</span><b class="sblink-pts sblink-neg">−${x.pts}P</b>`);
+    let body = '';
+    if (debuff) {
+        body += `<div class="sblink-failrow"><span class="sblink-code sblink-failtag">DEBUFF</span><b>${esc(t('debuff_pricey'))}</b><span class="sblink-dimtxt">· ${esc(t('until_next_day'))}</span></div>
+          <div class="sblink-failrow"><span class="sblink-code sblink-failtag">PENALTY QUEST</span><span>${esc(t('penalty_quest_line'))}</span></div>`;
+    }
+    if (lost) body += `<div class="sblink-failrow"><span class="sblink-code sblink-failtag">LOST</span><span>${esc(t('lost_item', { name: lost.name }))}</span></div>`;
+    popup({
+        variant: 'fail', tag: 'FAILED', code: 'SYS.NOTICE // PENALTY', title: t('pop_failed'),
+        lines, body, calm: t('floor_zero'), second: t('view_quests'), ok: t('ok'),
+        onClose: (act) => { if (act === 'second') hooks.openTab('quests'); },
     });
 }
 

@@ -75,6 +75,17 @@
         if (/daily quests/.test(sys)) {
             window.__calls.quests++;
             if (window.__questFail) return 'sorry';
+            // 2-B: Hard / Hell ask for conditions, a debuff asks for a penalty quest
+            if (/conditions in "conds"/.test(sys)) {
+                window.__calls.hardQuests = (window.__calls.hardQuests || 0) + 1;
+                const three = /2 or 3 conditions/.test(sys);
+                const q = ko
+                    ? [['단골 가게 두 곳 들르기', ['빵집에 들르기', '꽃집에 들르기', '서점에 들르기'], 10], ['비 오는 거리 걷기', ['우산 없이 나가기', '젖은 채로 돌아오기', '수건 빌리기'], 15], ['낯선 사람과 대화하기', ['말 걸기', '이름 묻기', '연락처 받기'], 20]]
+                    : [['Visit two regular shops', ['Stop by the bakery', 'Stop by the flower shop', 'Stop by the bookshop'], 10], ['Walk the rainy street', ['Go out without an umbrella', 'Come back soaked', 'Borrow a towel'], 15], ['Talk to a stranger', ['Say hello', 'Ask their name', 'Get their number'], 20]];
+                const out = { quests: q.map(([name, conds, reward]) => ({ name, conds: conds.slice(0, three ? 3 : 2), reward })) };
+                if (/ONE penalty quest/.test(sys)) out.penalty = { name: ko ? '가게 앞 쓸기' : 'Sweep the shop front' };
+                return JSON.stringify(out);
+            }
             return ko ? '{"quests":[{"name":"누군가에게 음료 사 주기","reward":10},{"name":"밖에서 산책하기","reward":15},{"name":"고양이 쓰다듬기","reward":20}]}'
                 : '<think>ok</think>{"quests":[{"name":"Buy someone a drink","reward":10},{"name":"Take a walk outside","reward":15},{"name":"Pet a cat","reward":20}]}';
         }

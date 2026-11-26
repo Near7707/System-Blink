@@ -10,6 +10,15 @@ const CHANCE = {
     more: 'Often let the story open chances to do them, while keeping the story natural.',
 };
 
+/** For a quest with conditions: the ones still to do. */
+function condsLeft(r, q, view) {
+    const conds = condsOf(q);
+    if (!conds) return '';
+    const st = questState(r, q, view);
+    const left = conds.filter((_, i) => !st.condDone?.[i]);
+    return left.length ? ` (still to do: ${left.map(c => `"${c}"`).join(', ')})` : '';
+}
+
 export function buildPrompt(genType = 'normal') {
     const s = settings();
     const r = room();
@@ -34,10 +43,11 @@ export function buildPrompt(genType = 'normal') {
     for (const q of r.quests) {
         if (q.kind === 'sudden' && questState(r, q, view).status === 'active') extra.push(`- ${who} accepted a sudden quest (${suddenLeft(q, view)} replies left): "${q.name}".`);
         if (q.kind === 'hidden' && questState(r, q, view).status === 'active') extra.push(`- ${who} found a hidden quest: "${q.name}".`);
+        if (q.kind === 'penalty' && q.day === r.day && questState(r, q, view).status === 'active') extra.push(`- ${who} has a penalty quest from the System: "${q.name}".`);
     }
     const anyQuest = open.length + extra.length > 0;
     if (g?.complete) extra.push(`- ${who} has reached the main goal "${r.goal.title}".`);
-    if (open.length) lines.push(`- ${who}'s quests today: ${open.map(q => `"${q.name}"`).join('; ')}.`);
+    if (open.length) lines.push(`- ${who}'s quests today: ${open.map(q => `"${q.name}"${condsLeft(r, q, view)}`).join('; ')}.`);
     lines.push(...extra);
     if (anyQuest) {
         lines.push(`- ${CHANCE[s.questChance] || CHANCE.some}`);

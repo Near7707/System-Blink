@@ -59,6 +59,11 @@ def points(page):
     return ev(page, "(() => { const s = SillyTavern.getContext().extensionSettings.systemBlink; const r = s.chats[SillyTavern.getContext().getCurrentChatId()]; if (!r) return -1; const keys = new Set(SillyTavern.getContext().chat.map(m => 'd:' + m.send_date)); let e = 0; for (const l of r.ledger) if (!l.undone && (l.key == null || keys.has(l.key))) e += l.pts; return e - r.spend.reduce((a, x) => a + x.pts, 0); })()")
 
 
+def epoints(page):
+    """Points as the extension works them out (with penalties)."""
+    return ev(page, "(async () => { const m = await import('/src/engine.js'); return m.points(); })()")
+
+
 def main():
     srv = subprocess.Popen([sys.executable, os.path.join(HERE, 'server.py'), str(PORT)])
     time.sleep(0.8)
@@ -69,6 +74,8 @@ def main():
             flow(browser, 'ko')
             quests2(browser, 'en')
             quests2(browser, 'ko')
+            difficulty(browser, 'en')
+            difficulty(browser, 'ko')
             upgrade(browser)
             long_chat(browser)
             pc(browser)
@@ -358,6 +365,148 @@ def quests2(browser, lang):
     page.click('[data-act="gear"]')
     page.evaluate("document.querySelector('.sblink-body').scrollTop = 600")
     shot(page, L('08_gear_quests'))
+    check(not errors, f'no errors {errors[:3]}')
+    page.close()
+
+
+def difficulty(browser, lang):
+    print(f'--- stage 2-B difficulty and penalties ({lang})')
+    ko = lang == 'ko'
+    page, errors = open_page(browser, f'fresh&lang={lang}')
+    L = lambda n: f'{lang}_2b_{n}'
+    page.click('#sblink-fab')
+    page.click('[data-act="roomOn"]'); page.wait_for_timeout(500)
+    page.click('#sblink-pop [data-pop="second"]'); page.wait_for_timeout(500)
+    close_pops(page)
+    # ㉒ pick Hard in the ⚙ page
+    page.click('[data-act="gear"]')
+    check(ev(page, "document.querySelectorAll('[data-set=\"difficulty\"]').length") == 5, 'five difficulty rows')
+    page.click('[data-set="difficulty"][data-val="hard"]'); page.wait_for_timeout(200)
+    check(ev(page, room_js('r.difficulty')) == 'hard', 'Hard saved for this chat')
+    ev(page, "document.querySelector('.sblink-radios').scrollIntoView()")
+    shot(page, L('01_gear_difficulty'))
+    check(ev(page, "!!document.querySelector('#sblink_settings select[data-pset=\"difficulty\"]')"), 'difficulty in the extension panel too')
+    check(ev(page, "document.querySelector('#sblink_settings select[data-pset=\"difficulty\"]').value") == 'hard', 'panel shows the same value')
+    tall = ev(page, "[...document.querySelectorAll('.sblink-btn, .sblink-chip, .sblink-tab')].filter(b => b.offsetHeight > 44).length + [...document.querySelectorAll('.sblink-radio')].filter(b => b.offsetHeight > 52).length")
+    check(tall == 0, f'no row grows taller ({tall})')
+    cut = ev(page, "[...document.querySelectorAll('.sblink-radiodesc')].filter(x => x.scrollWidth > x.clientWidth + 1).length")
+    check(cut == 0, f'difficulty descriptions fit on a phone ({cut} cut)')
+    # tutorial: no difficulty
+    tut = ev(page, """(async () => { const m = await import('/src/engine.js'); const r = SillyTavern.getContext().extensionSettings.systemBlink.chats[SillyTavern.getContext().getCurrentChatId()];
+        const was = r.tutorial.state; r.tutorial.state = 'active'; const d = m.diffOf(r); r.tutorial.state = was; return d; })()""")
+    check(tut == 'off', 'no difficulty during the tutorial')
+    page.click('[data-act="back"]')
+    # quests made under Off stay as they were: next day → no penalty
+    ev(page, room_js("r.ledger.push({ id: 'seed', questId: 'x', pts: 300, key: null, reason: '', at: 1 })"))
+    page.click('#sblink-win [data-tab="status"]'); page.click('[data-act="nextDay"]'); page.click('[data-modal="yes"]'); page.wait_for_timeout(900)
+    check(not ev(page, "!!document.querySelector('.sblink-v-fail')"), 'quests made under Off: no failure popup')
+    check(epoints(page) == 300, f'no points taken ({epoints(page)})')
+    # new quests follow Hard: two conditions, reward ×1.5
+    qs = ev(page, room_js("r.quests.filter(q => q.kind === 'daily' && q.day === r.day).map(q => [q.conds ? q.conds.length : 0, q.reward, q.diff])"))
+    check(all(c == 2 and d == 'hard' for c, _, d in qs), f'Hard quests have 2 conditions {qs}')
+    check([x[1] for x in qs] == [15, 23, 30], f'rewards ×1.5 {[x[1] for x in qs]}')
+    warn = ev(page, "document.querySelector('#sblink-pop .sblink-popwarn')?.textContent || ''")
+    check(('디버프' if ko else 'debuff') in warn, f'quests popup tells the Hard penalty ({warn})')
+    shot(page, L('02_quests_popup_hard'))
+    close_pops(page)
+    page.click('[data-act="close"]')
+
+    # a sudden quest under Hard: 2 replies, a penalty line; declining costs half
+    ev(page, room_js('r.suddenRest = 0'))
+    ev(page, 'window.__sblinkRandom = () => 0')
+    ev(page, "window.__yes([], 'SUDDEN: " + ('그림자 쫓기' if ko else 'Follow the shadow') + " | 50')")
+    turn(page, 'I walk.', 'A shadow moves.')
+    ev(page, 'window.__sblinkRandom = () => 0.99')
+    check('2 replies' in ev(page, 'window.__checkLast'), 'the AI was asked for a 2-reply sudden quest')
+    pl = ev(page, "document.querySelector('.sblink-v-sudden .sblink-popwarn')?.textContent || ''")
+    check('−38P' in pl, f'sudden popup shows the penalty ({pl})')
+    shot(page, L('03_sudden_penalty'))
+    page.click('#sblink-pop [data-pop="second"]'); page.wait_for_timeout(300)  # decline
+    check(epoints(page) == 262, f'declining costs half: 300 → 262 ({epoints(page)})')
+    # another one, accepted, runs out of time → FAILED popup; a re-roll gives it back
+    ev(page, room_js('r.suddenRest = 0'))
+    ev(page, 'window.__sblinkRandom = () => 0')
+    ev(page, "window.__yes([], 'SUDDEN: " + ('소리 따라가기' if ko else 'Follow the sound') + " | 50')")
+    turn(page, 'I listen.', 'A sound comes from the left.')
+    ev(page, 'window.__sblinkRandom = () => 0.99')
+    page.click('#sblink-pop [data-pop="ok"]'); page.wait_for_timeout(300)  # accept
+    ev(page, 'window.__yes([])')
+    turn(page, 'I wait.', 'Nothing.')
+    turn(page, 'I wait more.', 'Still nothing.')
+    check(ev(page, "!!document.querySelector('.sblink-v-fail')"), 'time out → FAILED popup')
+    check(epoints(page) == 224, f'time out costs half: 262 → 224 ({epoints(page)})')
+    shot(page, L('04_sudden_failed'))
+    close_pops(page)
+    last = ev(page, 'SillyTavern.getContext().chat.length - 1')
+    check(ev(page, f"!!document.querySelector('.mes[mesid=\"{last}\"] .sblink-cardfail')"), 'FAILED card under the reply that ran out')
+    ev(page, 'window.__fakeST.swipe()'); page.wait_for_timeout(1300)
+    close_pops(page)
+    check(epoints(page) in (224, 262), f'after a re-roll ({epoints(page)})')
+    st = ev(page, room_js("r.quests.filter(q => q.kind === 'sudden').map(q => q.state).join(',')"))
+    # the re-rolled reply is judged again; with no clear it fails again → same 224
+    check(epoints(page) == 224, f're-rolled reply was judged again and failed again ({epoints(page)}, {st})')
+
+    # clear one condition only, then next day → FAILED popup with a debuff and a penalty quest
+    c1 = '빵집에 들르기' if ko else 'Stop by the bakery'
+    ev(page, f"window.__yes([{c1!r}])")
+    turn(page, 'Bakery.', 'You stop by the bakery.')
+    check(epoints(page) == 224, 'one condition: no points yet')
+    page.click('#sblink-fab'); page.click('#sblink-win [data-tab="status"]'); page.click('[data-act="nextDay"]'); page.click('[data-modal="yes"]'); page.wait_for_timeout(1000)
+    check(ev(page, "!!document.querySelector('.sblink-v-fail')"), 'daily failures under Hard → FAILED popup')
+    body = ev(page, "document.querySelector('#sblink-pop').textContent")
+    check('DEBUFF' in body and 'PENALTY QUEST' in body, 'popup lists the debuff and the penalty quest')
+    check(epoints(page) == 224 - 35, f'−8 −12 −15 → {epoints(page)}')
+    shot(page, L('05_failed_popup'))
+    page.click('#sblink-pop [data-pop="ok"]'); page.wait_for_timeout(400)
+    plines = ev(page, "document.querySelector('#sblink-pop')?.textContent || ''")
+    check('PENALTY' in plines, 'daily quests popup shows the penalty quest')
+    close_pops(page)
+    # debuff: status chip, shop +20%
+    page.click('#sblink-win [data-tab="status"]')
+    check(ev(page, "!!document.querySelector('.sblink-debuffchip')"), 'debuff chip on the status tab')
+    shot(page, L('06_status_debuff'))
+    page.click('#sblink-win [data-tab="shop"]'); page.click('[data-side="standing"]')
+    price = ev(page, "document.querySelector('.sblink-cell .sblink-price').textContent")
+    check(price.startswith('48P'), f'shop price +20% (40 → {price})')
+    shot(page, L('07_shop_pricey'))
+    page.click('#sblink-win [data-tab="quests"]')
+    check(ev(page, "!!document.querySelector('.sblink-k-penalty')"), 'penalty quest in the Quests tab')
+    shot(page, L('08_quests_penalty'))
+    page.click('[data-act="close"]')
+    check(('penalty quest from the System' in ev(page, 'window.__fakeST.livePrompt')), 'the AI is told about the penalty quest')
+    # clear the penalty quest → debuff lifted
+    ev(page, "window.__yes([" + ("'가게 앞'" if ko else "'Sweep'") + "])")
+    turn(page, 'I sweep.', 'You sweep the shop front.')
+    check(ev(page, room_js("(async () => 0)()") ) is not None, 'ok')
+    lifted = ev(page, "(async () => { const m = await import('/src/engine.js'); return m.debuffsNow().length; })()")
+    check(lifted == 0, 'clearing the penalty quest lifts the debuff')
+    check(epoints(page) == 189, f'penalty quest gives no points ({epoints(page)})')
+
+    # Hell: red window + band; a Hell-made failure takes an item
+    page.click('#sblink-fab'); page.click('[data-act="gear"]')
+    page.click('[data-set="difficulty"][data-val="hell"]'); page.wait_for_timeout(200)
+    page.click('[data-act="back"]'); page.click('#sblink-win [data-tab="status"]')
+    check(ev(page, "document.getElementById('sblink-win').classList.contains('sblink-hell')"), 'Hell: red window')
+    check(ev(page, "!!document.querySelector('.sblink-hellband')"), 'Hell: warning band')
+    shot(page, L('09_hell_status'))
+    ev(page, room_js("r.bag.push({ id: 'b1', name: 'Lucky Coin', desc: '', rarity: 'rare', icon: 'coin', kind: 'item', count: 1 })"))
+    page.click('[data-act="nextDay"]'); page.click('[data-modal="yes"]'); page.wait_for_timeout(1000)
+    close_pops(page)
+    qs = ev(page, room_js("r.quests.filter(q => q.kind === 'daily' && q.day === r.day).map(q => [q.conds ? q.conds.length : 0, q.reward])"))
+    check(all(c in (2, 3) for c, _ in qs) and [x[1] for x in qs] == [20, 30, 40], f'Hell quests: 2–3 conditions, ×2 {qs}')
+    page.click('#sblink-win [data-tab="status"]'); page.click('[data-act="nextDay"]'); page.click('[data-modal="yes"]'); page.wait_for_timeout(1000)
+    body = ev(page, "document.querySelector('#sblink-pop')?.textContent || ''")
+    check('LOST' in body, 'Hell failure: an item is lost')
+    check(ev(page, room_js("r.bag.filter(b => b.name === 'Lucky Coin').length")) == 0 and ev(page, room_js('r.lost.length')) == 1, 'the item left the bag')
+    check(epoints(page) == 0 or epoints(page) >= 0, f'points never below 0 ({epoints(page)})')
+    shot(page, L('10_hell_failed'))
+    close_pops(page)
+    # the System log has the failures
+    page.click('[data-act="gear"]'); page.click('[data-fold="data"]')
+    with page.expect_download() as d:
+        page.click('#sblink-win [data-run="logTxt"]')
+    txt = open(d.value.path(), encoding='utf-8').read()
+    check('FAILED' in txt and ('디버프' if ko else 'Debuff') in txt and ('가방에서 잃음' if ko else 'Lost from the bag') in txt, 'System log has failures, debuffs and lost items')
     check(not errors, f'no errors {errors[:3]}')
     page.close()
 

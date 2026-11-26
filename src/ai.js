@@ -2,7 +2,7 @@
 // quests and shop items. A connection profile can be picked; otherwise the current API is used.
 
 import { ctx, settings, room, currentChatId } from './store.js';
-import { bus, chatView, lastReply, openQuests, condsOf, lifeNow, ownerName, langOf, rollFor, needsEveryCheck } from './engine.js';
+import { bus, chatView, lastReply, openQuests, condsOf, lifeNow, ownerName, langOf, rollFor, needsEveryCheck, diffOf, suddenLimitFor } from './engine.js';
 import { questPool, standingDefaults, dailyPool } from './data.js';
 import { ITEM_ICONS } from './icons.js';
 
@@ -98,16 +98,30 @@ function looseJson(text) {
 
 // ---------- making quests and shop items ----------
 
-async function makeQuests({ count = 3, avoid = [] }, signal) {
+// How hard quests are (2-B). The mood still comes from the story; this is only how much it asks.
+export const DIFF_HINT = {
+    easy: 'DIFFICULTY Easy: something that can be done right away, in the current scene, with almost no effort.',
+    normal: 'DIFFICULTY Normal: it takes a little moving or effort.',
+    hard: 'DIFFICULTY Hard: the character has to set up a situation first to do it.',
+    hell: 'DIFFICULTY Hell: it takes risk or courage.',
+};
+
+async function makeQuests({ count = 3, avoid = [], diff = 'off', penalty = false }, signal) {
     const s = settings();
     const lang = langOf();
+    const many = diff === 'hard' ? 'Each quest has exactly 2 conditions in "conds": two short actions, each easy to check on its own; "name" is a short title for both. '
+        : diff === 'hell' ? 'Each quest has 2 or 3 conditions in "conds": short actions, each easy to check on its own; "name" is a short title for them. '
+        : 'No conditions: "conds" is []. ';
     const system = 'You write daily quests for a game-like "System" in a roleplay, in the style of Korean system novels. '
         + 'Each quest is a small action the user\'s character can do in the story today, fitting their current situation. '
         + 'Match the MOOD of the world and the recent story: bleak, hopeless or grim stories get grim, tense quests/items; light everyday comedy gets light, funny ones; romance gets warm ones. ' 
         + 'Write each quest as ONE short sentence that is easy to check from the story text (an action that either happened or not), '
         + 'like "Buy someone a drink" — never vague ones like "Be kind". Follow the WORLD NOTE if there is one. '
-        + 'Reply with JSON only: {"quests":[{"name":"...","reward":10}]}. reward is 10, 15, 20, 25 or 30 (harder = more).';
+        + many
+        + (penalty ? 'Also write ONE penalty quest in "penalty": a small, unpleasant but harmless chore or duty that fits the story, easy to check from the story text. ' : '')
+        + `Reply with JSON only: {"quests":[{"name":"...","conds":[],"reward":10}]${penalty ? ',"penalty":{"name":"..."}' : ''}}. reward is 10, 15, 20, 25 or 30 (harder = more).`;
     const parts = [background()];
+    if (DIFF_HINT[diff]) parts.push(DIFF_HINT[diff]);
     if (s.useDefaults) parts.push(`You may pick from or adapt these (only ones that fit the world):\n${questPool(lang, s.oddities).map(q => `- ${q.name} (${q.reward})`).join('\n')}`);
     if (s.oddities) parts.push('One of them may be a little odd or funny, if it fits.');
     if (avoid.length) parts.push(`Do not repeat: ${avoid.join('; ')}`);
@@ -119,7 +133,8 @@ async function makeQuests({ count = 3, avoid = [] }, signal) {
     const j = looseJson(cleanAnswer(raw));
     const list = Array.isArray(j?.quests) ? j.quests.filter(q => q && typeof q.name === 'string' && q.name.trim()) : [];
     if (!list.length) throw new Error('BAD_ANSWER');
-    return list;
+    const pen = typeof j?.penalty?.name === 'string' && j.penalty.name.trim() ? { name: j.penalty.name.trim() } : null;
+    return { quests: list.map(q => ({ ...q, conds: Array.isArray(q.conds) ? q.conds.map(String) : [] })), penalty: pen };
 }
 
 async function makeShop({ count = 4, kind = 'daily' }, signal) {
@@ -249,7 +264,7 @@ export async function runCheck({ force = false } = {}) {
     return result;
 }
 
-const KIND_WORD = { daily: 'daily quest', sudden: 'sudden quest', hidden: 'hidden quest', goal: 'main goal stage' };
+const KIND_WORD = { daily: 'daily quest', sudden: 'sudden quest', hidden: 'hidden quest', goal: 'main goal stage', penalty: 'penalty quest' };
 
 /** One line per quest — or one line per condition of a quest with several. */
 export function checkLines(open) {
@@ -291,7 +306,11 @@ async function askCheck(open, r, view, last, roll, signal) {
         parts.push('For new quests: match the MOOD of the world and the story (grim stories get tense ones, comedy gets funny ones, romance warm ones). '
             + `Write each as ONE short sentence that is easy to check from the story text. ${who} must be able to do it. Write it in ${LANG_NAME[lang]}.`);
     }
-    if (roll.sudden) parts.push(`Also write SUDDEN: one sudden quest that fits exactly what is happening at the end of the NEW part, which ${who} could do within the next 3 replies. reward 30-100.`);
+    if (roll.sudden) {
+        const limit = suddenLimitFor(r);
+        const hint = DIFF_HINT[diffOf(r)];
+        parts.push(`Also write SUDDEN: one sudden quest that fits exactly what is happening at the end of the NEW part, which ${who} could do within the next ${limit} ${limit === 1 ? 'reply' : 'replies'}. reward 30-100.${hint ? ` ${hint}` : ''}`);
+    }
     if (roll.hidden) parts.push(`Also write HIDDEN: only if in the NEW part ${who} did something unusual, kind or curious by chance that could open a hidden quest (a bigger next step of that same thing). reward 50-200. "why" = what ${who} did, at most 12 words. If nothing fits, write HIDDEN: -`);
     parts.push(`Write TIME/WEATHER/PLACE/NEXT in ${LANG_NAME[lang]}. Quotes stay in the story's own language, at most 15 words. Use "-" when it did not change or is unknown.`);
     const messages = [{ role: 'system', content: system }, { role: 'user', content: parts.join('\n\n') }];

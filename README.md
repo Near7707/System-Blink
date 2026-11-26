@@ -6,8 +6,9 @@ A game-like **System** for SillyTavern roleplay, in the style of Korean system n
 In the middle of the story, a translucent System window pops up — *"[Daily quests have arrived]"* —
 you clear quests in the story, earn points, and spend them in your own **personal shop**.
 
-This version (0.2.0): the System window, the tutorial, daily quests, the shop, the bag and daily-life mode,
-in the **Game** voice — plus sudden quests, hidden quests, a main goal and quests with several conditions.
+This version (0.3.0): the System window, the tutorial, daily quests, the shop, the bag and daily-life mode,
+in the **Game** voice — plus sudden quests, hidden quests, a main goal, quests with several conditions,
+and **difficulty with penalties**.
 
 ## Install
 
@@ -28,20 +29,28 @@ https://github.com/Near7707/System-Blink
   is shown in the Quests tab. A wrong call? Tap the quest: *Clear by hand* / *Undo clear*.
   If you re-roll or delete that reply, the clear and its points go with it.
 - **Sudden quests**: after each reply the dice may bring one — *"[A sudden quest has appeared]"* —
-  with a limit of 3 replies. *[Accept]* or *[Decline]*. It comes in the same story-check request (no extra call).
+  with a limit of a few replies (3, or set by the difficulty). *[Accept]* or *[Decline]*. It comes in the same story-check request (no extra call).
   A re-rolled reply gives its reply back to the count.
 - **Hidden quests**: now and then the check looks for something you did by chance and opens a purple hidden quest.
   No time limit, no penalty.
 - **Main goal**: one big goal per chat in 3–5 stages. The AI suggests it from the character card (you can edit every line);
   each next stage is made from the story when you clear the one before. A stage may have two conditions —
   each is checked on its own, and the points come when both are done.
+- **Difficulty** (each chat its own; *Off* by default = as before): *Easy* / *Normal* / *Hard* / *Hell*.
+  It changes how hard quests are, their rewards (×0.8 / ×1 / ×1.5 / ×2) and penalties — not the mood, which still
+  comes from the story, and not how strictly the AI judges. Hard quests have 2 conditions, Hell 2–3; sudden quests get less time.
+  - From *Normal*: a daily quest not cleared by the next day, or a sudden quest declined or out of time, costs half its reward.
+  - *Hard*: also a debuff — *[Rip-off] shop prices +20%* until the next day — and a penalty quest that lifts it (no reward).
+  - *Hell*: also one random thing leaves your bag. The window turns red.
+  - Points never go below 0. A re-rolled reply that revives a sudden quest gives its points back.
+    New quests follow the difficulty; quests you already have keep theirs. No difficulty during the tutorial.
 - **Shop**: the *Daily* shop (4–6 random, unusual things, restocked every day) and the *Standing* shop
   (everyday items, plus an AI-made set with *[Restock]*). Prices by rarity: Common / Rare / Epic / Legendary.
 - **Bag**: *[Use]* an item and the AI hears about it in your next message's reply (and its re-rolls).
 - **Daily life**: date, time of day, weather, place and today's plan. The AI check notices changes;
   you can also edit them. When the story moves to another day, a strip above the input box asks
   *"Move to the next day?"* — settling happens once, however many days passed.
-- **Log cards**: a small card under a message shows a quest clear, a daily-life change or an item use. Screen only.
+- **Log cards**: a small card under a message shows a quest clear (or a sudden quest that ran out), a daily-life change or an item use. Screen only.
   Every record is kept, so old messages keep their cards too.
 - **Chat with the System log**: *Data → Chat with the System log* downloads the whole chat in order, with what the
   System did under each message (.txt or .json). It only makes a new file — the chat itself is not changed.
@@ -61,7 +70,7 @@ https://github.com/Near7707/System-Blink
 ## Settings
 
 Everything is both in the window's ⚙ page and in SillyTavern's extension settings (same values).
-Highlights: point rate, story date / real time as the day basis, how often the story is checked
+Highlights: difficulty (per chat), point rate, story date / real time as the day basis, how often the story is checked
 (every reply / every 3rd / by hand), who sees the System, telling the AI the daily-life fields,
 opening chances for quests, how often sudden quests come (and the rest after one), hidden quests on/off,
 the AI suggesting the main goal, a **world note** per chat (used when making quests and items), your own
@@ -70,7 +79,7 @@ and *What was sent*.
 
 ## Coming later
 
-Penalties and difficulty, gacha and skills, other voices (sponsor, threat) and spectator reactions, and more world modes (regression, possession, hunter, martial arts, sentinel,
+Gacha and skills, other voices (sponsor, threat) and spectator reactions, and more world modes (regression, possession, hunter, martial arts, sentinel,
 apocalypse, survival/competition, magic, streamer).
 
 ## Test page

@@ -19,6 +19,7 @@ export const SCHEMA = [
     ] },
     { group: 'system', rows: [
         { k: 'tone', kind: 'choice', opts: ['game'] },
+        { k: 'difficulty', kind: 'radio', opts: ['off', 'easy', 'normal', 'hard', 'hell'], scope: 'room' },
         { k: 'pointRate', kind: 'choice', opts: [0.5, 1, 2] },
         { k: 'dayBasis', kind: 'choice', opts: ['story', 'real'] },
         { k: 'judgeEvery', kind: 'choice', opts: ['every', 'three', 'manual'] },
@@ -73,6 +74,7 @@ export function getValue(k) {
         case 'roomOn': return !!r?.on;
         case 'lifeMode': return r ? !!r.lifeMode : true;
         case 'world': return r?.world || '';
+        case 'difficulty': return r?.difficulty || 'off';
         case 'lang': return lang();
         case 'btnSize': return device().size;
         case 'btnRing': return device().ring;
@@ -82,7 +84,7 @@ export function getValue(k) {
 
 const isDisabled = (row) => {
     if (row.scope === 'room' && !currentChatId()) return true;
-    if (row.k === 'lifeMode' || row.k === 'world') return !room()?.on;
+    if (row.k === 'lifeMode' || row.k === 'world' || row.k === 'difficulty') return !room()?.on;
     if (row.needs && (!settings()[row.needs] || settings()[row.needs] === 'off')) return true;
     return false;
 };
@@ -95,6 +97,7 @@ export async function setValue(k, v) {
     switch (k) {
         case 'roomOn': if (v) await switchOn(); else switchOff(); break;
         case 'lifeMode': { const r = room(); if (r) { r.lifeMode = !!v; save(); } break; }
+        case 'difficulty': { const r = room(); if (r && ['off', 'easy', 'normal', 'hard', 'hell'].includes(v)) { r.difficulty = v; save(); } break; }
         case 'world': { const r = room(currentChatId(), true); if (r) { r.world = String(v || '').slice(0, 2000); save(); } break; }
         case 'lang': s.lang = v === 'ko' ? 'ko' : 'en'; s.langChosen = true; setLanguage(s.lang); save(); break;
         case 'btnSize': case 'btnRing': { const d = device(); d[k === 'btnSize' ? 'size' : 'ring'] = v; saveDevice(d); break; }
@@ -216,6 +219,11 @@ function gearRow(row) {
         const chips = row.opts.map(o => `<button type="button" class="sblink-chip${String(o) === String(v) ? ' sblink-chip-on' : ''}" data-set="${row.k}" data-val="${o}"${dis ? ' disabled' : ''}>${row.preview ? `<i class="sblink-ringprev sblink-ring-${o}"></i>` : ''}<span class="sblink-ell">${esc(optLabel(row, o))}</span></button>`).join('');
         return `<div class="sblink-row${d}"><div class="sblink-rowlabel">${esc(label(row))}</div><div class="sblink-chips">${chips}</div>${hintHtml}</div>`;
     }
+    if (row.kind === 'radio') {
+        const opts = row.opts.map(o => `<button type="button" class="sblink-radio${String(o) === String(v) ? ' sblink-radio-on' : ''}${o === 'hell' ? ' sblink-radio-hell' : ''}" data-set="${row.k}" data-val="${o}" role="radio" aria-checked="${String(o) === String(v)}"${dis ? ' disabled' : ''}>
+            <i class="sblink-radiodot"></i><span class="sblink-radiotext"><b class="sblink-radioname">${esc(optLabel(row, o))}</b><span class="sblink-radiodesc sblink-ell">${esc(t(`opt_${row.k}_${o}_d`))}</span></span></button>`).join('');
+        return `<div class="sblink-row${d}"><div class="sblink-rowlabel">${esc(label(row))}</div><div class="sblink-radios" role="radiogroup">${opts}</div>${hintHtml}</div>`;
+    }
     if (row.kind === 'text') {
         const text = String(v || '');
         return `<div class="sblink-row${d}"><div class="sblink-rowmain"><span class="sblink-rowlabel">${esc(label(row))}</span>
@@ -252,6 +260,9 @@ function panelRow(row) {
     const h = hint(row);
     const hintHtml = h && h !== `set_${row.k}_hint` ? `<small class="sblink-phint">${esc(h)}</small>` : '';
     if (row.kind === 'toggle') return `<label class="checkbox_label"><input type="checkbox" data-pset="${row.k}"${v ? ' checked' : ''}${dis}><span>${esc(label(row))}</span></label>${hintHtml}`;
+    if (row.kind === 'radio') {
+        return `<label class="sblink-plabel">${esc(label(row))}</label><select class="text_pole" data-pset="${row.k}"${dis}>${row.opts.map(o => `<option value="${o}"${String(o) === String(v) ? ' selected' : ''}>${esc(`${optLabel(row, o)} — ${t(`opt_${row.k}_${o}_d`)}`)}</option>`).join('')}</select>${hintHtml}`;
+    }
     if (row.kind === 'choice') {
         return `<label class="sblink-plabel">${esc(label(row))}</label><select class="text_pole" data-pset="${row.k}"${dis}>${row.opts.map(o => `<option value="${o}"${String(o) === String(v) ? ' selected' : ''}>${esc(optLabel(row, o))}</option>`).join('')}</select>${hintHtml}`;
     }
