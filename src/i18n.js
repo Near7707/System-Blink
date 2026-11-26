@@ -154,7 +154,7 @@ const EN = {
     sent_skill: 'Last skill / gacha making', log_skill_got: 'Skill gained', log_draw: 'Gacha', log_unlock: 'Hidden effect unlocked', log_skill_used: 'Skill used',
     // 2-D: voices and spectators
     set_tone_hint: "The System's colours and words in this chat. Point rules stay the same.", opt_tone_star: 'Sponsor', opt_tone_threat: 'Threat',
-    grp_spectators: 'Spectators', set_specOn: 'Spectator reactions', set_specOn_hint: 'Now and then a small notice in the top right. It is not put into the story.',
+    grp_spectators: 'Spectators', fold_open: 'Open ▾', fold_close: 'Close ▴', fold_sub_make: 'Default lists · odd items · shop list · connection profile', fold_sub_data: 'Export · backup · restore · turn all off', set_specOn: 'Spectator reactions', set_specOn_hint: 'Now and then a small notice in the top right. It is not put into the story.',
     set_specMode: 'How they react', opt_specMode_light: 'Light', opt_specMode_rich: 'Rich',
     set_specMode_hint: 'Light: ready-made lines, no AI call. Rich: the AI writes a line about the scene (one extra call when a spectator reacts).',
     set_specGift: 'Sponsorships (points)', set_specGift_hint: 'Spectators sometimes give 5–30P, and very rarely a skill.',
@@ -318,7 +318,7 @@ const KO = {
     sent_skill: '마지막 스킬·뽑기 만들기', log_skill_got: '스킬 획득', log_draw: '뽑기', log_unlock: '숨은 효과 개방', log_skill_used: '스킬 사용',
     // 2-D: 말투·구경꾼
     set_tone_hint: '이 채팅방에서 시스템의 색과 말투예요. 포인트 규칙은 같아요.', opt_tone_star: '후원형', opt_tone_threat: '협박형',
-    grp_spectators: '구경꾼', set_specOn: '구경꾼 반응 켜기', set_specOn_hint: '가끔 오른쪽 위에 작은 알림이 떠요. 이야기에는 안 들어가요.',
+    grp_spectators: '구경꾼', fold_open: '펼치기 ▾', fold_close: '접기 ▴', fold_sub_make: '기본 목록 · 엉뚱한 물건 · 상점 목록 · 연결 프로필', fold_sub_data: '내보내기 · 백업 · 복원 · 전체 끄기', set_specOn: '구경꾼 반응 켜기', set_specOn_hint: '가끔 오른쪽 위에 작은 알림이 떠요. 이야기에는 안 들어가요.',
     set_specMode: '반응 방식', opt_specMode_light: '가벼운 방식', opt_specMode_rich: '풍부한 방식',
     set_specMode_hint: '가벼운 방식: 미리 만든 문장, AI 호출 없음. 풍부한 방식: AI가 장면을 보고 한 줄을 써요(구경꾼이 반응할 때 한 번 더 불러요).',
     set_specGift: '후원 (포인트 받기)', set_specGift_hint: '구경꾼이 가끔 5~30P를 주고, 아주 드물게 스킬도 줘요.',

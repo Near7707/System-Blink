@@ -1024,7 +1024,9 @@ def fixes053(browser):
     check(pw == ['roomOn', 'lifeMode', 'world'], f'the panel too {pw}')
     # a theme that paints every select white
     ev(page, "(() => { const st = document.createElement('style'); st.textContent = 'select { background-color: #fff !important; color: #ccc; }'; document.head.appendChild(st); })()")
+    check(ev(page, "!!document.querySelector('[data-fold=\"data\"] .sblink-foldsub') && document.querySelector('[data-fold=\"data\"] .sblink-foldmark').textContent.includes('펼치기')"), 'folded bar: what is inside + open chip')
     page.click('[data-fold="make"]'); page.wait_for_timeout(200)
+    check(ev(page, "document.querySelector('[data-fold=\"make\"]').getAttribute('aria-expanded')") == 'true' and '접기' in ev(page, "document.querySelector('[data-fold=\"make\"] .sblink-foldmark').textContent"), 'open bar says close')
     c = ev(page, "(() => { const s = document.querySelector('#sblink-win select.sblink-sel'); const cs = getComputedStyle(s); return [cs.boxShadow, cs.webkitTextFillColor]; })()")
     check('inset' in c[0] and c[1] != 'rgb(204, 204, 204)', f'select keeps a dark ground and light text {c}')
     shot(page, 'fix053_select')

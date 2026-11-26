@@ -203,7 +203,9 @@ export function gearHtml() {
     for (const g of SCHEMA) {
         const isOpen = !g.folded || openGroups.has(g.group);
         out.push(`<div class="sblink-sec${g.folded ? ' sblink-fold' : ''}">
-          <div class="sblink-sechead"${g.folded ? ` data-fold="${g.group}" role="button" tabindex="0"` : ''}><span class="sblink-dia">◆</span><span>${esc(t(`grp_${g.group}`))}</span><i class="sblink-secline"></i>${g.folded ? `<span class="sblink-foldmark">${isOpen ? '▴' : '▾'}</span>` : ''}</div>
+          ${g.folded
+            ? `<div class="sblink-sechead sblink-foldbar" data-fold="${g.group}" role="button" tabindex="0" aria-expanded="${isOpen}"><span class="sblink-dia">◆</span><span class="sblink-foldtitle"><span>${esc(t(`grp_${g.group}`))}</span><span class="sblink-foldsub">${esc(t(`fold_sub_${g.group}`))}</span></span><span class="sblink-foldmark">${esc(t(isOpen ? 'fold_close' : 'fold_open'))}</span></div>`
+            : `<div class="sblink-sechead"><span class="sblink-dia">◆</span><span>${esc(t(`grp_${g.group}`))}</span><i class="sblink-secline"></i></div>`}
           ${isOpen ? g.rows.filter(r => !r.when || r.when()).map(gearRow).join('') : ''}
         </div>`);
     }

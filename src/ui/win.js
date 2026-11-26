@@ -236,7 +236,7 @@ function tabBody(r) {
     return statusTab(r);
 }
 
-const sec = (title, extra = '') => `<div class="sblink-sechead"><span class="sblink-dia">◆</span><span>${esc(title)}</span><i class="sblink-secline"></i>${extra}</div>`;
+const sec = (title, extra = '', cls = '') => `<div class="sblink-sechead${cls ? ` ${cls}` : ''}"><span class="sblink-dia">◆</span><span>${esc(title)}</span><i class="sblink-secline"></i>${extra}</div>`;
 
 // ----- status -----
 function statusTab(r) {
@@ -510,7 +510,7 @@ const stageBar = (done, total, now) => `<div class="sblink-stagebar">${Array.fro
 
 function goalBlock(r, view) {
     if (!r.goal) {
-        return sec(t('main_goal')) + `<div class="sblink-goalnone"><span class="sblink-ell">${esc(t('no_goal'))}</span>
+        return sec(t('main_goal'), '', 'sblink-goalhead') + `<div class="sblink-goalnone"><span class="sblink-ell">${esc(t('no_goal'))}</span>
           <button type="button" class="sblink-btn sblink-btn-sm" data-act="goalNew"><span class="sblink-ell">${esc(t('goal_set'))}</span></button></div>`;
     }
     const g = goalNow(r, view);
@@ -518,7 +518,7 @@ function goalBlock(r, view) {
     if (g.complete) now = `<span class="sblink-code sblink-clear">CLEAR</span> <span class="sblink-ell">${esc(t('goal_complete'))}</span>`;
     else if (g.current) now = `<span class="sblink-code">${esc(t('stage_now'))} ▸</span> <span class="sblink-ell">${esc(g.current.name)}</span><b class="sblink-pts">+${rate(g.current.reward)}P</b>`;
     else now = `<span class="sblink-ell">${esc((ui.makingStage || isMakingStage()) ? t('stage_making') : t('stage_failed'))}</span>`;
-    return sec(t('main_goal'), `<span class="sblink-code">${esc(t('stage_of', { n: Math.min(g.done + (g.complete ? 0 : 1), g.total), all: g.total }))}</span>`)
+    return sec(t('main_goal'), `<span class="sblink-code">${esc(t('stage_of', { n: Math.min(g.done + (g.complete ? 0 : 1), g.total), all: g.total }))}</span>`, 'sblink-goalhead')
         + `<button type="button" class="sblink-goalcard" data-act="goalOpen">
             ${stageBar(g.done, g.total, g.complete ? -1 : g.done)}
             <div class="sblink-goaltitle">${esc(r.goal.title)}</div>
@@ -541,7 +541,7 @@ function questsTab(r) {
     const sudden = r.quests.filter(q => q.kind === 'sudden' && shown(q));
     if (sudden.length) body += sec(t('sudden_quests')) + sudden.map(q => questRow(r, q, view)).join('');
     const pq = penaltyQuests(r);
-    if (pq.length) body += sec(t('penalty_quests')) + pq.map(q => questRow(r, q, view)).join('');
+    if (pq.length) body += sec(t('penalty_quests'), '', 'sblink-penhead') + pq.map(q => questRow(r, q, view)).join('');
     const list = todays(r);
     const done = list.filter(q => questState(r, q, view).status === 'done').length;
     body += sec(t(toneOf(r) === 'threat' ? 'daily_quests_threat' : 'daily_quests'), `<span class="sblink-code">${esc(t('day_n', { n: r.day }))} · ${done} / ${list.length}</span>`);
