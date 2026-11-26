@@ -1,0 +1,251 @@
+// System Blink — a game-like "System" for SillyTavern roleplay: popups, daily quests, a personal shop, a bag.
+// Uses only SillyTavern's public paths (getContext, events, extension prompts). It never writes to
+// character cards, chat files or chat metadata, and never changes message text; everything lives in
+// extension settings (and the floating button's place in this device's localStorage).
+
+import { t, setLanguage, lang } from './src/i18n.js';
+import { ctx, settings, save, uiLang, room, currentChatId, onChatRenamed, onChatDeleted, copyFromParent, VERSION } from './src/store.js';
+import { bus, storeCheck, bindUses, markDelivered, active, checkRealDay, setLangGetter, skipTutorial, rate, lastReply, chatView } from './src/engine.js';
+import { runCheck } from './src/ai.js';
+import { buildPrompt } from './src/prompt.js';
+import { panelHtml, panelChange, runButton, setPrefsHooks } from './src/prefs.js';
+import { hexMark } from './src/icons.js';
+import { openWindow, closeWindow, isOpen, refreshWin, place as placeWin, setWinHooks } from './src/ui/win.js';
+import { mountFab, unmountFab, setFabHidden, setFabCount, setFabHooks, place as placeFab, endDrag } from './src/ui/fab.js';
+import {
+    popup, notice, hold, waiting, setPopHooks, renderStrip, placeStrip, foldStrip, stripShown, renderCards, renderCardsSoon,
+    removeCards, clearPopups, questsPopup,
+} from './src/ui/pop.js';
+import { esc } from './src/ui/util.js';
+
+export { VERSION };
+const PROMPT_KEY = 'system_blink';
+let lastPrompt = '';
+let sentNoteIds = [];
+let generating = false;
+
+// ---------- the lines for the AI ----------
+function updatePrompt(genType = 'normal', live = false) {
+    let text = '';
+    let ids = [];
+    try { ({ text, noteIds: ids } = buildPrompt(genType)); } catch (e) { console.error('[System Blink] prompt', e); }
+    if (live) { sentNoteIds = ids; lastPrompt = text; }
+    try { ctx().setExtensionPrompt(PROMPT_KEY, text, 1, 1, false, 0); } catch (e) { console.error('[System Blink] prompt', e); }
+}
+
+// ---------- redraw ----------
+let redrawTimer = 0;
+function redrawSoon() {
+    clearTimeout(redrawTimer);
+    redrawTimer = setTimeout(() => { try { redraw(); } catch (e) { console.error('[System Blink]', e); } }, 50);
+}
+function redraw() {
+    refreshWin();
+    renderStrip();
+    renderCards();
+    badge();
+    mountWand();
+    if (!generating) updatePrompt();
+}
+
+function badge() { setFabCount(waiting() + (stripShown() ? 1 : 0)); }
+
+function redrawAll() {
+    setLanguage(lang());
+    mountPanel();
+    mountWand();
+    if (settings().enabled) mountFab(); else unmountFab();
+    redraw();
+}
+
+function turnedOff() {
+    closeWindow(); clearPopups(); unmountFab(); removeCards();
+    document.getElementById('sblink-strip')?.remove();
+    try { ctx().setExtensionPrompt(PROMPT_KEY, '', 1, 1, false, 0); } catch { /* ignore */ }
+    mountPanel(); mountWand();
+}
+
+// ---------- the check after an AI reply ----------
+let checkTimer = 0;
+function checkSoon(force = false) {
+    clearTimeout(checkTimer);
+    checkTimer = setTimeout(async () => {
+        if (generating) return;
+        const chatId = currentChatId();
+        let res = null;
+        try { res = await runCheck({ force }); } catch (e) { console.error('[System Blink] check', e); }
+        if (!res || currentChatId() !== chatId) { redrawSoon(); return; }
+        const cleared = storeCheck(chatId, res.key, res);
+        for (const c of cleared) notice(t('toast_cleared', { pts: c.pts, name: c.q.name }));
+        redraw();
+    }, force ? 0 : 700);
+}
+
+// ---------- bus: things the rules tell the screen ----------
+function wireBus() {
+    bus.on('change', redrawSoon);
+    bus.on('checkNow', () => checkSoon(true));
+    bus.on('checkFailed', () => notice(t('check_failed'), 'warn'));
+    bus.on('cleared', (list) => { for (const c of list) notice(t('toast_cleared', { pts: c.pts, name: c.q.name })); });
+    bus.on('questsArrived', (list) => questsPopup(list.map(q => ({ name: q.name, pts: rate(q.reward) }))));
+    bus.on('dayMoved', ({ days, failed }) => {
+        notice(days === 1 ? t('toast_day') : t('toast_days', { n: days }));
+        if (failed.length) notice(t('toast_failed', { n: failed.length }), 'warn');
+    });
+    bus.on('awaken', () => {
+        popup({
+            kind: 'awaken', code: 'SYS.NOTICE // AWAKEN', title: t('pop_awaken'),
+            lines: [esc(t('pop_awaken_2')), esc(t('pop_awaken_3'))],
+            body: `<div class="sblink-tutsteps">${[0, 1, 2, 3].map(i => `<div class="sblink-tutstep${i === 0 ? ' sblink-now' : ''}"><span class="sblink-dia">◆</span><span class="sblink-ell">${esc(t(`tut_${i}`))}</span>${i === 0 ? '<span class="sblink-code">NOW</span>' : ''}</div>`).join('')}</div>
+                   <div class="sblink-goldline">${esc(t('tut_reward'))}</div>`,
+            second: t('skip'), ok: t('start'),
+            onClose: (act) => { if (act === 'second') skipTutorial(); else openWindow('quests'); },
+        });
+    });
+    bus.on('tutorialStep', () => redrawSoon());
+    bus.on('tutorialDone', () => popup({ tag: 'CLEAR', code: 'SYS.NOTICE // TUTORIAL', title: t('pop_tut_done'), lines: [`<span class="sblink-dia">◆</span><span class="sblink-ell">${esc(t('tut_reward'))}</span>`] }));
+}
+
+// ---------- settings panel & wand ----------
+function mountPanel() {
+    const host = document.getElementById('extensions_settings2') || document.getElementById('extensions_settings');
+    if (!host) return;
+    let panel = document.getElementById('sblink_settings');
+    const wasOpen = panel?.querySelector('.inline-drawer-content')?.style.display === 'block';
+    if (!panel) {
+        panel = document.createElement('div');
+        panel.id = 'sblink_settings';
+        panel.className = 'sblink-panel';
+        host.appendChild(panel);
+        panel.addEventListener('click', (e) => {
+            if (e.target.closest('[data-sblink-open]')) return openWindow();
+            const b = e.target.closest('[data-run]');
+            if (b && !b.disabled) runButton(b.dataset.run);
+        });
+        panel.addEventListener('change', panelChange);
+    }
+    panel.innerHTML = `
+      <div class="inline-drawer">
+        <div class="inline-drawer-toggle inline-drawer-header">
+          <b>${esc(t('ext_name'))}</b>
+          <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+        </div>
+        <div class="inline-drawer-content">
+          <button type="button" class="menu_button sblink-pbtn" data-sblink-open>${esc(t('open_window'))}</button>
+          ${panelHtml()}
+        </div>
+      </div>`;
+    if (wasOpen) {
+        panel.querySelector('.inline-drawer-content').style.display = 'block';
+        panel.querySelector('.inline-drawer-icon')?.classList.replace('down', 'up');
+    }
+}
+
+function mountWand() {
+    const menu = document.getElementById('extensionsMenu');
+    if (!menu) return false;
+    let item = document.getElementById('sblink_wand');
+    if (!item) {
+        item = document.createElement('div');
+        item.id = 'sblink_wand';
+        item.className = 'list-group-item flex-container flexGap5 interactable';
+        item.tabIndex = 0;
+        item.innerHTML = `<div class="extensionsMenuExtensionButton sblink-wandico">${hexMark()}</div><span class="sblink-wandname">System Blink</span><span class="sblink-wandstate"></span>`;
+        item.addEventListener('click', () => { if (isOpen()) closeWindow(); else openWindow(); });
+        menu.appendChild(item);
+    }
+    const st = item.querySelector('.sblink-wandstate');
+    const on = settings().enabled;
+    const txt = on ? t('state_on') : t('state_off');
+    if (st.textContent !== txt) st.textContent = txt;
+    st.classList.toggle('sblink-wandoff', !on);
+    return true;
+}
+
+// ---------- events ----------
+function registerEvents() {
+    const { eventSource } = ctx();
+    const ev = ctx().eventTypes || ctx().event_types;
+    // while switched off nothing runs, except keeping saved data with renamed / deleted chats
+    const on = (name, fn, always = false) => { if (name) eventSource.on(name, (...a) => { try { if (always || settings().enabled) return fn(...a); } catch (e) { console.error('[System Blink]', e); } }); };
+
+    on(ev.CHAT_CHANGED, () => { copyFromParent(); if (!settings().enabled) return; generating = false; hold(false); checkRealDay(); redrawSoon(); }, true);
+    for (const name of [ev.MESSAGE_DELETED, ev.MESSAGE_SWIPED, ev.MESSAGE_EDITED, ev.MESSAGE_UPDATED,
+        ev.USER_MESSAGE_RENDERED, ev.CHARACTER_MESSAGE_RENDERED, ev.MORE_MESSAGES_LOADED, ev.CHAT_LOADED]) {
+        on(name, () => { renderCardsSoon(); redrawSoon(); });
+    }
+    on(ev.MESSAGE_SENT, () => { bindUses(); foldStrip(); redrawSoon(); });
+    on(ev.GENERATION_STARTED, (type, _opts, dryRun) => {
+        const kind = String(type || 'normal');
+        if (!dryRun && kind !== 'quiet') { generating = true; hold(true); }
+        updatePrompt(kind, !dryRun && kind !== 'quiet');
+    });
+    on(ev.MESSAGE_RECEIVED, (mesId) => {
+        const view = chatView();
+        const m = view.list[Number(mesId)];
+        if (m && !m.is_user && sentNoteIds.length) { markDelivered(view.keys[Number(mesId)], sentNoteIds); sentNoteIds = []; }
+    });
+    for (const name of [ev.GENERATION_ENDED, ev.GENERATION_STOPPED]) {
+        on(name, () => {
+            if (!generating) return;
+            generating = false;
+            hold(false);
+            redrawSoon();
+            if (active() && lastReply()) checkSoon();
+        });
+    }
+    on(ev.CHAT_RENAMED, (data) => { onChatRenamed(data?.oldFileName, data?.newFileName); redrawSoon(); }, true);
+    on(ev.CHAT_DELETED, (name) => onChatDeleted(name), true);
+    on(ev.GROUP_CHAT_DELETED, (name) => onChatDeleted(name), true);
+    on(ev.APP_READY, () => { mountWand(); if (!settings().enabled) return; mountFab(); checkRealDay(); redraw(); }, true);
+}
+
+function watchScreen() {
+    let tm = 0;
+    const re = () => { cancelAnimationFrame(tm); tm = requestAnimationFrame(() => { placeWin(); placeFab(); placeStrip(); }); };
+    window.addEventListener('resize', re);
+    window.addEventListener('orientationchange', () => setTimeout(re, 250));
+    window.visualViewport?.addEventListener('resize', re);
+    window.visualViewport?.addEventListener('scroll', re);
+    document.addEventListener('focusin', () => setTimeout(re, 350));
+    document.addEventListener('focusout', () => setTimeout(re, 450));
+    // always let go of a drag
+    window.addEventListener('blur', endDrag);
+    window.addEventListener('pagehide', endDrag);
+    document.addEventListener('visibilitychange', () => { if (document.hidden) endDrag(); });
+    window.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && isOpen() && !document.querySelector('dialog[open]')) closeWindow();
+    });
+    // SillyTavern redraws messages (swipe, edit, load more): put the cards back
+    const chatEl = document.getElementById('chat');
+    if (chatEl && 'MutationObserver' in window) {
+        new MutationObserver(() => { if (settings().enabled && settings().logCards) renderCardsSoon(); }).observe(chatEl, { childList: true });
+    }
+}
+
+async function init() {
+    settings();
+    setLanguage(uiLang());
+    setLangGetter(lang);
+    wireBus();
+    setPrefsHooks({ redrawAll, turnedOff, turnedOn: redrawAll, lastPrompt: () => lastPrompt, langNow: uiLang, showText: showText });
+    setWinHooks({ opened: () => { setFabHidden(true); renderStrip(); }, closed: () => { setFabHidden(false); renderStrip(); badge(); } });
+    setFabHooks({ open: () => openWindow() });
+    setPopHooks({ openTab: (tab) => openWindow(tab), badge });
+    mountPanel();
+    if (!mountWand()) { let n = 0; const w = setInterval(() => { if (mountWand() || ++n > 30) clearInterval(w); }, 1000); }
+    if (settings().enabled) mountFab();
+    registerEvents();
+    watchScreen();
+    redraw();
+}
+
+async function showText(text) {
+    const c = ctx();
+    const html = `<pre class="sblink-pre">${esc(text)}</pre>`;
+    if (typeof c.callGenericPopup === 'function' && c.POPUP_TYPE) return c.callGenericPopup(html, c.POPUP_TYPE.TEXT, '', { wide: true, large: true });
+    window.alert(text);
+}
+
+if (globalThis.jQuery) globalThis.jQuery(() => { init().catch(e => console.error('[System Blink] init', e)); });
+else init().catch(e => console.error('[System Blink] init', e));
