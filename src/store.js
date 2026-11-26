@@ -3,7 +3,7 @@
 
 export const MODULE = 'systemBlink';
 export const FORMAT = 1;
-export const VERSION = '0.1.0';
+export const VERSION = '0.1.1';
 
 const DEFAULTS = Object.freeze({
     format: FORMAT,

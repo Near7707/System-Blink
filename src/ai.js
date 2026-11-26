@@ -102,7 +102,8 @@ async function makeQuests({ count = 3, avoid = [] }, signal) {
     const s = settings();
     const lang = langOf();
     const system = 'You write daily quests for a game-like "System" in a roleplay, in the style of Korean system novels. '
-        + 'Each quest is a small everyday action the user\'s character can do in the story today. '
+        + 'Each quest is a small action the user\'s character can do in the story today, fitting their current situation. '
+        + 'Match the MOOD of the world and the recent story: bleak, hopeless or grim stories get grim, tense quests/items; light everyday comedy gets light, funny ones; romance gets warm ones. ' 
         + 'Write each quest as ONE short sentence that is easy to check from the story text (an action that either happened or not), '
         + 'like "Buy someone a drink" — never vague ones like "Be kind". Follow the WORLD NOTE if there is one. '
         + 'Reply with JSON only: {"quests":[{"name":"...","reward":10}]}. reward is 10, 15, 20, 25 or 30 (harder = more).';
@@ -127,6 +128,7 @@ async function makeShop({ count = 4, kind = 'daily' }, signal) {
     const system = 'You stock a personal shop for a game-like "System" in a roleplay, in the style of Korean system novels. '
         + 'Items are small magical or everyday things the user can buy with points and use in the story. '
         + 'No stat boosts, no numbers in effects. Follow the WORLD NOTE if there is one. '
+        + 'Match the MOOD of the world and the recent story: bleak, hopeless or grim stories get grim, tense quests/items; light everyday comedy gets light, funny ones; romance gets warm ones. ' 
         + 'Rarity and price: common 20-80, rare 100-200, epic 300-500, legendary 800-1500 (legendary only rarely, at most one). '
         + `icon is one of: ${ITEM_ICONS.join(', ')}. `
         + 'Reply with JSON only: {"items":[{"name":"...","desc":"one short sentence","rarity":"common|rare|epic|legendary","price":50,"icon":"box","limited":false}]}.';
