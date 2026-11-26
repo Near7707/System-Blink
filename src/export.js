@@ -54,13 +54,13 @@ export function systemEvents(r = room(), view = chatView()) {
     for (const u of r.uses) add(u.key, u.kind === 'skill' ? { type: 'skillUse', skill: u.name, grade: u.grade, at: u.at } : { type: 'use', item: u.name, rarity: u.rarity, at: u.at });
     // 2-C: skills gained, gacha draws, hidden effects opened
     for (const k of r.skills || []) {
-        loose.push({ type: 'skill', skill: k.name, grade: k.grade, skillType: k.type, from: k.from, at: k.at || 0 });
+        loose.push({ type: 'skill', skill: k.name, grade: k.grade, skillType: k.type, from: k.star ? 'star' : k.from, at: k.at || 0 });
         if (k.hidden?.key) add(k.hidden.key, { type: 'unlock', skill: k.name, effect: k.hidden.effect, evidence: k.hidden.reason || '', at: k.hidden.at || 0 });
     }
     for (const d of r.draws || []) if (d.kind === 'item') loose.push({ type: 'draw', item: d.name, rarity: d.grade, at: d.at });
     for (const p of r.spend) loose.push({ type: 'buy', item: p.what, pts: p.pts, at: p.at });
     // 2-D: spectators, warnings
-    for (const c of r.cheers || []) add(c.key, { type: 'cheer', name: c.name, text: c.text, pts: c.pts || 0, gift: c.gift || '', at: c.at });
+    for (const c of r.cheers || []) add(c.key, { type: 'cheer', name: c.name, text: c.text, pts: c.pts || 0, gift: c.gift || '', star: c.tone === 'star', at: c.at });
     for (const b of r.bigs || []) loose.push({ type: 'big', day: b.day, at: b.at });
     for (const e of r.erases || []) loose.push({ type: 'erase', at: e.at });
     loose.sort((a, b) => (a.at || 0) - (b.at || 0));
@@ -78,7 +78,7 @@ function line(ev) {
         case 'sudden': return `${t('log_sudden')}: ${ev.quest} +${ev.pts}P${ev.answer ? ` (${t(`log_answer_${ev.answer}`)})` : ''}`;
         case 'hidden': return `${t('log_hidden')}: ${ev.quest} +${ev.pts}P${ev.why ? ` · ${ev.why}` : ''}`;
         case 'fail': return `FAILED [${t(`log_kind_${ev.kind}`)}] ${ev.quest}${ev.declined ? ` (${t('log_answer_declined')})` : ''}${ev.pts ? ` −${ev.pts}P` : ''}${ev.warn ? ` · ${t('log_warn')}` : ''}`;
-        case 'cheer': return `${t('log_cheer')}: ${ev.text}${ev.pts ? ` +${ev.pts}P` : ''}${ev.gift ? ` · ${t('skill_from_spectator')} [${ev.gift}]` : ''}`;
+        case 'cheer': return `${t(ev.star ? 'log_cheer_star' : 'log_cheer')}: ${ev.text}${ev.pts ? ` +${ev.pts}P` : ''}${ev.gift ? ` · ${t(ev.star ? 'skill_from_star' : 'skill_from_spectator')} [${ev.gift}]` : ''}`;
         case 'big': return `${t('log_big')} · ${t('day_n', { n: ev.day })}`;
         case 'erase': return t('log_erase');
         case 'debuff': return `${t('log_debuff')}: ${t('debuff_pricey')} · ${t('day_n', { n: ev.day })}${ev.lifted ? ` · ${t('log_lifted')}` : ''}`;

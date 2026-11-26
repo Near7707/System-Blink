@@ -1061,7 +1061,7 @@ export async function spectate(chatId, key, ev = 'reply') {
         const name = String(made?.name || shuffle(specNames(lang, tone), specRnd)[0]).replace(/^['"‘’「」]+|['"‘’「」]+$/g, '').slice(0, 30);
         const pts = tip ? rate(5 * (1 + Math.floor(specRnd() * 6))) : 0;
         const text = tip ? specLine('tip', tone, lang, name) : String(made?.line || specLine(ev, tone, lang, name)).slice(0, 120);
-        const cheer = { id: uid('c'), at: Date.now(), key: key || null, name, text, pts, ev, gift: '' };
+        const cheer = { id: uid('c'), at: Date.now(), key: key || null, name, text, pts, ev, gift: '', tone };
         if (pts) rr.ledger.push({ id: uid('l'), questId: 'spectator', cond: null, pts, key, reason: name, at: cheer.at });
         rr.cheers.push(cheer);
         if (rr.cheers.length > 200) rr.cheers.splice(0, rr.cheers.length - 200);
@@ -1069,7 +1069,7 @@ export async function spectate(chatId, key, ev = 'reply') {
         let skill = null;
         if (gift) {
             skill = await makeSkill(chatId, rollGrade('spectator'), 'spectator');
-            if (skill) { cheer.gift = skill.name; save(); changed(); if (chatId === currentChatId()) bus.emit('skillGained', { skill, from: 'spectator' }); }
+            if (skill) { if (tone === 'star') skill.star = true; cheer.gift = skill.name; save(); changed(); if (chatId === currentChatId()) bus.emit('skillGained', { skill, from: 'spectator' }); }
         }
         return { ...cheer, skill };
     } finally { reacting = false; }

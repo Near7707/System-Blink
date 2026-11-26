@@ -332,7 +332,7 @@ function skillPage() {
     const open = hiddenOpen(k, view);
     let body = `<div class="sblink-skillhero ${gradeClass(k.grade)}">${gradeBadge(k.grade, true)}
         <div class="sblink-skillbig">[${esc(k.name)}]</div>
-        <div class="sblink-stags">${tag(gradeWord(k.grade), 'sblink-stag-g')}${tag(t(`skill_${k.type}`), 'sblink-stag-acc')}${tag(t(`skill_mode_${k.mode || 'life'}`))}${tag(t(`skill_from_${k.from || 'gacha'}`))}</div></div>`;
+        <div class="sblink-stags">${tag(gradeWord(k.grade), 'sblink-stag-g')}${tag(t(`skill_${k.type}`), 'sblink-stag-acc')}${tag(t(`skill_mode_${k.mode || 'life'}`))}${tag(t(`skill_from_${k.star ? 'star' : (k.from || 'gacha')}`))}</div></div>`;
     body += sec(t('skill_effect')) + `<div class="sblink-skilltext">${esc(k.effect)}</div>`;
     if (k.hidden) {
         body += sec(t('skill_hidden'), open ? '<span class="sblink-code sblink-goldtxt">UNLOCKED</span>' : '<span class="sblink-code">LOCKED</span>');

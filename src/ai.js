@@ -272,7 +272,7 @@ async function makeStage({ title, done = [], index = 1, total = 4 }, signal) {
 // ---------- spectators (2-D, the rich way: one extra call when a spectator reacts) ----------
 const SPEC_VOICE = {
     game: 'They are unseen watchers of the System.',
-    star: 'They are spectators who watch the show and like to sponsor.',
+    star: 'They are constellations: star-like beings who watch the show from the sky and like to sponsor. Each goes by an epithet, not a name.',
     threat: 'They are something ominous watching from beyond the System; a little creepy, never gory.',
 };
 
@@ -282,10 +282,14 @@ async function makeCheer({ ev = 'reply', tone = 'game' }, signal) {
     const what = { reply: 'just watched the newest scene', clear: `just watched ${who} clear a quest`, fail: `just watched ${who} fail a quest` }[ev] || 'just watched the newest scene';
     const system = 'You write ONE short reaction of an unseen spectator who watches a roleplay through a game-like "System", in the style of Korean system novels (like readers or constellations reacting). '
         + 'The spectator never appears in the story and cannot change it. ' + (SPEC_VOICE[tone] || SPEC_VOICE.game) + ' '
-        + 'React to a concrete detail of the newest scene. Give the spectator a short playful nickname (2-4 words, like "Sleepy Cat" or "Bored Onlooker"). '
-        + 'Write the reaction as ONE System line in square brackets, at most 14 words, in the third person, e.g. "[Spectator \'Sleepy Cat\' envies the cookie]". '
+        + 'React to a concrete detail of the newest scene. '
+        + (tone === 'star'
+            ? 'Give the constellation a short epithet (2-6 words, like "One Who Counts the Night Sky" or "Lost Lighthouse Keeper"); make up a new one, never one from an existing novel. '
+              + 'Write the reaction as ONE System line in square brackets, at most 14 words, in the third person, calling it "Constellation \'epithet\'" or just "\'epithet\'", e.g. "[Constellation \'Lost Lighthouse Keeper\' envies the cookie]". '
+            : 'Give the spectator a short playful nickname (2-4 words, like "Sleepy Cat" or "Bored Onlooker"). '
+              + 'Write the reaction as ONE System line in square brackets, at most 14 words, in the third person, e.g. "[Spectator \'Sleepy Cat\' envies the cookie]". ')
         + 'Reply with JSON only: {"name":"...","line":"[...]"}.';
-    const messages = [{ role: 'system', content: system }, { role: 'user', content: `${background()}\n\nThe spectator ${what}. Write name and line in ${LANG_NAME[lang]}.` }];
+    const messages = [{ role: 'system', content: system }, { role: 'user', content: `${background()}\n\nThe ${tone === 'star' ? 'constellation' : 'spectator'} ${what}. Write name and line in ${LANG_NAME[lang]}.` }];
     sentLog.spectator = { at: Date.now(), messages, answer: '' };
     const raw = await requestLLM(messages, { maxTokens: 150, signal });
     sentLog.spectator.answer = raw;

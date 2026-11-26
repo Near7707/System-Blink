@@ -566,6 +566,13 @@ def tones2(browser, lang):
     pts = ev(page, "document.querySelector('#sblink-pop .sblink-pts')?.textContent || ''")
     check(pts.startswith('후원' if ko else 'Sponsor'), f'rewards read as a sponsorship ({pts})')
     check(ev(page, "document.getElementById('sblink-pop').classList.contains('sblink-tn-star')"), 'popup wears gold')
+    body = ev(page, "document.querySelector('#sblink-pop')?.textContent || ''")
+    check(('성좌들이' if ko else 'constellations await') in body and ('구경꾼' if ko else 'Spectator') not in body, 'sponsor popup speaks of constellations')
+    lines = ev(page, "(async () => { const m = await import('/src/data.js'); const out = []; for (let i = 0; i < 40; i++) for (const e of ['reply', 'clear', 'fail', 'tip']) out.push(m.specLine(e, 'star', '" + lang + "', m.specNames('" + lang + "', 'star')[i % 10])); return out; })()")
+    check(not any(('구경꾼' if ko else 'Spectator') in x for x in lines), 'constellation lines never say spectator')
+    check(any(('성좌 \'' if ko else "Constellation '") in x for x in lines) and any(x.startswith("['") for x in lines), 'constellations: with and without the title')
+    if ko: check(not any('(가)' in x for x in lines), 'Korean 이/가 picked for epithets')
+    check(ev(page, "(async () => { const m = await import('/src/data.js'); return m.specNames('en', 'star').length; })()") == 10, 'ten constellation epithets')
     shot(page, L('04_daily_star'))
     close_pops(page)
 

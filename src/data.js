@@ -151,10 +151,21 @@ const SPEC_NAMES = {
     common: [['Sleepy Cat', '졸린 고양이'], ['Bored Onlooker', '심심한 방관자'], ['Snack Collector', '간식 수집가'], ['Rainy-Day Reader', '비 오는 날의 독자'],
         ['Quiet Night Owl', '조용한 올빼미'], ['Lost Umbrella', '잃어버린 우산'], ['Back-Row Critic', '뒷줄의 평론가'], ['Tea Spiller', '차를 쏟는 자']],
     threat: [['The One Behind the Door', '문 뒤의 존재'], ['Nameless Eye', '이름 없는 눈'], ['Cold Hand', '차가운 손'], ['Shadow at Noon', '정오의 그림자']],
+    // sponsor voice: constellations with epithets
+    star: [['One Who Counts the Night Sky', '밤하늘을 세는 자'], ['Star That Never Dozes', '졸음에 지지 않는 별'], ['Owner of the Old Umbrella', '낡은 우산의 주인'],
+        ['God Who Loves Sweets', '단것을 좋아하는 신'], ['One Who Awaits the First Snow', '첫눈을 기다리는 자'], ['Lost Lighthouse Keeper', '길 잃은 등대지기'],
+        ['Cat Who Peeks at Stories', '이야기를 엿보는 고양이'], ['One Who Reads the Ending First', '결말부터 읽는 자'], ['King of the Broken Clock Tower', '멈춘 시계탑의 왕'],
+        ['Star Generous with Applause', '박수에 인색하지 않은 별']],
 };
 export function specNames(lang, tone) {
-    const list = tone === 'threat' ? [...SPEC_NAMES.threat, ...SPEC_NAMES.common.slice(0, 3)] : SPEC_NAMES.common;
+    const list = tone === 'threat' ? [...SPEC_NAMES.threat, ...SPEC_NAMES.common.slice(0, 3)] : tone === 'star' ? SPEC_NAMES.star : SPEC_NAMES.common;
     return list.map(x => (lang === 'ko' ? x[1] : x[0]));
+}
+/** How a constellation is named in a line: "Constellation 'X'" or just "'X'" (mixed). */
+export function starWho(name, lang, rnd = Math.random) {
+    const n = String(name || '').replace(/^['"‘’「」]+|['"‘’「」]+$/g, '');
+    if (/^(constellation|성좌)\s/i.test(n)) return n;
+    return rnd() < 0.5 ? `${lang === 'ko' ? '성좌' : 'Constellation'} '${n}'` : `'${n}'`;
 }
 
 // {name} is put in after the line is picked
@@ -173,9 +184,15 @@ const SPEC_LINES_THREAT = {
     clear: [["[ '{name}' is mildly impressed]", "['{name}'이(가) 조금 감탄합니다]"], ['[The watching eyes go quiet]', '[지켜보던 눈들이 잠잠해집니다]']],
     fail: [["[ '{name}' smiles]", "['{name}'이(가) 웃습니다]"], ['[Something writes your name down]', '[무언가가 당신의 이름을 적어 둡니다]']],
 };
+// sponsor voice: the same lines, said by constellations
+const toStar = (en, ko) => [
+    en.replace("Spectator '{name}'", '{who}').replace('Someone', 'A constellation').replace('spectators', 'constellations'),
+    ko.replace("구경꾼 '{name}'", '{who}').replace('누군가가', '한 성좌가').replace('구경꾼', '성좌'),
+];
+const SPEC_LINES_STAR = Object.fromEntries(Object.entries(SPEC_LINES).map(([k, rows]) => [k, rows.map(r => toStar(r[0], r[1]))]));
 export function specLine(ev, tone, lang, name) {
-    const pool = (tone === 'threat' && SPEC_LINES_THREAT[ev]) || SPEC_LINES[ev] || SPEC_LINES.reply;
+    const pool = (tone === 'threat' && SPEC_LINES_THREAT[ev]) || (tone === 'star' && SPEC_LINES_STAR[ev]) || SPEC_LINES[ev] || SPEC_LINES.reply;
     const row = pool[Math.floor(Math.random() * pool.length)];
-    const line = (lang === 'ko' ? row[1] : row[0]).replace('[ ', '[').replace('{name}', name);
+    const line = (lang === 'ko' ? row[1] : row[0]).replace('[ ', '[').replace('{who}', () => starWho(name, lang)).replace('{name}', name);
     return lang === 'ko' ? josa(line) : line;
 }

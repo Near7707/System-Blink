@@ -6,7 +6,7 @@ A game-like **System** for SillyTavern roleplay, in the style of Korean system n
 In the middle of the story, a translucent System window pops up — *"[Daily quests have arrived]"* —
 you clear quests in the story, earn points, and spend them in your own **personal shop**.
 
-This version (0.5.1): the System window, the tutorial, daily quests, the shop, the bag and daily-life mode,
+This version (0.5.2): the System window, the tutorial, daily quests, the shop, the bag and daily-life mode,
 sudden quests, hidden quests, a main goal, quests with several conditions, **difficulty with penalties**,
 **skills and gacha** — and **three System voices** with **spectators** who react and sponsor.
 
@@ -57,8 +57,9 @@ https://github.com/Near7707/System-Blink
   - The grade is rolled by the extension; the AI only writes a skill that fits it. Skills do not depend on the difficulty.
 - **Voice** (each chat its own): the System's colours and words. Point rules stay the same.
   - **Game** — blue hologram, curt game notices (as before).
-  - **Sponsor** — gold. Daily quests are *"[The spectators await today's show]"*, rewards read as *"Sponsor 10P"*,
-    and the shop is a **Goblin's Bundle**.
+  - **Sponsor** — gold. Daily quests are *"[The constellations await today's show]"*, rewards read as *"Sponsor 10P"*,
+    and the shop is a **Goblin's Bundle**. The spectators become **constellations** with epithets
+    like *"One Who Counts the Night Sky"*.
   - **Threat** — red, the screen shakes a little. Daily quests are *survival tasks*, the shop is a **Shady Black Market**.
     From *Normal* difficulty a failure gives a **warning** instead of losing points (Hard / Hell debuffs and lost items stay).
     **Three warnings set off a big event**: the AI is told once that something dangerous happens in the story, and the count

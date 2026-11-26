@@ -4,7 +4,7 @@
 import { t, lang } from '../i18n.js';
 import { settings, room } from '../store.js';
 import { active, chatView, suggestion, nextDay, dismissSuggestion, isAI, todays, questState, condsOf, penaltyFor, hiddenOpen, toneOf, warnFor, warnCount, WARN_MAX } from '../engine.js';
-import { specNames } from '../data.js';
+import { specNames, starWho } from '../data.js';
 import { gradeBadge, gradeClass, isTop, tag } from './skills.js';
 import { icon, hexMark } from '../icons.js';
 import { esc, $id, typeIn, motionOn, inputTop, viewport, safeInsets } from './util.js';
@@ -365,7 +365,7 @@ export function questsPopup(list) {
         second: t(tone === 'star' ? 'view_show' : 'view_quests'), ok: t('ok'),
         onClose: (act) => { if (act === 'second') hooks.openTab('quests'); },
     };
-    if (tone === 'star') p.calm = `${t('star_expect', { name: specNames(lang(), 'star')[Math.floor(Math.random() * 8)] })}${p.calm ? ` · ${p.calm}` : ''}`;
+    if (tone === 'star') p.calm = `${t('star_expect', { name: ((n) => starWho(n[Math.floor(Math.random() * n.length)], lang()))(specNames(lang(), 'star')) })}${p.calm ? ` · ${p.calm}` : ''}`;
     // the threat voice: only [OK], and the warnings so far
     if (tone === 'threat') { delete p.second; if (threatWarn) p.body = warnMeter(); }
     popup(p);
@@ -463,7 +463,7 @@ const FROM_TITLE = { book: 'pop_skill_book', goal: 'pop_skill_goal', hidden: 'po
 /** A skill was gained (skill book, main goal, hidden quest). */
 export function skillPopup(k, from) {
     popup({
-        variant: 'skill', tag: 'SKILL', code: 'SYS.SKILL // GAINED', title: t(FROM_TITLE[from] || 'pop_skill_got'),
+        variant: 'skill', tag: 'SKILL', code: 'SYS.SKILL // GAINED', title: t((k.star && 'pop_skill_star') || FROM_TITLE[from] || 'pop_skill_got'),
         flash: isTop(k.grade) ? (k.grade === 'SS' ? 'ss' : 's') : '',
         lines: [`${gradeBadge(k.grade)}<span class="sblink-qtext">[${esc(k.name)}]</span>${tag(t(`skill_${k.type}`), 'sblink-stag-acc')}`],
         body: esc(k.effect), second: t('skill_view'), ok: t('ok'),
