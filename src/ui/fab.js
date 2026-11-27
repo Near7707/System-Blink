@@ -48,10 +48,10 @@ export function mountFab() {
     el.className = `sblink-fab sblink-fab-${d.size} sblink-ring-${d.ring} sblink-shape-${d.shape}${settings().motion ? ' sblink-moving' : ''}`;
     el.setAttribute('aria-label', t('ext_name'));
     el.innerHTML = `
-      <svg class="sblink-fabring" viewBox="0 0 100 100" aria-hidden="true"><polygon points="50,3 91,26.5 91,73.5 50,97 9,73.5 9,26.5"/><polyline class="sblink-fabringlow" points="9,73.5 50,97 91,73.5"/></svg>
-      <div class="sblink-fabbody"><i class="sblink-fabscan"></i>${hexMark('sblink-fabmark')}</div>
+      <svg class="sblink-fabring" viewBox="0 0 100 100" aria-hidden="true"><polygon points="50,3 91,26.5 91,73.5 50,97 9,73.5 9,26.5"/><polyline class="sblink-fabringlow" points="9,73.5 50,97 91,73.5"/><polyline class="sblink-fabringtick" points="9,38 9,26.5 19,20.8"/><polyline class="sblink-fabringtick" points="91,38 91,26.5 81,20.8"/><polyline class="sblink-fabringtick" points="43,7 50,3 57,7"/></svg>
+      <div class="sblink-fabbody${d.shape === 'hexb' || d.shape === 'badge' ? ' sblink-glass' : ''}"><i class="sblink-fabscan"></i>${hexMark('sblink-fabmark')}</div>
       <div class="sblink-fabcode">SYS<span class="sblink-cursor">▌</span></div>
-      <div class="sblink-fabtab">${hexMark('sblink-fabtabmark')}<span class="sblink-fabtabcode">SYS</span></div>
+      <div class="sblink-fabtab sblink-glass">${hexMark('sblink-fabtabmark')}<span class="sblink-fabtabcode">SYS</span></div>
       <div class="sblink-fabchip"${count ? '' : ' hidden'}>${esc(count)}</div>`;
     noChat = gone();
     watchColumn();

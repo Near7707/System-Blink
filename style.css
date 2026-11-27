@@ -385,23 +385,59 @@
 .sblink-fabghost { position: fixed; left: 0; top: 0; z-index: 2899; width: 60px; height: 60px; border: 1px dashed var(--sb-acc-dim); clip-path: polygon(50% 0, 93% 25%, 93% 75%, 50% 100%, 7% 75%, 7% 25%); pointer-events: none; }
 .sblink-fabghost.sblink-fab-small { width: 46px; height: 46px; }
 
+/* 0.5.7 HUD glass: the B shapes and the bookmark tab look like a heads-up display drawn on the screen —
+   a half-clear glass with fine scan lines, only the corner brackets and one edge bright, a light sweep now and then. */
+:root { --sb-hudbase: rgba(6, 17, 30, 0.5); --sb-hudhi: #8FE3FF; --sb-hudtext: #BFEFFF; }
+.sblink-tn-star { --sb-hudbase: rgba(11, 11, 24, 0.5); --sb-hudhi: #F5D98E; --sb-hudtext: #FBEBC2; }
+.sblink-tn-threat { --sb-hudbase: rgba(14, 9, 11, 0.5); --sb-hudhi: #FF9A9A; --sb-hudtext: #FFC9C9; }
+.sblink-glass {
+    box-sizing: border-box; overflow: hidden; clip-path: none;
+    background-image: repeating-linear-gradient(0deg, rgba(var(--sb-acc-rgb), 0.12) 0 1px, transparent 1px 3px),
+        linear-gradient(180deg, rgba(var(--sb-acc-rgb), 0.22), rgba(var(--sb-acc-rgb), 0.08)),
+        linear-gradient(var(--sb-hudbase), var(--sb-hudbase));
+    background-color: transparent; border: 1px solid rgba(var(--sb-acc-rgb), 0.45);
+}
+/* corner brackets */
+.sblink-glass::before {
+    content: ''; position: absolute; inset: 0; pointer-events: none; z-index: 2;
+    --c: var(--sb-hudhi);
+    background:
+        linear-gradient(var(--c), var(--c)) left top / 7px 2px no-repeat, linear-gradient(var(--c), var(--c)) left top / 2px 7px no-repeat,
+        linear-gradient(var(--c), var(--c)) right top / 7px 2px no-repeat, linear-gradient(var(--c), var(--c)) right top / 2px 7px no-repeat,
+        linear-gradient(var(--c), var(--c)) left bottom / 7px 2px no-repeat, linear-gradient(var(--c), var(--c)) left bottom / 2px 7px no-repeat,
+        linear-gradient(var(--c), var(--c)) right bottom / 7px 2px no-repeat, linear-gradient(var(--c), var(--c)) right bottom / 2px 7px no-repeat;
+}
+/* the light sweep */
+.sblink-glass::after { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 35%; pointer-events: none; opacity: 0;
+    background: linear-gradient(180deg, transparent, rgba(255, 255, 255, 0.22), transparent); }
+.sblink-moving .sblink-glass::after { animation: sblink-hudsweep 3.6s linear infinite; }
+.sblink-moving .sblink-glass { animation: sblink-hudflick 5s linear infinite; }
+@keyframes sblink-hudsweep { 0% { opacity: 1; transform: translateY(-120%); } 60% { opacity: 1; transform: translateY(320%); } 61%, 100% { opacity: 0; transform: translateY(320%); } }
+@keyframes sblink-hudflick { 0%, 92%, 100% { opacity: 1; } 94% { opacity: 0.6; } 96% { opacity: 0.95; } }
+.sblink-glass .sblink-hexmark { color: var(--sb-hudtext); filter: drop-shadow(0 0 3px var(--sb-acc)) drop-shadow(0 0 6px rgba(var(--sb-acc-rgb), 0.6)); }
+.sblink-glass .sblink-fabtabcode { color: var(--sb-hudtext); text-shadow: 0 0 4px var(--sb-acc); }
+
 /* 0.5.5 bookmark tab: the button tucked against the side of the chat column.
    The box is 36px wide to be easy to hit; the tab drawn in it is 24px, on its straight (flat) side. */
 .sblink-fabtab { display: none; }
-.sblink-fab.sblink-fab-tuck { width: 36px; height: 72px; filter: drop-shadow(0 0 5px rgba(var(--sb-acc-rgb), 0.45)); }
+.sblink-fab.sblink-fab-tuck { width: 36px; height: 72px; filter: drop-shadow(0 0 4px rgba(var(--sb-acc-rgb), 0.45)); }
 .sblink-fab-tuck .sblink-fabring, .sblink-fab-tuck .sblink-fabbody, .sblink-fab-tuck .sblink-fabcode { display: none; }
 .sblink-fab-tuck .sblink-fabtab {
-    position: absolute; top: 0; width: 24px; height: 72px; box-sizing: border-box;
+    position: absolute; top: 0; width: 24px; height: 72px;
     display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
-    background: var(--sb-bg); border: 1px solid rgba(var(--sb-acc-rgb), 0.6); transition: transform 0.18s ease;
+    transition: transform 0.18s ease;
 }
-/* flat on the left: cut corners on the right, a bright line along the straight side */
-.sblink-tab-l .sblink-fabtab { left: 0; border-left: none; box-shadow: inset 2px 0 0 var(--sb-acc);
-    clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%); }
-.sblink-tab-r .sblink-fabtab { right: 0; border-right: none; box-shadow: inset -2px 0 0 var(--sb-acc);
-    clip-path: polygon(8px 0, 100% 0, 100% 100%, 8px 100%, 0 calc(100% - 8px), 0 8px); }
-.sblink-fabtabmark { width: 14px; height: 14px; color: var(--sb-acc); flex: none; }
-.sblink-fabtabcode { font-family: var(--sb-mono); font-size: 8px; line-height: 1; letter-spacing: 0.1em; color: var(--sb-acc); writing-mode: vertical-rl; }
+/* the straight side has no border and a bright line; brackets only on the open side */
+.sblink-tab-l .sblink-fabtab { left: 0; border-left: none; box-shadow: inset 2px 0 0 var(--sb-hudhi); }
+.sblink-tab-r .sblink-fabtab { right: 0; border-right: none; box-shadow: inset -2px 0 0 var(--sb-hudhi); }
+.sblink-tab-l .sblink-fabtab::before { background:
+    linear-gradient(var(--c), var(--c)) right top / 6px 2px no-repeat, linear-gradient(var(--c), var(--c)) right top / 2px 6px no-repeat,
+    linear-gradient(var(--c), var(--c)) right bottom / 6px 2px no-repeat, linear-gradient(var(--c), var(--c)) right bottom / 2px 6px no-repeat; }
+.sblink-tab-r .sblink-fabtab::before { background:
+    linear-gradient(var(--c), var(--c)) left top / 6px 2px no-repeat, linear-gradient(var(--c), var(--c)) left top / 2px 6px no-repeat,
+    linear-gradient(var(--c), var(--c)) left bottom / 6px 2px no-repeat, linear-gradient(var(--c), var(--c)) left bottom / 2px 6px no-repeat; }
+.sblink-fabtabmark { position: relative; z-index: 1; width: 13px; height: 13px; flex: none; }
+.sblink-fabtabcode { position: relative; z-index: 1; font-family: var(--sb-mono); font-size: 8px; line-height: 1; letter-spacing: 0.1em; writing-mode: vertical-rl; }
 .sblink-fab-tuck .sblink-fabchip { top: -8px; min-width: 15px; height: 14px; line-height: 14px; font-size: 9px; padding: 0 3px; }
 .sblink-tab-r .sblink-fabchip { left: 4px; right: auto; }
 .sblink-tab-l .sblink-fabchip { left: 16px; right: auto; }
@@ -413,43 +449,44 @@
 .sblink-fab:not(.sblink-moving) .sblink-fabtab { transition: none; }
 
 /* 0.5.6 button shapes (this device). Sizes of the box come from fab.js; these draw what is inside. */
-.sblink-fabringlow { display: none; }
-/* B-hexagon: a dark hexagon with a thin solid line and a bright bottom edge */
+.sblink-fabringlow, .sblink-fabringtick { display: none; }
+/* B-hexagon: a hexagon of glass; the outline faint, three corners and the bottom edge bright, like a target */
 .sblink-shape-hexb .sblink-fabring { animation: none !important; }
-.sblink-shape-hexb .sblink-fabring polygon { fill: var(--sb-bg); stroke-dasharray: none; stroke-width: 3; stroke-opacity: 0.75; }
-.sblink-shape-hexb .sblink-fabringlow { display: inline; fill: none; stroke: var(--sb-acc); stroke-width: 5; stroke-dasharray: none; }
-.sblink-shape-hexb .sblink-fabbody { background: none; box-shadow: none; }
+.sblink-shape-hexb .sblink-fabring polygon { fill: none; stroke-dasharray: none; stroke-width: 2.5; stroke-opacity: 0.5; }
+.sblink-shape-hexb .sblink-fabringlow, .sblink-shape-hexb .sblink-fabringtick { display: inline; fill: none; stroke: var(--sb-hudhi); stroke-width: 4; stroke-dasharray: none; }
+.sblink-shape-hexb .sblink-fabbody { left: 0; top: 0; width: 60px; height: 60px; border: none; box-shadow: none;
+    clip-path: polygon(50% 3%, 91% 26.5%, 91% 73.5%, 50% 97%, 9% 73.5%, 9% 26.5%); }
+.sblink-shape-hexb.sblink-fab-small .sblink-fabbody { width: 46px; height: 46px; }
 .sblink-shape-hexb .sblink-fabbody::before, .sblink-shape-hexb .sblink-fabscan { display: none; }
-.sblink-shape-hexb .sblink-fabmark { color: var(--sb-acc); filter: none; }
-/* B-badge: a square with two cut corners, like the window's buttons */
+.sblink-shape-hexb .sblink-fabcode, .sblink-shape-badge .sblink-fabcode { color: var(--sb-hudtext); text-shadow: 0 0 4px var(--sb-acc); }
+/* B-badge: a square of glass with corner brackets, a bright bottom edge */
 .sblink-shape-badge .sblink-fabring { display: none; }
-.sblink-shape-badge .sblink-fabbody { left: 0; top: 0; width: 54px; height: 54px; box-sizing: border-box; background: var(--sb-bg); border: 1px solid rgba(var(--sb-acc-rgb), 0.7);
-    box-shadow: inset 0 -2px 0 var(--sb-acc); clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px); }
-.sblink-shape-badge.sblink-fab-small .sblink-fabbody { width: 46px; height: 46px; clip-path: polygon(9px 0, 100% 0, 100% calc(100% - 9px), calc(100% - 9px) 100%, 0 100%, 0 9px); }
-.sblink-shape-badge .sblink-fabbody::before, .sblink-shape-badge .sblink-fabscan { display: none; }
-.sblink-shape-badge .sblink-fabmark { width: 22px; height: 22px; color: var(--sb-acc); filter: none; }
+.sblink-shape-badge .sblink-fabbody { left: 0; top: 0; width: 54px; height: 54px; box-shadow: inset 0 -2px 0 var(--sb-hudhi); }
+.sblink-shape-badge.sblink-fab-small .sblink-fabbody { width: 46px; height: 46px; }
+.sblink-shape-badge .sblink-fabscan { display: none; }
+.sblink-shape-badge .sblink-fabmark { position: relative; z-index: 1; width: 22px; height: 22px; }
 .sblink-shape-badge.sblink-fab-small .sblink-fabmark { width: 20px; height: 20px; }
-.sblink-shape-badge .sblink-fabcode { top: 56px; }
-.sblink-shape-badge.sblink-fab-small .sblink-fabcode { top: 48px; }
-.sblink-shape-badge .sblink-fabchip { right: -7px; top: -6px; }
+.sblink-shape-badge .sblink-fabcode { top: 57px; }
+.sblink-shape-badge.sblink-fab-small .sblink-fabcode { top: 49px; }
+.sblink-shape-badge .sblink-fabchip { right: -8px; top: -7px; }
 .sblink-dragging.sblink-shape-badge .sblink-fabbody { transform: scale(1.06); }
-/* B-tab: the bookmark itself, floating free (all four corners cut, a bright top edge) */
+/* B-tab: the bookmark itself, floating free, a bright top edge */
 .sblink-shape-tab:not(.sblink-fab-tuck) .sblink-fabring, .sblink-shape-tab:not(.sblink-fab-tuck) .sblink-fabbody, .sblink-shape-tab:not(.sblink-fab-tuck) .sblink-fabcode { display: none; }
 .sblink-shape-tab:not(.sblink-fab-tuck) .sblink-fabtab {
-    position: absolute; left: 0; top: 0; width: 100%; height: 100%; box-sizing: border-box;
+    position: absolute; left: 0; top: 0; width: 100%; height: 100%;
     display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
-    background: var(--sb-bg); border: 1px solid rgba(var(--sb-acc-rgb), 0.7); box-shadow: inset 0 2px 0 var(--sb-acc);
-    clip-path: polygon(7px 0, calc(100% - 7px) 0, 100% 7px, 100% calc(100% - 7px), calc(100% - 7px) 100%, 7px 100%, 0 calc(100% - 7px), 0 7px);
+    box-shadow: inset 0 2px 0 var(--sb-hudhi);
 }
 .sblink-shape-tab:not(.sblink-fab-tuck) .sblink-fabtabmark { width: 17px; height: 17px; }
 .sblink-shape-tab:not(.sblink-fab-tuck) .sblink-fabtabcode { font-size: 10px; letter-spacing: 0.14em; }
 .sblink-shape-tab.sblink-fab-small:not(.sblink-fab-tuck) .sblink-fabtabmark { width: 15px; height: 15px; }
 .sblink-shape-tab.sblink-fab-small:not(.sblink-fab-tuck) .sblink-fabtabcode { font-size: 9px; }
-.sblink-shape-tab:not(.sblink-fab-tuck) .sblink-fabchip { right: -8px; top: -6px; }
+.sblink-shape-tab:not(.sblink-fab-tuck) .sblink-fabchip { right: -9px; top: -7px; }
 .sblink-dragging.sblink-shape-tab .sblink-fabtab { transform: scale(1.06); }
+.sblink-shape-hexb .sblink-fabchip, .sblink-shape-badge .sblink-fabchip, .sblink-shape-tab .sblink-fabchip, .sblink-fab-tuck .sblink-fabchip {
+    background: rgba(242, 193, 78, 0.92); box-shadow: 0 0 6px rgba(242, 193, 78, 0.6); }
 /* the ghost left behind while dragging takes the same outline */
-.sblink-fabghost.sblink-shape-badge { clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px); }
-.sblink-fabghost.sblink-shape-tab { clip-path: polygon(7px 0, calc(100% - 7px) 0, 100% 7px, 100% calc(100% - 7px), calc(100% - 7px) 100%, 7px 100%, 0 calc(100% - 7px), 0 7px); }
+.sblink-fabghost.sblink-shape-badge, .sblink-fabghost.sblink-shape-tab { clip-path: none; }
 
 /* ---------- wand menu & extension panel (SillyTavern's own look) ---------- */
 .sblink-wandico svg { width: 1.1em; height: 1.1em; vertical-align: middle; }
