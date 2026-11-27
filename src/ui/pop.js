@@ -50,7 +50,7 @@ export function fitPop(wrap) {
     scroll.className = 'sblink-popscroll';
     const btns = box.querySelector(':scope > .sblink-popbtns');
     for (const el of [...box.children]) {
-        if (el.matches('.sblink-cn, .sblink-tag, .sblink-popbtns')) continue;
+        if (el.matches('.sblink-cn, .sblink-tag, .sblink-popbtns, .sblink-poplink')) continue; // buttons (and the quiet choice under them) always show
         scroll.appendChild(el);
     }
     box.insertBefore(scroll, btns || null);
@@ -113,6 +113,7 @@ function draw(p) {
           ${p.second ? `<button type="button" class="sblink-btn" data-pop="second"><span class="sblink-ell">${esc(p.second)}</span></button>` : ''}
           <button type="button" class="sblink-btn sblink-btn-main" data-pop="ok"><span class="sblink-ell">${esc(p.ok || t('ok'))}</span></button>
         </div>
+        ${p.link ? `<button type="button" class="sblink-poplink" data-pop="link"><span class="sblink-ell">${esc(p.link)}</span></button>` : ''}
       </div>`;
     document.body.appendChild(wrap);
     fitPop(wrap);
@@ -125,6 +126,14 @@ function draw(p) {
     });
     setTimeout(() => wrap.querySelector('.sblink-btn-main')?.focus({ preventScroll: true }), 50);
 }
+
+/** 0.6.2+: drop popups that belong to another chat (an unanswered "wake?" question when the chat changes). */
+export function dropPopups(test) {
+    for (let i = queue.length - 1; i >= 0; i--) if (test(queue[i])) queue.splice(i, 1);
+    if (showing && test(showing)) { const p = showing; showing = null; $id('sblink-pop')?.remove(); try { p.onDrop?.(); } catch { /* ignore */ } setTimeout(pump, 120); }
+    hooks.badge();
+}
+export const popupWaiting = (test) => (showing && test(showing)) || queue.some(test);
 
 export function clearPopups() { $id('sblink-gacha')?.remove(); queue.length = 0; if (showing) { showing = null; $id('sblink-pop')?.remove(); } hooks.badge(); }
 

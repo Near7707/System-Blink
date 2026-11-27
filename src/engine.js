@@ -868,8 +868,11 @@ export function skipTutorial() {
     goalSoon();
 }
 
-/** Switch the system on in this chat (first time: the awakening and day 1). */
-export async function switchOn() {
+/**
+ * Switch the system on in this chat (first time: the awakening and day 1).
+ * `tut` (0.6.4, a new chat that woke by itself, already asked): 'start' | 'skip' — no awakening popup.
+ */
+export async function switchOn(tut = '') {
     const chatId = currentChatId();
     const r = room(chatId, true);
     if (!r) return;
@@ -881,7 +884,8 @@ export async function switchOn() {
     if (!r.realDate) r.realDate = realDateNow();
     save(); changed();
     if (first) {
-        if (settings().tutorialAuto) { r.tutorial.state = 'active'; bus.emit('awaken'); }
+        if (tut) r.tutorial.state = tut === 'start' ? 'active' : 'skipped';
+        else if (settings().tutorialAuto) { r.tutorial.state = 'active'; bus.emit('awaken'); }
         else r.tutorial.state = 'skipped';
         save();
         await newQuests(chatId);
@@ -949,9 +953,9 @@ export function charKey() {
 
 /**
  * A brand-new chat (nothing saved for it, at most the greeting) with a character whose chats were woken before:
- * wake it. Old chats that were never woken are left alone.
+ * may it wake? (0.6.4: only asks — nothing is made and no AI is called until the answer.) Old chats are left alone.
  */
-export async function autoWake() {
+export function wantsWake() {
     const s = settings();
     const chatId = currentChatId();
     if (!s.enabled || !chatId || s.chats[chatId]) return false;
@@ -959,9 +963,15 @@ export async function autoWake() {
     if (!ck || s.autoWake[ck] !== true) return false;
     let n = 0;
     try { n = (ctx().chat || []).filter(m => m && !m.is_system).length; } catch { return false; }
-    if (n > 1) return false;
-    await switchOn();
-    return true;
+    return n <= 1;
+}
+
+/** "Don't wake this chat": it stays asleep and is not asked again (the wand can still wake it). */
+export function declineWake(chatId = currentChatId()) {
+    const r = room(chatId, true);
+    if (!r) return;
+    r.on = false;
+    save(); changed();
 }
 
 // ---------- skills (stage 2-C) ----------

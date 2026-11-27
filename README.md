@@ -6,7 +6,7 @@ A game-like **System** for SillyTavern roleplay, in the style of Korean system n
 In the middle of the story, a translucent System window pops up — *"[Daily quests have arrived]"* —
 you clear quests in the story, earn points, and spend them in your own **personal shop**.
 
-This version (0.6.3): the System window, the tutorial, daily quests, the shop, the bag and daily-life mode,
+This version (0.6.4): the System window, the tutorial, daily quests, the shop, the bag and daily-life mode,
 sudden quests, hidden quests, a main goal, quests with several conditions, **difficulty with penalties**,
 **skills and gacha**, **three System voices** with **spectators** who react and sponsor — and, if you like, **new quests shown in the story**.
 
@@ -22,7 +22,8 @@ https://github.com/Near7707/System-Blink
 
 - **Wake the System in a chat.** Open *System Blink* in the ✨ wand menu and press *[Wake the System]*.
   Each chat has its own System: points, bag, quests and tutorial. Other chats are not touched.
-  After that, **new chats with the same character (or group) wake by themselves** — you still choose to do or skip the tutorial.
+  After that, **a new chat with the same character (or group) offers to wake by itself**: start or skip the tutorial, or *Don’t wake this chat*
+  (nothing is made and no AI is called until you answer).
   Chats you already have stay as they are. Turn it off in ⚙ › *Wake new chats with this character too*, or say yes when you switch a chat off.
   From then on a floating hexagon button opens it in that chat. Let go of the button against the side of the chat
   and it tucks in as a small bookmark tab; drag it inward to bring it back.

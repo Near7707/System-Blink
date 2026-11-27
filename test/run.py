@@ -1431,14 +1431,38 @@ def goal062(browser, lang):
     # another character's new chat stays asleep
     ev(page, "window.__fakeST.openCharChat(1, 'Juno - new')"); page.wait_for_timeout(1100)
     check(not ev(page, f"!!{S}.chats['Juno - new']"), "another character's new chat is not woken")
-    # a brand-new chat with Mira wakes by itself, with the tutorial choice
+    # a brand-new chat with Mira: asks first — nothing is made and no AI is called until the answer
+    q0 = ev(page, 'window.__calls.quests')
     ev(page, "window.__fakeST.openCharChat(0, 'Mira - new')"); page.wait_for_timeout(1300)
-    check(ev(page, f"!!{S}.chats['Mira - new']?.on"), 'a new chat with the same character wakes by itself')
-    check(ev(page, "!!document.querySelector('#sblink-pop')") and ev(page, "!!document.querySelector('#sblink-pop [data-pop=\"second\"]')"), 'the tutorial popup asks start / skip')
+    check(not ev(page, f"!!{S}.chats['Mira - new']"), 'new chat: not awake before the answer')
+    check(ev(page, 'window.__calls.quests') == q0, 'no quest request before the answer')
+    check(ev(page, "!!document.querySelector('#sblink-pop [data-pop=\"second\"]') && !!document.querySelector('#sblink-pop [data-pop=\"link\"]')"), 'the popup: start / skip / don\'t wake')
+    page.wait_for_timeout(1500); shot(page, f'{lang}_062_05_ask')
+    # entering again while it is open does not ask twice
+    ev(page, "window.__fakeST.openCharChat(0, 'Mira - new')"); page.wait_for_timeout(1100)
+    check(ev(page, "document.querySelectorAll('#sblink-pop').length") == 1 and ev(page, "(async () => (await import('/src/ui/pop.js')).waiting())()") == 1, 'asked once')
     page.click('#sblink-pop [data-pop="second"]'); page.wait_for_timeout(900)  # skip
+    check(ev(page, f"!!{S}.chats['Mira - new']?.on"), 'answered: the chat wakes')
+    check(ev(page, 'window.__calls.quests') == q0 + 1, 'daily quests made after the answer')
     check(calls() == 2, f'skipped: the goal comes at once ({calls()})')
     check(ev(page, f"!!{S}.chats['Mira - new'].goal"), 'goal set in the new chat')
     close_pops(page)
+    # "don't wake this chat": stays asleep, no AI, not asked again
+    q1 = ev(page, 'window.__calls.quests')
+    ev(page, "window.__fakeST.openCharChat(0, 'Mira - skipme')"); page.wait_for_timeout(1300)
+    page.click('#sblink-pop [data-pop="link"]'); page.wait_for_timeout(500)
+    check(ev(page, f"{S}.chats['Mira - skipme']?.on") is False and ev(page, 'window.__calls.quests') == q1, "don't wake: asleep, no AI call")
+    ev(page, "window.__fakeST.openCharChat(1, 'Juno - new')"); page.wait_for_timeout(300)
+    ev(page, "window.__fakeST.openCharChat(0, 'Mira - skipme')"); page.wait_for_timeout(1300)
+    check(not ev(page, "!!document.getElementById('sblink-pop')"), 'not asked again')
+    # leaving before answering: the question goes away, and comes back on return
+    ev(page, "window.__fakeST.openCharChat(0, 'Mira - later')"); page.wait_for_timeout(1300)
+    ev(page, "window.__fakeST.openCharChat(1, 'Juno - new')"); page.wait_for_timeout(400)
+    check(not ev(page, "!!document.getElementById('sblink-pop')"), 'left the chat: the question goes away')
+    ev(page, "window.__fakeST.openCharChat(0, 'Mira - later')"); page.wait_for_timeout(1300)
+    check(ev(page, "!!document.querySelector('#sblink-pop [data-pop=\"link\"]')") and not ev(page, f"!!{S}.chats['Mira - later']"), 'back: asked again')
+    page.click('#sblink-pop [data-pop="link"]'); page.wait_for_timeout(300)
+    ev(page, "window.__fakeST.openCharChat(0, 'Mira - new')"); page.wait_for_timeout(1100)
 
     # ⚙: the row for this character, and switching the chat off asks about new chats
     page.click('#sblink-fab'); page.wait_for_timeout(200)
@@ -1460,6 +1484,14 @@ def goal062(browser, lang):
 
     # the AI fails: [Try again] in the Quest tab
     ev(page, f"{S}.tutorialAuto = false; window.__goalFail = true")
+    # (tutorial off: a new chat asks just "wake?")
+    ev(page, f"{S}.autoWake['c:juno.png'] = true")
+    ev(page, "window.__fakeST.openCharChat(1, 'Juno - three')"); page.wait_for_timeout(1300)
+    check(ev(page, "!!document.querySelector('#sblink-pop [data-pop=\"link\"]') && !document.querySelector('#sblink-pop [data-pop=\"second\"]')"), 'tutorial off: "wake?" with [Wake] and don\'t wake')
+    page.click('#sblink-pop [data-pop="ok"]'); page.wait_for_timeout(900)
+    check(ev(page, f"{S}.chats['Juno - three']?.on && {S}.chats['Juno - three'].tutorial.state === 'skipped'"), 'woken with the tutorial skipped')
+    close_pops(page)
+    ev(page, f"delete {S}.autoWake['c:juno.png']")
     ev(page, "window.__fakeST.openCharChat(1, 'Juno - two')"); page.wait_for_timeout(700)
     ev(page, "(async () => (await import('/src/engine.js')).switchOn())()"); page.wait_for_timeout(900)
     check(not ev(page, room_js('!!r.goal')), 'failed: no goal')

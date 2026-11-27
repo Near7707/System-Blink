@@ -5,7 +5,7 @@
 
 import { t, setLanguage, lang } from './src/i18n.js';
 import { ctx, settings, save, uiLang, room, currentChatId, onChatRenamed, onChatDeleted, copyFromParent, VERSION } from './src/store.js';
-import { bus, storeCheck, bindUses, markDelivered, markTold, active, checkRealDay, setLangGetter, skipTutorial, rate, lastReply, chatView, nextStage, tidy, answerSudden, penaltyFor, rewardSkill, warnFor, checkBig, spectate, toneOf, autoWake, giveGoal } from './src/engine.js';
+import { bus, storeCheck, bindUses, markDelivered, markTold, active, checkRealDay, setLangGetter, skipTutorial, rate, lastReply, chatView, nextStage, tidy, answerSudden, penaltyFor, rewardSkill, warnFor, checkBig, spectate, toneOf, wantsWake, declineWake, giveGoal, switchOn } from './src/engine.js';
 import { runCheck } from './src/ai.js';
 import { buildPrompt } from './src/prompt.js';
 import { panelHtml, panelChange, runButton, setPrefsHooks } from './src/prefs.js';
@@ -14,7 +14,7 @@ import { openWindow, closeWindow, isOpen, refreshWin, place as placeWin, setWinH
 import { mountFab, unmountFab, setFabHidden, setFabCount, setFabHooks, syncFabChat, place as placeFab, endDrag } from './src/ui/fab.js';
 import {
     popup, notice, hold, waiting, setPopHooks, placePops, renderStrip, placeStrip, foldStrip, stripShown, renderCards, renderCardsSoon,
-    removeCards, clearPopups, questsPopup, suddenPopup, hiddenPopup, stagePopup, goalDonePopup, goalGivenPopup, failPopup, skillPopup, unlockPopup, bigPopup,
+    removeCards, clearPopups, dropPopups, popupWaiting, questsPopup, suddenPopup, hiddenPopup, stagePopup, goalDonePopup, goalGivenPopup, failPopup, skillPopup, unlockPopup, bigPopup,
 } from './src/ui/pop.js';
 import { esc } from './src/ui/util.js';
 
@@ -134,6 +134,46 @@ function afterCheck(out, chatId) {
     if (out.sudden) suddenPopup(out.sudden, rate(out.sudden.reward), (yes) => answered(out.sudden.id, yes));
 }
 
+// ---------- the awakening ----------
+const tutSteps = () => `<div class="sblink-tutsteps">${[0, 1, 2, 3].map(i => `<div class="sblink-tutstep${i === 0 ? ' sblink-now' : ''}"><span class="sblink-dia">◆</span><span class="sblink-ell">${esc(t(`tut_${i}`))}</span>${i === 0 ? '<span class="sblink-code">NOW</span>' : ''}</div>`).join('')}</div>
+       <div class="sblink-goldline">${esc(t('tut_reward'))}</div>`;
+
+/** Woken by hand: the System is already awake; start or skip the tutorial. */
+function awakenPopup() {
+    popup({
+        kind: 'awaken', code: 'SYS.NOTICE // AWAKEN', title: t('pop_awaken'),
+        lines: [esc(t('pop_awaken_2')), esc(t('pop_awaken_3'))],
+        body: tutSteps(), second: t('skip'), ok: t('start'),
+        onClose: (act) => { if (act === 'second') skipTutorial(); else openWindow('quests'); },
+    });
+}
+
+/**
+ * 0.6.4: a new chat with a character woken before. Nothing happens (no quests, no AI) until I answer:
+ * start / skip the tutorial (or just wake, when the tutorial is off), or "don't wake this chat".
+ */
+function askWake(chatId) {
+    const mine = (p) => p.wakeFor === chatId;
+    if (popupWaiting(mine)) return;
+    const tut = settings().tutorialAuto;
+    const answer = async (act) => {
+        if (currentChatId() !== chatId || !settings().enabled || room(chatId)?.on) return;
+        if (act === 'link') { declineWake(chatId); mountPanel(); return; }
+        if (!tut) { await switchOn('skip'); mountPanel(); return; }
+        await switchOn(act === 'second' ? 'skip' : 'start');
+        mountPanel();
+        if (act !== 'second') openWindow('quests');
+    };
+    popup(tut ? {
+        kind: 'awaken', code: 'SYS.NOTICE // AWAKEN', title: t('pop_awaken_ask'), wakeFor: chatId,
+        lines: [esc(t('pop_awaken_2')), esc(t('pop_awaken_3'))],
+        body: tutSteps(), second: t('skip'), ok: t('start'), link: t('wake_decline'), onClose: answer,
+    } : {
+        kind: 'awaken', code: 'SYS.NOTICE // AWAKEN', title: t('pop_wake_q'), wakeFor: chatId,
+        lines: [esc(t('wake_q_body'))], ok: t('room_on'), link: t('wake_decline'), onClose: answer,
+    });
+}
+
 // ---------- bus: things the rules tell the screen ----------
 function wireBus() {
     bus.on('change', redrawSoon);
@@ -155,16 +195,7 @@ function wireBus() {
         if (failed.length) cheer(chatId || currentChatId(), null, 'fail');
     });
     bus.on('bigEvent', () => bigPopup());
-    bus.on('awaken', () => {
-        popup({
-            kind: 'awaken', code: 'SYS.NOTICE // AWAKEN', title: t('pop_awaken'),
-            lines: [esc(t('pop_awaken_2')), esc(t('pop_awaken_3'))],
-            body: `<div class="sblink-tutsteps">${[0, 1, 2, 3].map(i => `<div class="sblink-tutstep${i === 0 ? ' sblink-now' : ''}"><span class="sblink-dia">◆</span><span class="sblink-ell">${esc(t(`tut_${i}`))}</span>${i === 0 ? '<span class="sblink-code">NOW</span>' : ''}</div>`).join('')}</div>
-                   <div class="sblink-goldline">${esc(t('tut_reward'))}</div>`,
-            second: t('skip'), ok: t('start'),
-            onClose: (act) => { if (act === 'second') skipTutorial(); else openWindow('quests'); },
-        });
-    });
+    bus.on('awaken', () => { dropPopups(p => !!p.wakeFor); awakenPopup(); }); // woken by hand: an open "wake?" question is moot
     bus.on('tutorialStep', () => redrawSoon());
     bus.on('tutorialDone', () => popup({ tag: 'CLEAR', code: 'SYS.NOTICE // TUTORIAL', title: t('pop_tut_done'), lines: [`<span class="sblink-dia">◆</span><span class="sblink-ell">${esc(t('tut_reward'))}</span>`] }));
 }
@@ -243,7 +274,7 @@ function enteredSoon() {
     enterTimer = setTimeout(async () => {
         if (!chatId || currentChatId() !== chatId || !settings().enabled || generating) return;
         try {
-            if (await autoWake()) { mountPanel(); redrawSoon(); return; } // waking gives the goal itself (after the tutorial)
+            if (wantsWake()) { askWake(chatId); return; } // waking gives the goal itself (after the tutorial)
             await giveGoal(chatId);
         } catch (e) { console.warn('[System Blink] enter', e); }
     }, 600);
@@ -256,7 +287,7 @@ function registerEvents() {
     // while switched off nothing runs, except keeping saved data with renamed / deleted chats
     const on = (name, fn, always = false) => { if (name) eventSource.on(name, (...a) => { try { if (always || settings().enabled) return fn(...a); } catch (e) { console.error('[System Blink]', e); } }); };
 
-    on(ev.CHAT_CHANGED, () => { copyFromParent(); mountPanel(); if (!settings().enabled) return; generating = false; hold(false); checkRealDay(); redrawSoon(); enteredSoon(); }, true);
+    on(ev.CHAT_CHANGED, () => { const id = currentChatId(); dropPopups(p => p.wakeFor && p.wakeFor !== id); copyFromParent(); mountPanel(); if (!settings().enabled) return; generating = false; hold(false); checkRealDay(); redrawSoon(); enteredSoon(); }, true);
     for (const name of [ev.MESSAGE_DELETED, ev.MESSAGE_SWIPED, ev.MESSAGE_EDITED, ev.MESSAGE_UPDATED,
         ev.USER_MESSAGE_RENDERED, ev.CHARACTER_MESSAGE_RENDERED, ev.MORE_MESSAGES_LOADED, ev.CHAT_LOADED]) {
         on(name, () => { renderCardsSoon(); redrawSoon(); });
