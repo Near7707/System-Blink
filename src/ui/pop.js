@@ -395,6 +395,27 @@ export function renderCards() {
     });
 }
 
+/**
+ * 0.6.7: draw the quest lines of these messages right away, before the screen shows them, so the plain
+ * [SYS:QUEST] text never flashes up first (chat opening, a translation laid over the text). Cards stay
+ * with renderCards.
+ */
+export function drawQuestLinesNow(mesEls) {
+    if (!mesEls?.length) return;
+    const r = room();
+    if (!active(r)) return;
+    let view = null;
+    for (const mes of mesEls) {
+        const mt = mes?.querySelector?.('.mes_text');
+        if (!mt || !mt.textContent.includes('[SYS:QUEST]')) continue;
+        view = view || chatView();
+        const i = Number(mes.getAttribute('mesid'));
+        const m = view.list[i];
+        if (!m || !isAI(m)) continue;
+        try { drawQuestBlocks(mt, view.keys[i]); } catch (e) { console.warn('[System Blink] quest lines', e); }
+    }
+}
+
 export function removeCards() { document.querySelectorAll('.sblink-card').forEach(el => el.remove()); undrawQuestBlocks(); }
 
 function hashStr(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return h; }

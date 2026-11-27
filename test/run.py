@@ -112,6 +112,8 @@ def main():
             v065(browser, 'en')
             v066(browser, 'ko')
             v066(browser, 'en')
+            v067(browser, 'ko')
+            v067(browser, 'en')
             browser.close()
     finally:
         srv.terminate()
@@ -1766,6 +1768,59 @@ def v066(browser, lang):
         const tick = setInterval(() => {{ t.innerHTML = words.slice(0, ++i).join(' '); if (i >= words.length) clearInterval(tick); }}, 60); }})()""")
     page.wait_for_timeout(2200)
     check(ev(page, f"{last}.querySelectorAll('.sblink-qblock').length") == 1, 'streamed text: drawn at the end')
+    check(not errors, f'no errors ({errors[:3]})')
+    page.close()
+
+
+def v067(browser, lang):
+    """0.6.7: quest lines drawn before the screen shows them (no flash of plain text); page font like the quest panel."""
+    print(f'--- 0.6.7 no flash / font ({lang})')
+    page, errors = open_page(browser, f'fresh&lang={lang}', width=1280, height=800)
+    page.click('#sblink-fab')
+    page.click('[data-act="roomOn"]'); page.wait_for_timeout(500)
+    page.click('#sblink-pop [data-pop="second"]'); page.wait_for_timeout(500)
+    close_pops(page)
+    if ev(page, "!!document.getElementById('sblink-win')"):
+        page.click('#sblink-win [data-act="close"]'); page.wait_for_timeout(200)
+    reply = '<p>The light came in.<br>[SYS:QUEST] DAILY · Water the plants<br>[SYS:QUEST] DAILY · Call an old friend<br>"So early?"</p>'
+    turn(page, 'look', reply)
+    last = "document.querySelector('#chat .mes:last-child')"
+    check(ev(page, f"{last}.querySelectorAll('.sblink-qblock').length") == 1, 'drawn')
+    # chat opened again: SillyTavern puts the messages in after the chat event, one by one.
+    # Checked right after the message is put in, before any frame is painted.
+    seen = ev(page, f"""(async () => {{
+        const old = {last}; const id = old.getAttribute('mesid'); const box = old.parentElement; old.remove();
+        await new Promise(r => setTimeout(r, 50));
+        const d = document.createElement('div'); d.className = 'mes'; d.setAttribute('mesid', id);
+        d.innerHTML = '<div class="mes_block"><div class="mes_text">' + {reply!r} + '</div></div>';
+        box.appendChild(d);
+        await Promise.resolve();
+        return {{ blocks: d.querySelectorAll('.sblink-qblock').length, plain: d.querySelector('.mes_text').innerText.includes('[SYS:QUEST]') }};
+    }})()""")
+    check(seen['blocks'] == 1 and not seen['plain'], f'chat opened: no plain line before paint ({seen})')
+    # a translation laid over the text: drawn in the same moment
+    tr = '<p>빛이 들어왔다.<br>[SYS:QUEST] DAILY · 화분에 물 주기<br>"벌써?"</p>'
+    seen = ev(page, f"""(async () => {{
+        const el = {last}; el.querySelector('.mes_text').innerHTML = {tr!r};
+        await Promise.resolve();
+        return {{ blocks: el.querySelectorAll('.sblink-qblock').length, plain: el.querySelector('.mes_text').innerText.includes('[SYS:QUEST]') }};
+    }})()""")
+    check(seen['blocks'] == 1 and not seen['plain'], f'translated: no plain line before paint ({seen})')
+    # font: a theme forcing a font on chat text; the block follows the page font like the panel
+    ev(page, """(() => { const st = document.createElement('style');
+        st.textContent = 'body { font-family: Georgia, serif; } #chat .mes_text, #chat .mes_text * { font-family: "Courier New", monospace !important; }';
+        document.head.appendChild(st); })()""")
+    ev(page, f"{last}.querySelector('.mes_text').innerHTML = {reply!r}")
+    page.wait_for_timeout(200)
+    body = ev(page, "getComputedStyle(document.body).fontFamily")
+    name = ev(page, f"getComputedStyle({last}.querySelector('.sblink-qbname')).fontFamily")
+    title = ev(page, f"getComputedStyle({last}.querySelector('.sblink-qbtitle')).fontFamily")
+    code = ev(page, f"getComputedStyle({last}.querySelector('.sblink-qbcode')).fontFamily")
+    check(name == body and title == body, f'block text uses the page font ({name} / {title} vs {body})')
+    check('monospace' in code and 'Courier' not in code, f'code letters keep the System font ({code})')
+    story = ev(page, f"getComputedStyle({last}.querySelector('.mes_text')).fontFamily")
+    check('Courier' in story, f'story text keeps the chat font ({story})')
+    shot(page, f'{lang}_067_font')
     check(not errors, f'no errors ({errors[:3]})')
     page.close()
 

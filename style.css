@@ -884,6 +884,9 @@
         linear-gradient(currentColor, currentColor) left bottom / 9px 2px no-repeat, linear-gradient(currentColor, currentColor) left bottom / 2px 9px no-repeat,
         linear-gradient(currentColor, currentColor) right bottom / 9px 2px no-repeat, linear-gradient(currentColor, currentColor) right bottom / 2px 9px no-repeat; }
 .sblink-qblock::after { content: ''; position: absolute; inset: 0; pointer-events: none; background: repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px 3px); }
+/* 0.6.7 the page's font (as in the quest panel), even where a theme forces its own font on chat text */
+#chat .sblink-qblock, #chat .sblink-qblock .sblink-qbtitle, #chat .sblink-qblock .sblink-qbname, #chat .sblink-qblock .sblink-qbmeta, #chat .sblink-qblock .sblink-qbrow { font-family: var(--sb-qfont, inherit) !important; }
+#chat .sblink-qblock .sblink-qbtag, #chat .sblink-qblock .sblink-qbcode, #chat .sblink-qblock .sblink-qbpts { font-family: var(--sb-mono) !important; }
 .sblink-qbhead { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .sblink-qbtag { flex: none; background: var(--qb); color: #08121C; font-family: var(--sb-mono); font-size: 10px; font-weight: 800; padding: 2px 7px; transform: skewX(-14deg); letter-spacing: 0.06em; line-height: 1.4; }
 .sblink-qb-hidden .sblink-qbtag, .sblink-qb-penalty .sblink-qbtag { color: #fff; }

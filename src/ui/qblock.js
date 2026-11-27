@@ -137,6 +137,10 @@ function blockHtml(r, kind, items, key) {
 export function drawQuestBlocks(textEl, key) {
     if (!textEl || !textEl.textContent.includes('[SYS:QUEST]')) return;
     const r = room();
+    // 0.6.7: the same letters as the quest panel and the System window (the page's own font), not the
+    // chat text's font, which a theme may set apart
+    let font = '';
+    try { font = getComputedStyle(document.body).fontFamily || ''; } catch { /* keep the chat font */ }
     markLines(textEl);
     for (const g of groups(textEl)) {
         const first = g[0];
@@ -147,6 +151,7 @@ export function drawQuestBlocks(textEl, key) {
         box.className = `sblink-qblock sblink-qb-${kind} sblink-tn-${tone}`;
         box.setAttribute('role', 'button');
         box.tabIndex = 0;
+        if (font) box.style.setProperty('--sb-qfont', font);
         box.dataset.raw = g.map(el => el.dataset.raw).join('\n');
         box.innerHTML = html;
         box.addEventListener('click', (e) => { e.stopPropagation(); openTab('quests'); });

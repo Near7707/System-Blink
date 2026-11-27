@@ -13,7 +13,7 @@ import { hexMark } from './src/icons.js';
 import { openWindow, closeWindow, isOpen, refreshWin, place as placeWin, setWinHooks } from './src/ui/win.js';
 import { mountFab, unmountFab, setFabHidden, setFabCount, setFabHooks, syncFabChat, place as placeFab, endDrag } from './src/ui/fab.js';
 import {
-    popup, notice, hold, waiting, setPopHooks, placePops, renderStrip, placeStrip, foldStrip, stripShown, renderCards, renderCardsSoon,
+    popup, notice, hold, waiting, setPopHooks, placePops, renderStrip, placeStrip, foldStrip, stripShown, renderCards, renderCardsSoon, drawQuestLinesNow,
     removeCards, clearPopups, dropPopups, popupWaiting, popupFront, pausePops, placeToasts, questsPopup, suddenPopup, hiddenPopup, stagePopup, goalDonePopup, goalGivenPopup, failPopup, skillPopup, unlockPopup, bigPopup,
 } from './src/ui/pop.js';
 import { esc, isPhone } from './src/ui/util.js';
@@ -400,21 +400,30 @@ function watchScreen() {
         // too: a message whose text still holds a plain [SYS:QUEST] line gets drawn again. Our own changes
         // leave no plain line behind, so they do not set this off again. Waits a little so a reply that is
         // still coming in is drawn once, at the end.
+        // 0.6.7: a MutationObserver runs before the screen is painted, so lines drawn here never show as
+        // plain text first. Only while a reply is still coming in do we wait and draw once at the end.
         let textTimer = 0;
         new MutationObserver((list) => {
             const s = settings();
             if (!s.enabled) return;
-            let msgs = false, lines = false;
+            let msgs = false;
+            const now = new Set();
             for (const m of list) {
-                if (m.target === chatEl) { msgs = true; continue; }
-                if (lines) continue;
+                if (m.target === chatEl) {
+                    msgs = true;
+                    for (const n of m.addedNodes) if (n.nodeType === 1 && n.classList.contains('mes')) now.add(n);
+                    continue;
+                }
                 const el = m.target.nodeType === 1 ? m.target : m.target.parentElement;
                 if (!el || el.closest('.sblink-qblock, .sblink-card')) continue;
                 const mt = el.closest('.mes_text');
-                if (mt && mt.textContent.includes('[SYS:QUEST]')) lines = true;
+                if (mt && mt.textContent.includes('[SYS:QUEST]')) { const mes = mt.closest('.mes'); if (mes) now.add(mes); }
+            }
+            if (now.size) {
+                if (generating) { clearTimeout(textTimer); textTimer = setTimeout(renderCards, 300); }
+                else drawQuestLinesNow([...now]);
             }
             if (msgs && s.logCards) renderCardsSoon();
-            if (lines) { clearTimeout(textTimer); textTimer = setTimeout(renderCards, 300); }
         }).observe(chatEl, { childList: true, subtree: true, characterData: true });
     }
 }
