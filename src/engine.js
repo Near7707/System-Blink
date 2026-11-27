@@ -2,7 +2,7 @@
 // counts while that AI reply is still there, so re-rolling or deleting the reply takes it back.
 // Purchases, manual clears and the tutorial reward always count.
 
-import { ctx, settings, save, uid, room, currentChatId, DIFFS, TONES } from './store.js';
+import { ctx, settings, conf, save, uid, room, currentChatId, DIFFS, TONES } from './store.js';
 import { standingDefaults, dailyPool, questPool, penaltyPool, parseCustomShop, shuffle, TUTORIAL_REWARD, GRADES, LOW_GRADES, skillPool, gachaOddPool, eraserItem, specLine, specNames } from './data.js';
 
 // ---------- a tiny event bus (engine → screens) ----------
@@ -51,14 +51,14 @@ export function lastMine(view = chatView()) {
 const alive = (key, view) => key == null || view.index.has(key);
 
 // ---------- the room ----------
-export function active(r = room()) { return !!(settings().enabled && r?.on); }
+export function active(r = room()) { return !!(conf().enabled && r?.on); }
 
 export function ownerName(r = room()) {
     if (r?.name) return r.name;
     try { return String(ctx().name1 || 'User'); } catch { return 'User'; }
 }
 
-export function rate(reward) { return Math.max(1, Math.round(Number(reward || 0) * settings().pointRate)); }
+export function rate(reward) { return Math.max(1, Math.round(Number(reward || 0) * conf().pointRate)); }
 
 export function points(r = room(), view = chatView()) {
     if (!r) return 0;
@@ -304,7 +304,7 @@ export function answerSudden(questId, accept) {
 export function rollFor(r, key) {
     if (!r || !key) return { sudden: false, hidden: false };
     if (r.roll?.key === key) return r.roll;
-    const s = settings();
+    const s = conf(r);
     const rnd = typeof globalThis.__sblinkRandom === 'function' ? globalThis.__sblinkRandom : Math.random;
     const view = chatView();
     const busy = r.quests.some(q => q.kind === 'sudden' && ['offered', 'active'].includes(questState(r, q, view).status));
@@ -455,7 +455,7 @@ export function storeCheck(chatId, key, res) {
         const diff = diffOf(r);
         const q = { id: uid('q'), kind: 'sudden', name: String(res.sudden.name).slice(0, 80), reward: withMul(Math.min(100, Math.max(30, Math.round(Number(res.sudden.reward) || 50))), diff), day: r.day, failed: false, state: 'offered', limit: SUDDEN_LIMITS[diff] || SUDDEN_LIMIT, seen: [], fromKey: key, diff, tone: toneOf(r) };
         r.quests.push(q);
-        r.suddenRest = settings().suddenRest;
+        r.suddenRest = conf(r).suddenRest;
         out.sudden = q;
     }
     if (res.hidden?.name && r.roll?.key === key && r.roll.hidden) {
@@ -517,7 +517,7 @@ export function setLife(fields) {
 
 /** "A day (or more) seems to have passed" — only for the newest AI reply, only with story days. */
 export function suggestion(r = room(), view = chatView()) {
-    if (!active(r) || settings().dayBasis !== 'story') return null;
+    if (!active(r) || conf(r).dayBasis !== 'story') return null;
     const c = [...r.checks].reverse().find(x => x.days > 0 && !x.dismissed && view.index.has(x.key));
     if (!c) return null;
     const life = lifeNow(r, view);
@@ -634,7 +634,7 @@ function cleanConds(conds, diff) {
 
 /** The built-in list. Hard and Hell join two or three of them into one quest with conditions. */
 export function fallbackQuests(n, avoid = [], diff = 'off') {
-    const s = settings();
+    const s = conf();
     const pool = shuffle(questPool(langOf(), s.oddities).filter(q => !avoid.includes(q.name)));
     if (!diffAtLeast(diff, 'hard')) return pool.slice(0, n);
     const out = [];
@@ -662,7 +662,7 @@ export function realDateNow() {
 /** With real time as the day basis, a new real date moves one day on (settles once). */
 export async function checkRealDay() {
     const r = room();
-    if (!active(r) || settings().dayBasis !== 'real') return;
+    if (!active(r) || conf(r).dayBasis !== 'real') return;
     const today = realDateNow();
     if (!r.realDate) { r.realDate = today; save(); return; }
     if (r.realDate === today) return;
@@ -672,7 +672,7 @@ export async function checkRealDay() {
 
 // ---------- shop ----------
 export function standingItems(r = room()) {
-    const s = settings();
+    const s = conf(r);
     const list = [];
     if (s.useDefaults) list.push(...standingDefaults(langOf()));
     list.push(...parseCustomShop(s.customShop));
@@ -727,7 +727,7 @@ export async function restockStanding(chatId = currentChatId()) {
 }
 
 function fallbackDaily() {
-    const s = settings();
+    const s = conf();
     const pool = dailyPool(langOf()).filter(x => s.oddities || !x.odd);
     // the legendary one shows up only now and then
     const picked = shuffle(pool).filter(x => x.rarity !== 'legendary' || Math.random() < 0.25);
@@ -804,7 +804,7 @@ export const STORY_KIND = { daily: 'DAILY', sudden: 'SUDDEN', hidden: 'HIDDEN', 
 
 /** Quests running now that the story has not shown yet (a re-rolled reply shows them again). */
 export function questsToTell(r = room(), view = chatView(), redoKey = null) {
-    if (!r || !settings().storyQuest) return [];
+    if (!r || !conf(r).storyQuest) return [];
     const list = [];
     const g = r.goal ? goalNow(r, view) : null;
     if (g?.current) list.push(g.current);
@@ -827,8 +827,11 @@ export function markTold(key, ids) {
 }
 
 /** Turning the setting on: quests already running are not shown all at once in the next reply. */
-export function skipOldTold() {
-    for (const r of Object.values(settings().chats || {})) {
+export function skipOldTold(chatId = null) {
+    // 0.6.8: shared switch → the chats that follow the shared settings; a chat's own switch → that chat
+    const all = settings().chats || {};
+    const list = chatId ? [all[chatId]] : Object.values(all).filter(r => !r?.own);
+    for (const r of list) {
         if (!r?.quests) continue;
         for (const q of r.quests) if (!q.toldKeys?.length) q.told = 'old';
     }
@@ -920,7 +923,7 @@ export const goalLocked = (r = room()) => !r?.goal && r?.tutorial?.state === 'ac
 function goalWanted(r, force) {
     if (!active(r) || r.goal || r.tutorial?.state === 'active' || r.tutorial?.state === 'none') return false;
     if (force) return true;
-    return !!settings().goalAuto && !r.goalAuto;
+    return !!conf(r).goalAuto && !r.goalAuto;
 }
 
 function goalSoon(chatId = currentChatId()) { setTimeout(() => { giveGoal(chatId).catch(e => console.warn('[System Blink] goal', e)); }, 0); }
@@ -965,7 +968,7 @@ export function charKey() {
  * may it wake? (0.6.4: only asks — nothing is made and no AI is called until the answer.) Old chats are left alone.
  */
 export function wantsWake() {
-    const s = settings();
+    const s = conf();
     const chatId = currentChatId();
     if (!s.enabled || !chatId || s.chats[chatId]) return false;
     const ck = charKey();
@@ -1036,7 +1039,7 @@ export function lockedSkills(r = room(), view = chatView()) {
 
 function fallbackSkill(r) {
     const have = new Set(skillsOf(r).map(k => k.name));
-    const pool = skillPool(langOf(), settings().oddities);
+    const pool = skillPool(langOf(), conf().oddities);
     return shuffle(pool).find(x => !have.has(x.name)) || pool[0];
 }
 
@@ -1167,7 +1170,7 @@ let reacting = false;
 
 /** Maybe a spectator reacts. `ev` = reply | clear | fail. Returns the reaction (to show) or null. */
 export async function spectate(chatId, key, ev = 'reply') {
-    const s = settings();
+    const s = conf(chatId);
     const r = room(chatId);
     if (!s.specOn || !active(r) || r.tutorial?.state === 'active' || reacting) return null;
     if (key) {

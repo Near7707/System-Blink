@@ -8,7 +8,7 @@ import { ctx, settings, save, uiLang, room, currentChatId, onChatRenamed, onChat
 import { bus, storeCheck, bindUses, markDelivered, markTold, active, checkRealDay, setLangGetter, skipTutorial, rate, lastReply, chatView, nextStage, tidy, answerSudden, penaltyFor, rewardSkill, warnFor, checkBig, spectate, toneOf, wantsWake, declineWake, giveGoal, switchOn } from './src/engine.js';
 import { runCheck } from './src/ai.js';
 import { buildPrompt } from './src/prompt.js';
-import { panelHtml, panelChange, runButton, setPrefsHooks } from './src/prefs.js';
+import { panelHtml, panelChange, runButton, setPrefsHooks, setScope } from './src/prefs.js';
 import { hexMark } from './src/icons.js';
 import { openWindow, closeWindow, isOpen, refreshWin, place as placeWin, setWinHooks } from './src/ui/win.js';
 import { mountFab, unmountFab, setFabHidden, setFabCount, setFabHooks, syncFabChat, place as placeFab, endDrag } from './src/ui/fab.js';
@@ -269,6 +269,8 @@ function mountPanel() {
         host.appendChild(panel);
         panel.addEventListener('click', (e) => {
             if (e.target.closest('[data-sblink-open]')) { closeStDrawer(panel); return openWindow(); }
+            const sc = e.target.closest('[data-scope]');
+            if (sc) { setScope('panel', sc.dataset.scope); mountPanel(); return; }
             const b = e.target.closest('[data-run]');
             if (b && !b.disabled) runButton(b.dataset.run);
         });

@@ -11,7 +11,7 @@ import {
     skillsOf, hiddenOpen, seeSkill, useSkill, openGacha, isDrawing, gradeRarity,
 } from '../engine.js';
 import { runCheck, isChecking, cancelCheck } from '../ai.js';
-import { gearHtml, setValue, runButton, toggleGroup, openGroup, ROWS, getValue } from '../prefs.js';
+import { gearHtml, setValue, runButton, toggleGroup, openGroup, ROWS, getValue, setScope } from '../prefs.js';
 import { icon, hexMark } from '../icons.js';
 import { esc, $id, viewport, safeInsets, isPhone, motionOn } from './util.js';
 import { notice, popup, diamonds, gachaShow, warnDias, fitPop } from './pop.js';
@@ -54,10 +54,11 @@ function cellHtml(x, { on, data, label, bar, barCls = '', extra = '' }) {
 // ---------- open / close ----------
 export function openWindow(tab, opts = {}) {
     if (!settings().enabled) return openOffline();
+    if (!$id('sblink-win')) setScope('gear', 'room');   // 0.6.8: opening the window starts on [This chat]
     if (tab && TABS.includes(tab)) ui.view = tab;
     if (opts.skill) { ui.skillFilter = 'all'; ui.selSkill = opts.skill; seeSkill(opts.skill); }
     // 0.6.5: straight to one part of ⚙ (the first-time guide), or to one quest (the quest panel)
-    if (opts.gear) { ui.back = TABS.includes(ui.view) ? ui.view : 'status'; ui.view = 'gear'; openGroup(opts.gear); }
+    if (opts.gear) { ui.back = TABS.includes(ui.view) ? ui.view : 'status'; ui.view = 'gear'; openGroup(opts.gear); setScope('gear', ['screen', 'button'].includes(opts.gear) ? 'common' : 'room'); }
     if (opts.quest) { ui.view = 'quests'; ui.openQuest = opts.quest; }
     if (!TABS.includes(ui.view) && !SUBS.includes(ui.view)) ui.view = 'status';
     let win = $id('sblink-win');
@@ -766,6 +767,7 @@ async function onClick(e) {
     if (d.undo) { undoClear(d.undo); ui.openQuest = null; return render(); }
     if (d.quest && !e.target.closest('button')) { ui.openQuest = ui.openQuest === d.quest ? null : d.quest; return render(); }
     if (d.fold) { toggleGroup(d.fold); return render(); }
+    if (d.scope) { setScope('gear', d.scope); render(); const b = $id('sblink-win')?.querySelector('.sblink-body'); if (b) b.scrollTop = 0; return; }
     if (d.set) {
         const row = ROWS[d.set];
         let v = d.val;

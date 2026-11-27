@@ -114,6 +114,8 @@ def main():
             v066(browser, 'en')
             v067(browser, 'ko')
             v067(browser, 'en')
+            v068(browser, 'ko')
+            v068(browser, 'en')
             browser.close()
     finally:
         srv.terminate()
@@ -1821,6 +1823,83 @@ def v067(browser, lang):
     story = ev(page, f"getComputedStyle({last}.querySelector('.mes_text')).fontFamily")
     check('Courier' in story, f'story text keeps the chat font ({story})')
     shot(page, f'{lang}_067_font')
+    check(not errors, f'no errors ({errors[:3]})')
+    page.close()
+
+
+def v068(browser, lang):
+    """0.6.8: "this chat only" settings with [This chat] [Shared] tabs; shop asks for useful, varied items."""
+    print(f'--- 0.6.8 this chat only ({lang})')
+    ko = lang == 'ko'
+    page, errors = open_page(browser, f'fresh&lang={lang}')
+    page.click('#sblink-fab')
+    page.click('[data-act="roomOn"]'); page.wait_for_timeout(500)
+    page.click('#sblink-pop [data-pop="second"]'); page.wait_for_timeout(500)
+    close_pops(page)
+    if not ev(page, "!!document.getElementById('sblink-win')"):
+        page.click('#sblink-fab'); page.wait_for_timeout(300)
+    # shop prompt
+    ev(page, room_js("(r.ledger.push({ id: 'seed', questId: 'x', pts: 50, key: null, reason: '', at: 1 }), 0)"))
+    page.click('#sblink-win [data-tab="shop"]'); page.wait_for_timeout(300)
+    page.click('#sblink-win [data-side="standing"]'); page.wait_for_timeout(300)
+    page.click('#sblink-win [data-act="restock"]'); page.wait_for_timeout(900)
+    sp = ev(page, "(async () => (await import('/src/ai.js')).sentLog.shop.messages[0].content)()")
+    check('USEFUL' in sp and 'MIX' in sp, 'shop asks for items that do something, of mixed kinds')
+    G = "SillyTavern.getContext().extensionSettings.systemBlink"
+    page.click('#sblink-win [data-act="gear"]'); page.wait_for_timeout(300)
+    check(not ev(page, "!!document.querySelector('#sblink-win .sblink-scopetabs')"), 'off: no tabs')
+    check(ev(page, "!!document.querySelector('#sblink-win [data-set=\"roomOwn\"]')"), 'switch in the gear page')
+    check(ev(page, "!!document.querySelector('#sblink_settings [data-pset=\"roomOwn\"]')"), 'switch in the extension panel')
+    check(ev(page, "!!document.querySelector('#sblink-win [data-group=\"screen\"]')"), 'off: everything on one page')
+    # on: values copied, tabs, only what a chat can keep
+    page.click('#sblink-win [data-set="roomOwn"]'); page.wait_for_timeout(300)
+    own = ev(page, room_js("r.own"))
+    check(own and own.get('pointRate') == 1 and own.get('suddenFreq') == 'rare', f'on: shared values copied ({own and own.get("pointRate")})')
+    check(ev(page, "!!document.querySelector('#sblink-win .sblink-scopetabs')"), 'on: tabs')
+    check(ev(page, "document.querySelector('#sblink-win .sblink-scopetab-on').dataset.scope") == 'room', 'starts on [This chat]')
+    check(not ev(page, "!!document.querySelector('#sblink-win [data-group=\"screen\"]')") and not ev(page, "!!document.querySelector('#sblink-win [data-group=\"button\"]')"), 'this chat: no screen / button')
+    check(not ev(page, "!!document.querySelector('#sblink-win [data-set=\"tutorialAuto\"]')"), 'this chat: no tutorial auto-start')
+    check(ev(page, "!!document.querySelector('#sblink-win [data-group=\"room\"]')"), 'this chat: the chat part is there')
+    check(not ev(page, "!!document.querySelector('#sblink-win .sblink-room, #sblink-win .sblink-own')"), 'no per-row marks')
+    # change in this chat only
+    page.click('#sblink-win [data-set="pointRate"][data-val="2"]'); page.wait_for_timeout(200)
+    check(ev(page, room_js("r.own.pointRate")) == 2 and ev(page, f"{G}.pointRate") == 1, 'this chat 2×, shared 1×')
+    check(ev(page, "(async () => (await import('/src/engine.js')).rate(10))()") == 20, 'points use this chat\'s rate')
+    check(ev(page, "(async () => (await import('/src/store.js')).conf('another chat').pointRate)()") == 1, 'other chats keep the shared rate')
+    # sticky tabs
+    ev(page, "document.querySelector('#sblink-win .sblink-body').scrollTop = 600")
+    page.wait_for_timeout(100)
+    top = ev(page, "document.querySelector('#sblink-win .sblink-scopetabs').getBoundingClientRect().top - document.querySelector('#sblink-win .sblink-body').getBoundingClientRect().top")
+    check(abs(top) <= 2, f'tabs stay on top while scrolling ({top})')
+    shot(page, f'{lang}_068_room')
+    # shared tab
+    page.click('#sblink-win [data-scope="common"]'); page.wait_for_timeout(200)
+    check(ev(page, "!!document.querySelector('#sblink-win .sblink-scopewarn')"), 'shared: warning line')
+    check(ev(page, "!!document.querySelector('#sblink-win [data-group=\"screen\"]')") and not ev(page, "!!document.querySelector('#sblink-win [data-group=\"room\"]')"), 'shared: screen there, chat part gone')
+    check(ev(page, "!!document.querySelector('#sblink-win [data-set=\"tutorialAuto\"]')") and not ev(page, "!!document.querySelector('#sblink-win [data-set=\"tone\"]')"), 'shared: tutorial row there, voice (per chat) gone')
+    check(ev(page, "document.querySelector('#sblink-win [data-set=\"pointRate\"].sblink-chip-on').dataset.val") == '1', 'shared tab shows the shared rate')
+    page.click('#sblink-win [data-set="pointRate"][data-val="0.5"]'); page.wait_for_timeout(200)
+    check(ev(page, f"{G}.pointRate") == 0.5 and ev(page, room_js("r.own.pointRate")) == 2, 'shared 0.5×, this chat still 2×')
+    shot(page, f'{lang}_068_shared')
+    # extension panel tabs
+    check(ev(page, "!!document.querySelector('#sblink_settings [data-scope=\"common\"]')"), 'panel: tabs')
+    ev(page, "document.querySelector('#sblink_settings [data-scope=\"room\"]').click()"); page.wait_for_timeout(200)
+    check(ev(page, "document.querySelector('#sblink_settings [data-pset=\"pointRate\"]').value") == '2', 'panel this chat: 2×')
+    check(not ev(page, "!!document.querySelector('#sblink_settings [data-pset=\"btnShow\"]')"), 'panel this chat: no button rows')
+    ev(page, "(() => { const el = document.querySelector('#sblink_settings [data-pset=\"suddenFreq\"]'); el.value = 'often'; el.dispatchEvent(new Event('change', { bubbles: true })); })()")
+    page.wait_for_timeout(200)
+    check(ev(page, room_js("r.own.suddenFreq")) == 'often' and ev(page, f"{G}.suddenFreq") == 'rare', 'panel change goes to this chat')
+    # off: asks; no = stays
+    page.click('#sblink-win [data-scope="room"]'); page.wait_for_timeout(200)
+    ev(page, 'window.__confirmAnswer = false')
+    page.click('#sblink-win [data-set="roomOwn"]'); page.wait_for_timeout(300)
+    check(ev(page, room_js("!!r.own")), 'off + no: stays on')
+    ev(page, 'window.__confirmAnswer = true')
+    page.click('#sblink-win [data-set="roomOwn"]'); page.wait_for_timeout(300)
+    check(not ev(page, room_js("!!r.own")), 'off + yes: own settings gone')
+    check(ev(page, "(async () => (await import('/src/engine.js')).rate(10))()") == 5, 'back to the shared rate')
+    check(not ev(page, "!!document.querySelector('#sblink-win .sblink-scopetabs')"), 'off: tabs gone')
+    check(ev(page, "!!document.querySelector('#sblink-win [data-group=\"screen\"]')"), 'off: one page again')
     check(not errors, f'no errors ({errors[:3]})')
     page.close()
 

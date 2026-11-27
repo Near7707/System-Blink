@@ -1,7 +1,7 @@
 // Short lines for the main reply (no extra AI call). Only for the story reply itself —
 // requests other extensions make in the background ("quiet") get nothing.
 
-import { settings, room } from './store.js';
+import { conf, room } from './store.js';
 import { active, chatView, lastMine, lastReply, todays, questState, lifeNow, ownerName, goalNow, condsOf, suddenLeft, hiddenOpen, questsToTell, STORY_KIND } from './engine.js';
 
 const CHANCE = {
@@ -20,7 +20,7 @@ function condsLeft(r, q, view) {
 }
 
 export function buildPrompt(genType = 'normal') {
-    const s = settings();
+    const s = conf();
     const r = room();
     if (!active(r) || ['quiet'].includes(String(genType))) return { text: '', noteIds: [], tellIds: [] };
     const view = chatView();

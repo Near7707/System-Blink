@@ -982,3 +982,12 @@
 .sblink-guidedots { display: inline-flex; gap: 5px; margin-left: 8px; }
 .sblink-guidedots i { width: 8px; height: 8px; transform: rotate(45deg); border: 1.5px solid var(--sb-acc); box-sizing: border-box; }
 .sblink-guidedots i.sblink-on { background: var(--sb-acc); }
+
+/* ---------- 0.6.8 "this chat only": [This chat] [Shared] tabs (stay at the top while scrolling) ---------- */
+.sblink-scopetabs { position: sticky; top: -10px; z-index: 6; display: flex; gap: 4px; margin: -10px -14px 0; padding: 10px 14px 8px; background: linear-gradient(var(--sb-bg), var(--sb-bg)), #03060A; border-bottom: 1px solid rgba(var(--sb-acc-rgb), 0.2); }
+.sblink-holo button.sblink-scopetab { flex: 1 1 0; min-width: 0; min-height: 40px; display: flex; align-items: center; justify-content: center; padding: 0 8px; margin: 0; font-size: 13.5px; font-weight: 700; color: var(--sb-dim); background: transparent; border: 1px solid rgba(var(--sb-acc-rgb), 0.4); border-radius: 0; clip-path: var(--sb-cut-s); cursor: pointer; }
+.sblink-holo button.sblink-scopetab-on { color: #08121C; background: var(--sb-acc); border-color: var(--sb-acc); }
+.sblink-scopenote { font-size: 12px; color: var(--sb-dim); margin: 6px 2px 0; }
+.sblink-scopewarn { margin: 8px 0 0; padding: 8px 10px; font-size: 12px; line-height: 1.55; color: #E9D9AE; background: rgba(242, 193, 78, 0.08); border: 1px solid rgba(242, 193, 78, 0.45); clip-path: var(--sb-cut-s); }
+.sblink-panel .sblink-pscope .menu_button { flex: 1 1 0; }
+.sblink-panel .sblink-pscope .sblink-pscope-on { outline: 2px solid var(--SmartThemeQuoteColor, #5AD1FF); outline-offset: -2px; font-weight: 700; }

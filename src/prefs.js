@@ -2,7 +2,7 @@
 // both drawn from it and share the same saved values.
 
 import { t, setLanguage, lang } from './i18n.js';
-import { settings, save, room, currentChatId, device, saveDevice, exportData, importData, oldBackup, VERSION, TONES } from './store.js';
+import { settings, conf, save, room, currentChatId, device, saveDevice, exportData, importData, oldBackup, VERSION, TONES, ROOM_KEYS, setRoomOwn, setRoomSetting } from './store.js';
 import { switchOn, switchOff, bus, skipOldTold, charKey, giveGoal } from './engine.js';
 import { getProfiles, sentLog } from './ai.js';
 import { buildLog, logFileName } from './export.js';
@@ -19,6 +19,7 @@ export const SCHEMA = [
         { k: 'autoWake', kind: 'toggle', scope: 'room', when: () => !!charKey() },
         { k: 'lifeMode', kind: 'toggle', scope: 'room' },
         { k: 'world', kind: 'text', scope: 'room' },
+        { k: 'roomOwn', kind: 'toggle', scope: 'room' },   // 0.6.8: this chat keeps its own settings
     ] },
     { group: 'system', rows: [
         { k: 'tone', kind: 'choice', opts: ['game', 'star', 'threat'], scope: 'room', dots: true },
@@ -26,7 +27,7 @@ export const SCHEMA = [
         { k: 'pointRate', kind: 'choice', opts: [0.5, 1, 2] },
         { k: 'dayBasis', kind: 'choice', opts: ['story', 'real'] },
         { k: 'judgeEvery', kind: 'choice', opts: ['every', 'three', 'manual'] },
-        { k: 'tutorialAuto', kind: 'toggle' },
+        { k: 'tutorialAuto', kind: 'toggle', common: true },
         { k: 'visibility', kind: 'choice', opts: ['me', 'all'] },
         { k: 'lifeToAI', kind: 'toggle' },
         { k: 'questChance', kind: 'choice', opts: ['off', 'some', 'more'] },
@@ -43,14 +44,14 @@ export const SCHEMA = [
         { k: 'specMode', kind: 'choice', opts: ['light', 'rich'], needs: 'specOn' },
         { k: 'specGift', kind: 'toggle', needs: 'specOn' },
     ] },
-    { group: 'screen', rows: [
+    { group: 'screen', common: true, rows: [
         { k: 'lang', kind: 'choice', opts: ['en', 'ko'] },
         { k: 'motion', kind: 'toggle' },
         { k: 'logCards', kind: 'toggle' },
         { k: 'toastPos', kind: 'choice', opts: ['column', 'input', 'screen'] },
         { k: 'questPanel', kind: 'toggle' },
     ] },
-    { group: 'button', rows: [
+    { group: 'button', common: true, rows: [
         { k: 'btnShow', kind: 'toggle' },
         { k: 'btnOnlyOn', kind: 'toggle', needs: 'btnShow' },
         { k: 'btnSize', kind: 'choice', opts: ['small', 'normal'], scope: 'device', needs: 'btnShow' },
@@ -63,7 +64,7 @@ export const SCHEMA = [
     { group: 'make', folded: true, rows: [
         { k: 'useDefaults', kind: 'toggle' },
         { k: 'oddities', kind: 'toggle' },
-        { k: 'customShop', kind: 'text' },
+        { k: 'customShop', kind: 'text', common: true },
         { k: 'profileId', kind: 'select' },
     ] },
     { group: 'data', folded: true, rows: [
@@ -79,11 +80,38 @@ export const SCHEMA = [
 
 export const ROWS = Object.fromEntries(SCHEMA.flatMap(g => g.rows).map(r => [r.k, r]));
 
-export function getValue(k) {
+// ---------- 0.6.8 "this chat only": a [This chat] [Shared] tab in the ⚙ page and in the extension panel ----------
+// The tab only shows in a chat that keeps its own settings. [This chat] holds what a chat can keep for itself;
+// [Shared] holds the shared values and the settings that are always shared (screen, button, language…).
+const scopeNow = { gear: 'room', panel: 'room' };
+let panelChat = null;
+/** The open chat keeps its own settings. */
+export const ownOn = () => !!room()?.own;
+export function setScope(where, v) { scopeNow[where] = v === 'common' ? 'common' : 'room'; }
+export function scopeOf(where) { return ownOn() ? scopeNow[where] : 'common'; }
+const useOwn = (k, where) => ownOn() && scopeNow[where] === 'room' && ROOM_KEYS.includes(k);
+
+/** The rows a group shows on this tab (null = the group is not on this tab). */
+function rowsFor(g, where) {
+    let rows = g.rows.filter(r => !r.when || r.when());
+    if (!ownOn()) return rows;
+    if (scopeNow[where] === 'room') {
+        if (g.common) return null;
+        rows = rows.filter(r => !r.common);
+    } else {
+        if (g.group === 'room') return null;
+        rows = rows.filter(r => r.scope !== 'room');
+    }
+    return rows.length ? rows : null;
+}
+
+export function getValue(k, where = 'gear') {
     const s = settings();
     const r = room();
+    if (useOwn(k, where)) return conf()[k];
     switch (k) {
         case 'roomOn': return !!r?.on;
+        case 'roomOwn': return !!r?.own;
         case 'autoWake': { const ck = charKey(); return !!ck && s.autoWake[ck] === true; }
         case 'lifeMode': return r ? !!r.lifeMode : true;
         case 'world': return r?.world || '';
@@ -97,19 +125,38 @@ export function getValue(k) {
     }
 }
 
-const isDisabled = (row) => {
+const isDisabled = (row, where = 'gear') => {
     if (row.scope === 'room' && !currentChatId()) return true;
-    if (['lifeMode', 'world', 'difficulty', 'tone'].includes(row.k)) return !room()?.on;
-    if (row.needs && (!settings()[row.needs] || settings()[row.needs] === 'off')) return true;
+    if (['lifeMode', 'world', 'difficulty', 'tone', 'roomOwn'].includes(row.k)) return !room()?.on;
+    if (row.needs) { const n = getValue(row.needs, where); if (!n || n === 'off') return true; }
     return false;
 };
 
 let hooks = { guide: () => {}, redrawAll: () => {}, turnedOff: () => {}, turnedOn: () => {}, lastPrompt: () => '', openText: () => {}, showText: () => {}, langNow: () => 'en' };
 export function setPrefsHooks(h) { hooks = { ...hooks, ...h }; }
 
-export async function setValue(k, v) {
+export async function setValue(k, v, where = 'gear') {
     const s = settings();
+    if (useOwn(k, where)) {
+        const id = currentChatId();
+        if (k === 'pointRate' || k === 'suddenRest') v = Number(v);
+        if (k === 'storyQuest' && v && !conf().storyQuest) skipOldTold(id);
+        setRoomSetting(id, k, ['lifeToAI', 'hiddenOn', 'storyQuest', 'goalAuto', 'specOn', 'specGift', 'useDefaults', 'oddities'].includes(k) ? !!v : v);
+        if (k === 'goalAuto' && v) giveGoal();
+        bus.emit('change');
+        hooks.redrawAll();
+        return;
+    }
     switch (k) {
+        case 'roomOwn': {
+            const id = currentChatId();
+            if (!id || !room()?.on) break;
+            if (v) { setRoomOwn(id, true); scopeNow.gear = 'room'; scopeNow.panel = 'room'; break; }
+            // off: this chat's values go, after asking
+            hooks.redrawAll();
+            if (await confirmBox(t('own_off_q'))) setRoomOwn(id, false);
+            break;
+        }
         case 'roomOn':
             if (v) { await switchOn(); break; }
             switchOff();
@@ -227,17 +274,24 @@ export function gearHtml() {
     const s = settings();
     const out = [];
     for (const g of SCHEMA) {
+        const rows = rowsFor(g, 'gear');
+        if (!rows) continue;
         const isOpen = !g.folded || openGroups.has(g.group);
         out.push(`<div class="sblink-sec${g.folded ? ' sblink-fold' : ''}" data-group="${g.group}">
           ${g.folded
             ? `<div class="sblink-sechead sblink-foldbar" data-fold="${g.group}" role="button" tabindex="0" aria-expanded="${isOpen}"><span class="sblink-dia">◆</span><span class="sblink-foldtitle"><span>${esc(t(`grp_${g.group}`))}</span><span class="sblink-foldsub">${esc(t(`fold_sub_${g.group}`))}</span></span><span class="sblink-foldmark">${esc(t(isOpen ? 'fold_close' : 'fold_open'))}</span></div>`
             : `<div class="sblink-sechead"><span class="sblink-dia">◆</span><span>${esc(t(`grp_${g.group}`))}</span><i class="sblink-secline"></i></div>`}
-          ${isOpen ? g.rows.filter(r => !r.when || r.when()).map(gearRow).join('') : ''}
+          ${isOpen ? rows.map(gearRow).join('') : ''}
         </div>`);
     }
     // 0.6.5: the first-time guide, again
     out.unshift(`<div class="sblink-row"><button type="button" class="sblink-btn sblink-btn-wide sblink-guidebtn" data-run="guideAgain"><span class="sblink-dia">◆</span><span class="sblink-ell">${esc(t('guide_again'))}</span><span class="sblink-guidego">›</span></button></div>`);
     if (!s.enabled) out.unshift(`<div class="sblink-note">${esc(t('off_where'))}</div>`);
+    if (ownOn()) {
+        const tab = scopeNow.gear;
+        out.unshift(`<div class="sblink-scopetabs" role="tablist">${['room', 'common'].map(x => `<button type="button" class="sblink-scopetab${x === tab ? ' sblink-scopetab-on' : ''}" data-scope="${x}" role="tab" aria-selected="${x === tab}"><span class="sblink-ell">${esc(t(`scope_${x}`))}</span></button>`).join('')}</div>`
+            + (tab === 'room' ? `<div class="sblink-scopenote">${esc(t('scope_room_note'))}</div>` : `<div class="sblink-scopewarn">${esc(t('scope_common_note'))}</div>`));
+    }
     out.push(`<div class="sblink-gearfoot">${esc(t('full_settings'))}<span class="sblink-code">v${VERSION}</span></div>`);
     return out.join('');
 }
@@ -284,9 +338,18 @@ export function panelHtml() {
     const out = [];
     if (!s.enabled) out.push(`<div class="sblink-phint"><b>${esc(t('off_short'))}</b> <button type="button" class="menu_button sblink-pbtn" data-run="allOn">${esc(t('turn_on'))}</button></div>`);
     else out.push(`<div class="sblink-pbtns"><button type="button" class="menu_button sblink-pbtn" data-run="guideAgain">${esc(t('guide_again'))}</button></div>`);
+    // a new chat starts on its [This chat] tab
+    const chatNow = currentChatId();
+    if (chatNow !== panelChat) { panelChat = chatNow; scopeNow.panel = 'room'; }
+    if (ownOn()) {
+        const tab = scopeNow.panel;
+        out.push(`<div class="sblink-pbtns sblink-pscope">${['room', 'common'].map(x => `<button type="button" class="menu_button sblink-pbtn${x === tab ? ' sblink-pscope-on' : ''}" data-scope="${x}" aria-pressed="${x === tab}">${esc(t(`scope_${x}`))}</button>`).join('')}</div>`);
+        out.push(`<small class="sblink-phint">${esc(t(tab === 'room' ? 'scope_room_note' : 'scope_common_note'))}</small>`);
+    }
     for (const g of SCHEMA) {
+        const rows = rowsFor(g, 'panel');
+        if (!rows) continue;
         out.push(`<h4 class="sblink-ph">${esc(t(`grp_${g.group}`))}</h4>`);
-        const rows = g.rows.filter(row => !row.when || row.when());
         for (let i = 0; i < rows.length; i++) {
             const row = rows[i];
             const next = rows[i + 1];
@@ -301,15 +364,15 @@ export function panelHtml() {
     return out.join('');
 }
 
-const panelBtn = (row) => `<button type="button" class="menu_button sblink-pbtn" data-run="${row.k}"${isDisabled(row) ? ' disabled' : ''}>${esc(label(row))}</button>`;
+const panelBtn = (row) => `<button type="button" class="menu_button sblink-pbtn" data-run="${row.k}"${isDisabled(row, 'panel') ? ' disabled' : ''}>${esc(label(row))}</button>`;
 function panelHint(row) {
     const h = hint(row);
     return h && h !== `set_${row.k}_hint` ? `<small class="sblink-phint">${esc(h)}</small>` : '';
 }
 
 function panelRow(row) {
-    const v = getValue(row.k);
-    const dis = isDisabled(row) ? ' disabled' : '';
+    const v = getValue(row.k, 'panel');
+    const dis = isDisabled(row, 'panel') ? ' disabled' : '';
     const h = hint(row);
     const hintHtml = h && h !== `set_${row.k}_hint` ? `<small class="sblink-phint">${esc(h)}</small>` : '';
     if (row.kind === 'toggle') return `<label class="checkbox_label"><input type="checkbox" data-pset="${row.k}"${v ? ' checked' : ''}${dis}><span>${esc(label(row))}</span></label>${hintHtml}`;
@@ -338,5 +401,5 @@ export function panelChange(e) {
     if (row.kind === 'toggle') v = el.checked;
     else if (row.k === 'pointRate' || row.k === 'suddenRest') v = Number(el.value);
     else v = el.value;
-    setValue(k, v);
+    setValue(k, v, 'panel');
 }

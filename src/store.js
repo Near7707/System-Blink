@@ -3,7 +3,7 @@
 
 export const MODULE = 'systemBlink';
 export const FORMAT = 2;
-export const VERSION = '0.6.7';
+export const VERSION = '0.6.8';
 export const TONES = ['game', 'star', 'threat'];
 export const DIFFS = ['off', 'easy', 'normal', 'hard', 'hell'];
 
@@ -63,6 +63,45 @@ const ONE_OF = {
     suddenFreq: ['off', 'rare', 'normal', 'often'], goalSuggest: ['auto', 'manual', 'off'], toastPos: ['column', 'input', 'screen'],
 };
 
+/**
+ * 0.6.8: settings a chat can keep for itself ("this chat only" switch). Kept in the chat's `own`
+ * (null = follows the shared settings), so branching, backups and deleting a chat take it along.
+ */
+export const ROOM_KEYS = Object.freeze(['pointRate', 'dayBasis', 'judgeEvery', 'visibility', 'lifeToAI', 'questChance',
+    'suddenFreq', 'suddenRest', 'hiddenOn', 'storyQuest', 'goalAuto', 'specOn', 'specMode', 'specGift',
+    'useDefaults', 'oddities', 'profileId']);
+
+/**
+ * The settings in force for a chat (a chat id or a chat's state; default the open chat): the chat's own
+ * values over the shared ones. Writes go to the shared settings, as before — change a chat's own values
+ * with setRoomSetting.
+ */
+export function conf(which = currentChatId()) {
+    const s = settings();
+    const r = which && typeof which === 'object' ? which : (which ? s.chats[which] : null);
+    const own = r?.own;
+    if (!own || typeof own !== 'object') return s;
+    return new Proxy(s, { get: (t, k) => (typeof k === 'string' && ROOM_KEYS.includes(k) && own[k] !== undefined ? own[k] : t[k]) });
+}
+
+/** Switch "this chat only" on (copies the shared values now in force) or off (drops this chat's values). */
+export function setRoomOwn(chatId, on) {
+    const s = settings();
+    const r = s.chats[chatId];
+    if (!r) return;
+    if (on) { if (!r.own) r.own = Object.fromEntries(ROOM_KEYS.map(k => [k, structuredClone(s[k])])); }
+    else r.own = null;
+    save();
+}
+
+export function setRoomSetting(chatId, k, v) {
+    const r = settings().chats[chatId];
+    if (!r?.own || !ROOM_KEYS.includes(k)) return false;
+    r.own[k] = v;
+    save();
+    return true;
+}
+
 const BACKUP_KEY = 'systemBlink.backup.v1';
 
 /** Older saved data → this format. Format 1 is kept once on this device before it is changed. */
@@ -109,6 +148,7 @@ export function migrate(s) {
 export function newRoom() {
     return {
         on: false,              // the system is switched on in this chat
+        own: null,              // 0.6.8: this chat's own settings ("this chat only"), null = follows the shared ones
         lifeMode: true,         // daily-life mode
         difficulty: 'off',      // off | easy | normal | hard | hell (stage 2-B; each chat its own)
         tone: 'game',           // the System's voice in this chat: game | star (sponsors) | threat (2-D)
@@ -170,10 +210,23 @@ function fixRoom(r) {
     for (const q of r.quests) if (!['daily', 'sudden', 'hidden', 'goal', 'penalty'].includes(q.kind)) q.kind = 'daily';
     if (!DIFFS.includes(r.difficulty)) r.difficulty = 'off';
     if (!TONES.includes(r.tone)) r.tone = 'game';
+    if (r.own !== null && (typeof r.own !== 'object' || Array.isArray(r.own))) r.own = null;
+    if (r.own) fixOwn(r.own);
     r.skills = r.skills.filter(x => x && typeof x === 'object' && x.id && x.name);
     // 0.4: gacha tickets kept from before say they open "in stage 2"
     for (const b of r.bag) if (b && b.kind === 'gacha' && /2단계|stage 2/i.test(String(b.desc || ''))) b.desc = /2단계/.test(b.desc) ? '한 번 뽑는다. 스킬이나 물건이 나온다. 엉뚱한 게 자주 나온다.' : 'One draw: a skill or an item. Often something odd.';
     return r;
+}
+
+/** A chat's own settings: odd values dropped (the shared value is used for them). */
+function fixOwn(o) {
+    for (const k of Object.keys(o)) if (!ROOM_KEYS.includes(k)) delete o[k];
+    for (const [k, list] of Object.entries(ONE_OF)) if (k in o && !list.includes(o[k])) delete o[k];
+    if ('pointRate' in o && ![0.5, 1, 2].includes(Number(o.pointRate))) delete o.pointRate;
+    if ('suddenRest' in o && ![3, 5, 10].includes(Number(o.suddenRest))) delete o.suddenRest;
+    for (const k of ['pointRate', 'suddenRest']) if (k in o) o[k] = Number(o[k]);
+    if ('profileId' in o && typeof o.profileId !== 'string') delete o.profileId;
+    for (const k of ['lifeToAI', 'hiddenOn', 'storyQuest', 'goalAuto', 'specOn', 'specGift', 'useDefaults', 'oddities']) if (k in o && typeof o[k] !== 'boolean') delete o[k];
 }
 
 let saveFailedOnce = false;

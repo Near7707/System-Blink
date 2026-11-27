@@ -1,7 +1,7 @@
 // Side requests to the AI (never the main reply): the check after each reply, and making
 // quests and shop items. A connection profile can be picked; otherwise the current API is used.
 
-import { ctx, settings, room, currentChatId } from './store.js';
+import { ctx, conf, room, currentChatId } from './store.js';
 import { bus, chatView, lastReply, openQuests, condsOf, lifeNow, ownerName, langOf, rollFor, needsEveryCheck, diffOf, suddenLimitFor, lockedSkills, toneOf } from './engine.js';
 import { questPool, standingDefaults, dailyPool } from './data.js';
 import { josa } from './i18n.js';
@@ -16,7 +16,7 @@ export const sentLog = { check: null, quests: null, shop: null, goal: null, skil
 
 async function requestLLM(messages, { maxTokens = 500, signal } = {}) {
     const c = ctx();
-    const st = settings();
+    const st = conf();
     signal?.throwIfAborted();
     const content = (res) => (typeof res === 'string' ? res : String(res?.content ?? ''));
     const profile = st.profileId && getProfiles().some(p => p.id === st.profileId) ? st.profileId : '';
@@ -119,7 +119,7 @@ const TONE_SHOP = {
 };
 
 async function makeQuests({ count = 3, avoid = [], diff = 'off', penalty = false, tone = 'game' }, signal) {
-    const s = settings();
+    const s = conf();
     const lang = langOf();
     const many = diff === 'hard' ? 'Each quest has exactly 2 conditions in "conds": two short actions, each easy to check on its own; "name" is a short title for both. '
         : diff === 'hell' ? 'Each quest has 2 or 3 conditions in "conds": short actions, each easy to check on its own; "name" is a short title for them. '
@@ -159,7 +159,7 @@ const GRADE_HINT = {
 const SKILL_RULE = 'No numbers, no stat boosts, no cooldowns, no mana. "effect" is ONE short sentence; an active skill\'s effect says what happens when it is used. ';
 
 async function makeSkill({ grade = 'F', from = 'gacha', avoid = [] }, signal) {
-    const s = settings();
+    const s = conf();
     const lang = langOf();
     const low = ['F', 'E'].includes(grade);
     const system = 'You make ONE skill for a game-like "System" in a roleplay, in the style of Korean system novels. '
@@ -198,11 +198,17 @@ async function makeDrawItem({ rarity = 'common' }, signal) {
 }
 
 async function makeShop({ count = 4, kind = 'daily', book = null }, signal) {
-    const s = settings();
+    const s = conf();
     const lang = langOf();
     const system = 'You stock a personal shop for a game-like "System" in a roleplay, in the style of Korean system novels. '
         + 'Items are small magical or everyday things the user can buy with points and use in the story. '
         + 'No stat boosts, no numbers in effects. Follow the WORLD NOTE if there is one. '
+        // 0.6.8: items were turning out as vague feelings ("somehow feels familiar") all on one theme
+        + 'USEFUL: every item must DO something clear the moment it is used in a scene, something the user can plan around: '
+        + 'it makes someone act or answer, opens or finds something, gets them out of trouble, changes a situation, or sets up a funny moment. '
+        + 'desc says plainly what happens when it is used (who or what it works on, and the result). Never only a mood or a vague feeling ("somehow", "a little", "feels like"). '
+        + 'MIX: give the items different kinds (a tool, information, a social/relationship effect, escape or protection, something comic) '
+        + 'and different topics; take the mood from the story, but do not build every item around the same idea, person or recent event. '
         + 'Match the MOOD of the world and the recent story: bleak, hopeless or grim stories get grim, tense quests/items; light everyday comedy gets light, funny ones; romance gets warm ones. ' 
         + 'Rarity and price: common 20-80, rare 100-200, epic 300-500, legendary 800-1500 (legendary only rarely, at most one). '
         + `icon is one of: ${ITEM_ICONS.join(', ')}. `
@@ -217,7 +223,7 @@ async function makeShop({ count = 4, kind = 'daily', book = null }, signal) {
     if (TONE_SHOP[tone]) parts.push(TONE_SHOP[tone]);
     parts.push(kind === 'daily'
         ? 'This is the DAILY shop: unusual and special things, mostly rare or better.'
-        : 'This is the STANDING shop: useful everyday things, mostly common, a few rare.');
+        : 'This is the STANDING shop: practical everyday things with a plain, dependable use, mostly common, a few rare.');
     if (s.oddities) parts.push('One item may be strange or funny (and marked "limited": true).');
     parts.push(`Make exactly ${count}. Write name and desc in ${LANG_NAME[lang]}.`);
     const messages = [{ role: 'system', content: system }, { role: 'user', content: parts.join('\n\n') }];
@@ -326,7 +332,7 @@ export function cancelCheck() { busy?.ctl.abort(); }
  * `force` = the "Check now" button (ignores how often).
  */
 export async function runCheck({ force = false } = {}) {
-    const s = settings();
+    const s = conf();
     const chatId = currentChatId();
     const r = room(chatId);
     if (!s.enabled || !r?.on || busy) return null;
@@ -380,11 +386,11 @@ export function checkLines(open) {
 
 async function askCheck(open, r, view, last, roll, signal, skills = []) {
     const lang = langOf();
-    const count = settings().judgeEvery === 'three' ? 6 : 3;
+    const count = conf().judgeEvery === 'three' ? 6 : 3;
     const recent = view.list.slice(0, last.i + 1).filter(m => m && !m.is_system).slice(-count - 1);
     let from = recent.length - 1;
     for (let i = recent.length - 1; i >= 0; i--) if (recent[i].is_user) { from = i; break; }
-    if (settings().judgeEvery === 'three') from = Math.max(0, recent.length - count);
+    if (conf().judgeEvery === 'three') from = Math.max(0, recent.length - count);
     const life = lifeNow(r, view);
     const who = ownerName(r);
     const system = 'You are a careful referee for a game-like System in a roleplay. '

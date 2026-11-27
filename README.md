@@ -6,7 +6,7 @@ A game-like **System** for SillyTavern roleplay, in the style of Korean system n
 In the middle of the story, a translucent System window pops up — *"[Daily quests have arrived]"* —
 you clear quests in the story, earn points, and spend them in your own **personal shop**.
 
-This version (0.6.7): the System window, the tutorial, daily quests, the shop, the bag and daily-life mode,
+This version (0.6.8): the System window, the tutorial, daily quests, the shop, the bag and daily-life mode,
 sudden quests, hidden quests, a main goal, quests with several conditions, **difficulty with penalties**,
 **skills and gacha**, **three System voices** with **spectators** who react and sponsor — and, if you like, **new quests shown in the story**.
 A **quest panel** keeps the quests in progress in sight while you chat (beside the chat on a PC, one line on top on a phone),
@@ -111,6 +111,9 @@ opening chances for quests, how often sudden quests come (and the rest after one
 getting the main goal by itself, a **world note** per chat (used when making quests and items), your own
 shop items, a connection profile for the side requests (a cheap, fast model is enough), backup / restore,
 and *What was sent*.
+
+**This chat only**: switch it on in a chat to keep the System, Quests, Spectators and Making settings for that chat alone.
+A *This chat* / *Shared* tab then shows at the top of the settings; screen, button and language stay shared.
 
 ## Coming later
 
