@@ -382,20 +382,19 @@
 .sblink-dragging { filter: drop-shadow(0 0 14px rgba(var(--sb-acc-rgb), 0.95)); }
 .sblink-dragging .sblink-fabring, .sblink-dragging .sblink-fabbody { transform: scale(1.1); }
 .sblink-moving.sblink-dragging .sblink-fabring { animation-duration: 3s; }
-.sblink-fabghost { position: fixed; left: 0; top: 0; z-index: 2899; width: 60px; height: 60px; border: 1px dashed var(--sb-acc-dim); clip-path: polygon(50% 0, 93% 25%, 93% 75%, 50% 100%, 7% 75%, 7% 25%); pointer-events: none; }
-.sblink-fabghost.sblink-fab-small { width: 46px; height: 46px; }
 
 /* 0.5.7 HUD glass: the B shapes and the bookmark tab look like a heads-up display drawn on the screen —
    a half-clear glass with fine scan lines, only the corner brackets and one edge bright, a light sweep now and then. */
-:root { --sb-hudbase: rgba(6, 17, 30, 0.5); --sb-hudhi: #8FE3FF; --sb-hudtext: #BFEFFF; }
-.sblink-tn-star { --sb-hudbase: rgba(11, 11, 24, 0.5); --sb-hudhi: #F5D98E; --sb-hudtext: #FBEBC2; }
-.sblink-tn-threat { --sb-hudbase: rgba(14, 9, 11, 0.5); --sb-hudhi: #FF9A9A; --sb-hudtext: #FFC9C9; }
+/* 0.5.8: same colours as the hologram hexagon's ring — bright lines in the tone colour, a white mark, only a faint dark film */
+:root { --sb-hudbase: rgba(6, 17, 30, 0.18); --sb-hudhi: var(--sb-acc); --sb-hudtext: #fff; }
+.sblink-tn-star { --sb-hudbase: rgba(11, 11, 24, 0.18); --sb-hudhi: var(--sb-acc); --sb-hudtext: #fff; }
+.sblink-tn-threat { --sb-hudbase: rgba(14, 9, 11, 0.18); --sb-hudhi: var(--sb-acc); --sb-hudtext: #fff; }
 .sblink-glass {
     box-sizing: border-box; overflow: hidden; clip-path: none;
-    background-image: repeating-linear-gradient(0deg, rgba(var(--sb-acc-rgb), 0.12) 0 1px, transparent 1px 3px),
-        linear-gradient(180deg, rgba(var(--sb-acc-rgb), 0.22), rgba(var(--sb-acc-rgb), 0.08)),
+    background-image: repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.08) 0 1px, transparent 1px 3px),
+        linear-gradient(180deg, rgba(var(--sb-acc-rgb), 0.55), rgba(var(--sb-acc-rgb), 0.08)),
         linear-gradient(var(--sb-hudbase), var(--sb-hudbase));
-    background-color: transparent; border: 1px solid rgba(var(--sb-acc-rgb), 0.45);
+    background-color: transparent; border: 1px solid rgba(var(--sb-acc-rgb), 0.85);
 }
 /* corner brackets */
 .sblink-glass::before {
@@ -414,7 +413,7 @@
 .sblink-moving .sblink-glass { animation: sblink-hudflick 5s linear infinite; }
 @keyframes sblink-hudsweep { 0% { opacity: 1; transform: translateY(-120%); } 60% { opacity: 1; transform: translateY(320%); } 61%, 100% { opacity: 0; transform: translateY(320%); } }
 @keyframes sblink-hudflick { 0%, 92%, 100% { opacity: 1; } 94% { opacity: 0.6; } 96% { opacity: 0.95; } }
-.sblink-glass .sblink-hexmark { color: var(--sb-hudtext); filter: drop-shadow(0 0 3px var(--sb-acc)) drop-shadow(0 0 6px rgba(var(--sb-acc-rgb), 0.6)); }
+.sblink-glass .sblink-hexmark { color: var(--sb-hudtext); filter: drop-shadow(0 0 4px var(--sb-acc)); }
 .sblink-glass .sblink-fabtabcode { color: var(--sb-hudtext); text-shadow: 0 0 4px var(--sb-acc); }
 
 /* 0.5.5 bookmark tab: the button tucked against the side of the chat column.
@@ -458,7 +457,6 @@
     clip-path: polygon(50% 3%, 91% 26.5%, 91% 73.5%, 50% 97%, 9% 73.5%, 9% 26.5%); }
 .sblink-shape-hexb.sblink-fab-small .sblink-fabbody { width: 46px; height: 46px; }
 .sblink-shape-hexb .sblink-fabbody::before, .sblink-shape-hexb .sblink-fabscan { display: none; }
-.sblink-shape-hexb .sblink-fabcode, .sblink-shape-badge .sblink-fabcode { color: var(--sb-hudtext); text-shadow: 0 0 4px var(--sb-acc); }
 /* B-badge: a square of glass with corner brackets, a bright bottom edge */
 .sblink-shape-badge .sblink-fabring { display: none; }
 .sblink-shape-badge .sblink-fabbody { left: 0; top: 0; width: 54px; height: 54px; box-shadow: inset 0 -2px 0 var(--sb-hudhi); }
@@ -485,8 +483,6 @@
 .sblink-dragging.sblink-shape-tab .sblink-fabtab { transform: scale(1.06); }
 .sblink-shape-hexb .sblink-fabchip, .sblink-shape-badge .sblink-fabchip, .sblink-shape-tab .sblink-fabchip, .sblink-fab-tuck .sblink-fabchip {
     background: rgba(242, 193, 78, 0.92); box-shadow: 0 0 6px rgba(242, 193, 78, 0.6); }
-/* the ghost left behind while dragging takes the same outline */
-.sblink-fabghost.sblink-shape-badge, .sblink-fabghost.sblink-shape-tab { clip-path: none; }
 
 /* ---------- wand menu & extension panel (SillyTavern's own look) ---------- */
 .sblink-wandico svg { width: 1.1em; height: 1.1em; vertical-align: middle; }

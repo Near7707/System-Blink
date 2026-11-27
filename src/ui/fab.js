@@ -222,13 +222,6 @@ function onMove(e) {
         drag.moved = true;
         setTucked(el, null);
         el.classList.add('sblink-dragging');
-        const ghost = document.createElement('div');
-        ghost.id = 'sblink-fabghost';
-        const dm = dims();
-        ghost.className = `sblink-fabghost sblink-shape-${device().shape}`;
-        ghost.style.width = `${dm.w}px`; ghost.style.height = `${dm.body}px`;
-        ghost.style.transform = `translate(${drag.ox}px, ${drag.oy}px)`;
-        document.body.appendChild(ghost);
     }
     const b = bounds();
     const x = Math.min(b.maxX, Math.max(b.minX, drag.ox + dx));
@@ -274,7 +267,6 @@ export function endDrag() {
     window.removeEventListener('pointercancel', onCancel);
     const el = $id('sblink-fab');
     el?.classList.remove('sblink-dragging', 'sblink-pressed');
-    $id('sblink-fabghost')?.remove();
     drag = null;
     wakeUp();
 }

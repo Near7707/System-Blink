@@ -238,7 +238,7 @@ const KO = {
     set_btnShow: '화면에 버튼 띄우기', set_btnShow_hint: '끄면 마법봉 메뉴로만 열어요. 마법봉의 System Blink는 늘 있어요.',
     set_btnSize: '버튼 크기', opt_btnSize_small: '작게', opt_btnSize_normal: '보통',
     set_btnRing: '버튼 테두리', opt_btnRing_dotted: '점선', opt_btnRing_solid: '실선',
-    set_btnShape: '버튼 모양', opt_btnShape_hex: '홀로그램 육각', opt_btnShape_hexb: 'B-육각', opt_btnShape_tab: 'B-세로 탭', opt_btnShape_badge: 'B-사각 배지',
+    set_btnShape: '버튼 모양', opt_btnShape_hex: '홀로그램 육각', opt_btnShape_hexb: '육각', opt_btnShape_tab: '세로 탭', opt_btnShape_badge: '사각 배지',
     set_btnShape_hint: '이 기기에만 적용. 옆에 넣었을 때 책갈피 모양은 모두 같아요.',
     set_btnOnlyOn: '시스템을 깨운 채팅방에서만 보이기', set_btnOnlyOn_hint: '다른 방은 깨끗하게. 시스템은 마법봉 메뉴에서 깨워요.',
     set_btnTuck: '옆에 책갈피로 넣기', set_btnTuck_hint: '채팅 옆 끝에 놓으면 책갈피로 들어가요. 누르면 열리고, 안쪽으로 끌면 다시 나와요.',

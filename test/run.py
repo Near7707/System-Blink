@@ -972,12 +972,13 @@ def pc(browser):
 def button(browser):
     print('--- floating button')
     page, errors = open_page(browser, 'fresh&lang=en')
+    check(ev(page, "document.getElementById('sblink-fab').classList.contains('sblink-shape-hexb')"), 'default shape is the glass hexagon (0.5.8)')
     box = page.locator('#sblink-fab').bounding_box()
     page.mouse.move(box['x'] + 30, box['y'] + 30)
     page.mouse.down()
     page.mouse.move(box['x'] + 25, box['y'] + 28)  # tiny move: not a drag yet
     page.mouse.move(box['x'] - 150, box['y'] - 200, steps=8)
-    check(ev(page, "!!document.getElementById('sblink-fabghost')"), 'ghost left at the old place while dragging')
+    check(not ev(page, "!!document.getElementById('sblink-fabghost')"), 'no dashed outline left at the old place (0.5.8)')
     shot(page, 'btn_01_dragging')
     page.mouse.up()
     page.wait_for_timeout(200)

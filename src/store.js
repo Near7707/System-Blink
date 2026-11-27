@@ -262,7 +262,7 @@ export function device() {
     // 0.5.5: until the size is picked by hand, a phone starts small and a PC normal
     if (!d.sizePicked || !['small', 'normal'].includes(d.size)) d.size = isPhoneNow() ? 'small' : 'normal';
     if (!['dotted', 'solid'].includes(d.ring)) d.ring = 'dotted';
-    if (!['hex', 'hexb', 'tab', 'badge'].includes(d.shape)) d.shape = 'hex'; // 0.5.6
+    if (!['hex', 'hexb', 'tab', 'badge'].includes(d.shape)) d.shape = 'hexb'; // 0.5.6; 0.5.8 default = the glass hexagon
     if (!d.pos || typeof d.pos !== 'object') d.pos = {};
     return d;
 }
