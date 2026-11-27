@@ -857,3 +857,41 @@
 .sblink-bigdias { display: flex; justify-content: center; margin-bottom: 8px; }
 .sblink-bigdias .sblink-wdia i { width: 12px; height: 12px; }
 .sblink-tn-star.sblink-v-skill .sblink-tag, .sblink-tn-threat.sblink-v-skill .sblink-tag { background: var(--sb-acc); }
+
+/* ---------- 0.6.0 quest lines in the story: a small System window inside the AI message (screen only) ---------- */
+.sblink-qblock {
+    --qb: var(--sb-acc); --qb-rgb: var(--sb-acc-rgb);
+    position: relative; overflow: hidden; display: block; box-sizing: border-box; max-width: 100%;
+    margin: 10px 0; padding: 10px 12px 8px; cursor: pointer; font-style: normal; font-weight: normal; text-align: left;
+    color: var(--qb); border: 1px solid rgba(var(--qb-rgb), 0.6);
+    background: linear-gradient(180deg, rgba(var(--qb-rgb), 0.16), var(--sb-bg) 70%);
+    box-shadow: 0 0 14px rgba(var(--qb-rgb), 0.22); line-height: 1.45; font-size: 14px;
+}
+.sblink-qblock.sblink-qb-sudden { --qb: var(--sb-orange); --qb-rgb: 255, 159, 67; }
+.sblink-qblock.sblink-qb-hidden { --qb: var(--sb-purple); --qb-rgb: 179, 140, 255; }
+.sblink-qblock.sblink-qb-goal { --qb: var(--sb-goal); --qb-rgb: var(--sb-goal-rgb); }
+.sblink-qblock.sblink-qb-penalty { --qb: var(--sb-hell); --qb-rgb: 255, 77, 94; }
+.sblink-qblock.sblink-qb-penalty { background-image: repeating-linear-gradient(-45deg, rgba(224, 33, 63, 0.16) 0 7px, transparent 7px 14px), linear-gradient(180deg, rgba(var(--qb-rgb), 0.16), var(--sb-bg) 70%); }
+.sblink-qblock:focus-visible { outline: 2px solid var(--qb); outline-offset: 2px; }
+/* corner brackets and faint scan lines, as on the System window */
+.sblink-qblock::before { content: ''; position: absolute; inset: 0; pointer-events: none;
+    background: linear-gradient(currentColor, currentColor) left top / 9px 2px no-repeat, linear-gradient(currentColor, currentColor) left top / 2px 9px no-repeat,
+        linear-gradient(currentColor, currentColor) right top / 9px 2px no-repeat, linear-gradient(currentColor, currentColor) right top / 2px 9px no-repeat,
+        linear-gradient(currentColor, currentColor) left bottom / 9px 2px no-repeat, linear-gradient(currentColor, currentColor) left bottom / 2px 9px no-repeat,
+        linear-gradient(currentColor, currentColor) right bottom / 9px 2px no-repeat, linear-gradient(currentColor, currentColor) right bottom / 2px 9px no-repeat; }
+.sblink-qblock::after { content: ''; position: absolute; inset: 0; pointer-events: none; background: repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px 3px); }
+.sblink-qbhead { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.sblink-qbtag { flex: none; background: var(--qb); color: #08121C; font-family: var(--sb-mono); font-size: 10px; font-weight: 800; padding: 2px 7px; transform: skewX(-14deg); letter-spacing: 0.06em; line-height: 1.4; }
+.sblink-qb-hidden .sblink-qbtag, .sblink-qb-penalty .sblink-qbtag { color: #fff; }
+.sblink-qbcode { font-family: var(--sb-mono); font-size: 10px; color: var(--qb); letter-spacing: 0.04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.sblink-qbtitle { color: var(--sb-text); font-weight: 700; font-size: 14px; margin: 7px 0 6px; }
+.sblink-qbrow { display: flex; gap: 8px; align-items: baseline; padding: 5px 0; border-top: 1px solid rgba(var(--qb-rgb), 0.18); }
+.sblink-qbdia { color: var(--qb); font-size: 9px; flex: none; }
+.sblink-qbname { flex: 1 1 auto; min-width: 0; color: var(--sb-text); font-size: 13.5px; word-break: break-word; }
+.sblink-qbpts { flex: none; color: var(--qb); font-family: var(--sb-mono); font-size: 12px; font-weight: 700; }
+.sblink-qbpts:empty { display: none; }
+.sblink-qbmeta { margin-top: 6px; font-size: 12px; color: var(--sb-dim); }
+.sblink-qbbar { display: flex; gap: 4px; margin: 2px 0 5px; }
+.sblink-qbbar i { flex: 1 1 0; height: 4px; background: rgba(255, 255, 255, 0.15); }
+.sblink-qbbar i.sblink-on { background: var(--qb); }
+.sblink-qbbar i.sblink-now { background: var(--qb); box-shadow: 0 0 6px var(--qb); opacity: 0.7; }

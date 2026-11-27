@@ -8,9 +8,10 @@ import { specNames, starWho } from '../data.js';
 import { gradeBadge, gradeClass, isTop, tag } from './skills.js';
 import { icon, hexMark } from '../icons.js';
 import { esc, $id, typeIn, motionOn, inputTop, viewport, safeInsets } from './util.js';
+import { drawQuestBlocks, undrawQuestBlocks, setQBlockHooks } from './qblock.js';
 
 let hooks = { openTab: () => {}, openSkill: () => {}, badge: () => {} };
-export function setPopHooks(h) { hooks = { ...hooks, ...h }; }
+export function setPopHooks(h) { hooks = { ...hooks, ...h }; setQBlockHooks(hooks); }
 
 /** The System's voice in this chat, as a class (2-D). */
 export const toneClass = () => `sblink-tn-${active() ? toneOf() : 'game'}`;
@@ -305,10 +306,16 @@ export function renderCards() {
     const view = chatView();
     const idx = show ? indexRecords(r, view) : null;
     const tc = toneClass();
+    const blocks = active(r);
     chatEl.querySelectorAll('.mes[mesid]').forEach(mes => {
         const i = Number(mes.getAttribute('mesid'));
         const m = view.list[i];
         const key = view.keys[i];
+        // 0.6.0: [SYS:QUEST] lines in AI replies drawn as small System windows (screen only)
+        const mt = mes.querySelector('.mes_text');
+        if (mt) {
+            if (blocks && m && isAI(m)) { try { drawQuestBlocks(mt, key); } catch (e) { console.warn('[System Blink] quest lines', e); } } else undrawQuestBlocks(mt);
+        }
         let html = show && m ? cardFor(r, m, key, i, idx, view) : '';
         let tab = '';
         if (html) { const cut = html.lastIndexOf('|'); tab = html.slice(cut + 1); html = html.slice(0, cut); }
@@ -331,7 +338,7 @@ export function renderCards() {
     });
 }
 
-export function removeCards() { document.querySelectorAll('.sblink-card').forEach(el => el.remove()); }
+export function removeCards() { document.querySelectorAll('.sblink-card').forEach(el => el.remove()); undrawQuestBlocks(); }
 
 function hashStr(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return h; }
 

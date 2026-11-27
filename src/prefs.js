@@ -3,7 +3,7 @@
 
 import { t, setLanguage, lang } from './i18n.js';
 import { settings, save, room, currentChatId, device, saveDevice, exportData, importData, oldBackup, VERSION, TONES } from './store.js';
-import { switchOn, switchOff, bus } from './engine.js';
+import { switchOn, switchOff, bus, skipOldTold } from './engine.js';
 import { getProfiles, sentLog } from './ai.js';
 import { buildLog, logFileName } from './export.js';
 import { esc } from './ui/util.js';
@@ -33,6 +33,7 @@ export const SCHEMA = [
         { k: 'suddenFreq', kind: 'choice', opts: ['off', 'rare', 'normal', 'often'] },
         { k: 'suddenRest', kind: 'choice', opts: [3, 5, 10], needs: 'suddenFreq' },
         { k: 'hiddenOn', kind: 'toggle' },
+        { k: 'storyQuest', kind: 'toggle' },
         { k: 'goalSuggest', kind: 'choice', opts: ['auto', 'manual', 'off'] },
     ] },
     { group: 'spectators', rows: [
@@ -114,6 +115,7 @@ export async function setValue(k, v) {
         case 'btnShape': { const d = device(); if (['hex', 'hexb', 'tab', 'badge'].includes(v)) { d.shape = v; saveDevice(d); } break; }
         case 'pointRate': s.pointRate = Number(v); save(); break;
         case 'suddenRest': s.suddenRest = Number(v); save(); break;
+        case 'storyQuest': if (v && !s.storyQuest) skipOldTold(); s.storyQuest = !!v; save(); break;
         default: s[k] = v; save();
     }
     bus.emit('change');

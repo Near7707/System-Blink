@@ -2,7 +2,7 @@
 // requests other extensions make in the background ("quiet") get nothing.
 
 import { settings, room } from './store.js';
-import { active, chatView, lastMine, todays, questState, lifeNow, ownerName, goalNow, condsOf, suddenLeft, hiddenOpen } from './engine.js';
+import { active, chatView, lastMine, lastReply, todays, questState, lifeNow, ownerName, goalNow, condsOf, suddenLeft, hiddenOpen, questsToTell, STORY_KIND } from './engine.js';
 
 const CHANCE = {
     off: 'Just know about them; do not push them into the story.',
@@ -22,14 +22,18 @@ function condsLeft(r, q, view) {
 export function buildPrompt(genType = 'normal') {
     const s = settings();
     const r = room();
-    if (!active(r) || ['quiet'].includes(String(genType))) return { text: '', noteIds: [] };
+    if (!active(r) || ['quiet'].includes(String(genType))) return { text: '', noteIds: [], tellIds: [] };
     const view = chatView();
     const who = ownerName(r);
     const lines = ['[System Blink — rules for this story]'];
     lines.push(s.visibility === 'all'
         ? `- ${who} has a game-like "System" (quests, points, a personal shop). People in this world know such Systems exist.`
         : `- ${who} has a game-like "System" (quests, points, a personal shop) that only ${who} can see and hear. Others do not notice it.`);
-    lines.push('- The extension shows quest, point and shop notices itself: do not write such System notices in the reply. Keep writing any other status blocks (info blocks, trackers) as usual.');
+    const kind = String(genType);
+    const tell = kind === 'impersonate' ? [] : questsToTell(r, view, kind === 'swipe' ? lastReply(view)?.key : null);
+    lines.push(tell.length
+        ? '- The extension shows point and shop notices itself and judges quests itself: apart from the quest lines asked for below, do not write System notices in the reply (no quest cleared, no rewards, no points). Keep writing any other status blocks (info blocks, trackers) as usual.'
+        : '- The extension shows quest, point and shop notices itself: do not write such System notices in the reply. Keep writing any other status blocks (info blocks, trackers) as usual.');
     lines.push('- Points and bag items are managed by the extension. Do not give or take them in the story.');
     const open = todays(r).filter(q => questState(r, q, view).status === 'active');
     const extra = [];
@@ -79,5 +83,10 @@ export function buildPrompt(genType = 'normal') {
     }
     const notes = r.notes.filter(n => n.deliveredKey == null || !view.index.has(n.deliveredKey));
     for (const n of notes) lines.push(`- ${n.text}`);
-    return { text: lines.join('\n'), noteIds: notes.map(n => n.id) };
+    // 0.6.0: new quests show up in the story as exact lines; the extension draws them as System windows
+    if (tell.length) {
+        lines.push(`- New System quests appear before ${who}'s eyes now. Where ${who} would notice them in this reply (near the start is fine), copy each line below exactly, each on its own line with nothing else on it, then let ${who}'s character react naturally.${s.visibility === 'all' ? '' : ' Only ' + who + ' sees them; others do not.'} Do not change the wording, do not add rewards, and never write a quest as cleared.`);
+        for (const q of tell) lines.push(`[SYS:QUEST] ${STORY_KIND[q.kind] || 'DAILY'} · ${String(q.name).replace(/[\r\n]+/g, ' ')}`);
+    }
+    return { text: lines.join('\n'), noteIds: notes.map(n => n.id), tellIds: tell.map(q => q.id) };
 }

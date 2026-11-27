@@ -61,6 +61,7 @@ export function cleanAnswer(raw) {
 /** The story text only: other extensions' info blocks / trackers / code blocks are left out. */
 export function storyOnly(text) {
     let s = String(text || '');
+    s = s.replace(/\[SYS:QUEST\][^\n[<]*/gi, ' '); // 0.6.0: the System's own quest lines are never evidence
     s = s.replace(/```[\s\S]*?```/g, ' ');
     s = s.replace(/<details[\s\S]*?<\/details>/gi, ' ');
     s = s.replace(/<(div|table|section|aside|style|script)\b[\s\S]*?<\/\1>/gi, ' ');

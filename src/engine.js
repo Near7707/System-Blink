@@ -791,6 +791,42 @@ export function bindUses(view = chatView()) {
     if (any) save();
 }
 
+// ---------- 0.6.0 quest lines in the story ----------
+export const STORY_KIND = { daily: 'DAILY', sudden: 'SUDDEN', hidden: 'HIDDEN', goal: 'MAIN', penalty: 'PENALTY' };
+
+/** Quests running now that the story has not shown yet (a re-rolled reply shows them again). */
+export function questsToTell(r = room(), view = chatView(), redoKey = null) {
+    if (!r || !settings().storyQuest) return [];
+    const list = [];
+    const g = r.goal ? goalNow(r, view) : null;
+    if (g?.current) list.push(g.current);
+    for (const q of todays(r)) if (q.kind === 'daily' && questState(r, q, view).status === 'active') list.push(q);
+    for (const q of r.quests) {
+        if (q.kind === 'penalty' && q.day === r.day && questState(r, q, view).status === 'active') list.push(q);
+        if ((q.kind === 'sudden' || q.kind === 'hidden') && questState(r, q, view).status === 'active') list.push(q);
+    }
+    // redoKey: the reply being swiped is replaced, so what it showed is shown again
+    // each swipe that showed it is kept, so going back to an older swipe does not show it twice
+    return list.filter(q => q.told !== 'old' && !(q.toldKeys || []).some(k => k !== redoKey && view.index.has(k)));
+}
+
+/** These quest lines went out with this AI reply. */
+export function markTold(key, ids) {
+    const r = room();
+    if (!r || !key || !ids?.length) return;
+    for (const q of r.quests) if (ids.includes(q.id)) q.toldKeys = [...(q.toldKeys || []).filter(k => k !== key), key].slice(-6);
+    save();
+}
+
+/** Turning the setting on: quests already running are not shown all at once in the next reply. */
+export function skipOldTold() {
+    for (const r of Object.values(settings().chats || {})) {
+        if (!r?.quests) continue;
+        for (const q of r.quests) if (!q.toldKeys?.length) q.told = 'old';
+    }
+    save();
+}
+
 /** Notes went out with this AI reply. */
 export function markDelivered(key, sentIds) {
     const r = room();

@@ -5,7 +5,7 @@
 
 import { t, setLanguage, lang } from './src/i18n.js';
 import { ctx, settings, save, uiLang, room, currentChatId, onChatRenamed, onChatDeleted, copyFromParent, VERSION } from './src/store.js';
-import { bus, storeCheck, bindUses, markDelivered, active, checkRealDay, setLangGetter, skipTutorial, rate, lastReply, chatView, nextStage, tidy, answerSudden, penaltyFor, rewardSkill, warnFor, checkBig, spectate, toneOf } from './src/engine.js';
+import { bus, storeCheck, bindUses, markDelivered, markTold, active, checkRealDay, setLangGetter, skipTutorial, rate, lastReply, chatView, nextStage, tidy, answerSudden, penaltyFor, rewardSkill, warnFor, checkBig, spectate, toneOf } from './src/engine.js';
 import { runCheck } from './src/ai.js';
 import { buildPrompt } from './src/prompt.js';
 import { panelHtml, panelChange, runButton, setPrefsHooks } from './src/prefs.js';
@@ -22,14 +22,16 @@ export { VERSION };
 const PROMPT_KEY = 'system_blink';
 let lastPrompt = '';
 let sentNoteIds = [];
+let sentTellIds = [];
 let generating = false;
 
 // ---------- the lines for the AI ----------
 function updatePrompt(genType = 'normal', live = false) {
     let text = '';
     let ids = [];
-    try { ({ text, noteIds: ids } = buildPrompt(genType)); } catch (e) { console.error('[System Blink] prompt', e); }
-    if (live) { sentNoteIds = ids; lastPrompt = text; }
+    let tells = [];
+    try { ({ text, noteIds: ids, tellIds: tells = [] } = buildPrompt(genType)); } catch (e) { console.error('[System Blink] prompt', e); }
+    if (live) { sentNoteIds = ids; sentTellIds = tells; lastPrompt = text; }
     try { ctx().setExtensionPrompt(PROMPT_KEY, text, 1, 1, false, 0); } catch (e) { console.error('[System Blink] prompt', e); }
 }
 
@@ -251,6 +253,7 @@ function registerEvents() {
         const view = chatView();
         const m = view.list[Number(mesId)];
         if (m && !m.is_user && sentNoteIds.length) { markDelivered(view.keys[Number(mesId)], sentNoteIds); sentNoteIds = []; }
+        if (m && !m.is_user && sentTellIds.length) { markTold(view.keys[Number(mesId)], sentTellIds); sentTellIds = []; }
     });
     for (const name of [ev.GENERATION_ENDED, ev.GENERATION_STOPPED]) {
         on(name, () => {

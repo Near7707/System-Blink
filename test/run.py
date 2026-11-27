@@ -95,6 +95,9 @@ def main():
             fixes053(browser)
             fab055(browser)
             shapes056(browser)
+            story060(browser, 'ko')
+            story060(browser, 'en')
+            story060_paras(browser)
             browser.close()
     finally:
         srv.terminate()
@@ -1212,6 +1215,94 @@ def shapes056(browser):
         check(ev(page, "!!document.querySelector('#sblink-win [data-set=\"btnRing\"]')"), f'{tag}: ring row back for the hexagon')
         check(not errors, f'{tag} no errors {errors[:3]}')
         page.close()
+
+def story060(browser, lang):
+    print(f'--- 0.6.0 quest lines in the story ({lang})')
+    ko = lang == 'ko'
+    page, errors = open_page(browser, f'fresh&lang={lang}')
+    page.click('#sblink-fab')
+    page.click('[data-act="roomOn"]'); page.wait_for_timeout(500)
+    page.click('#sblink-pop [data-pop="second"]'); page.wait_for_timeout(500)
+    close_pops(page)
+    # off by default: no lines asked for
+    check(ev(page, "SillyTavern.getContext().extensionSettings.systemBlink.storyQuest") is False, 'off by default')
+    page.click('#sblink-win [data-tab="status"]'); page.click('[data-act="nextDay"]'); page.click('[data-modal="yes"]'); page.wait_for_timeout(900)
+    close_pops(page)
+    check('[SYS:QUEST]' not in ev(page, 'window.__fakeST.livePrompt'), 'off: no quest lines for the AI')
+    # turning it on: quests already running are not shown all at once
+    page.click('[data-act="gear"]')
+    check(ev(page, "!!document.querySelector('[data-set=\"storyQuest\"]')"), 'setting in the gear page')
+    check(ev(page, "!!document.querySelector('#sblink_settings [data-pset=\"storyQuest\"]')"), 'setting in the extension panel')
+    page.click('[data-set="storyQuest"]'); page.wait_for_timeout(300)
+    check(ev(page, "SillyTavern.getContext().extensionSettings.systemBlink.storyQuest") is True, 'turned on')
+    check('[SYS:QUEST]' not in ev(page, 'window.__fakeST.livePrompt'), 'quests from before are not shown')
+    page.click('[data-act="back"]')
+    # a new day: the new daily quests go to the AI as exact lines
+    page.click('#sblink-win [data-tab="status"]'); page.click('[data-act="nextDay"]'); page.click('[data-modal="yes"]'); page.wait_for_timeout(900)
+    close_pops(page)
+    if ev(page, "!!document.getElementById('sblink-win')"):
+        page.click('[data-act="close"]'); page.wait_for_timeout(200)
+    names = ev(page, room_js("r.quests.filter(q => q.kind === 'daily' && q.day === r.day).map(q => q.name)"))
+    live = ev(page, 'window.__fakeST.livePrompt')
+    check(len(names) >= 2 and all(f'[SYS:QUEST] DAILY · {n}' in live for n in names), f'new daily quests asked for as lines ({len(names)})')
+    check('never write a quest as cleared' in live, 'the AI is told not to write clears')
+    # the reply writes them: drawn as one window, the plain lines hidden
+    reply = '<p>The light came in.<br>' + '<br>'.join(f'[SYS:QUEST] DAILY · {n}' for n in names) + '<br>"A café? So early?"</p>'
+    turn(page, 'look', reply)
+    check('[SYS:QUEST] DAILY' in ev(page, 'window.__fakeST.prompt'), 'the lines went with that reply')
+    last = "document.querySelector('#chat .mes:last-child')"
+    check(ev(page, f"{last}.querySelectorAll('.sblink-qblock').length") == 1, 'daily quests share one window')
+    check(ev(page, f"{last}.querySelectorAll('.sblink-qbrow').length") == len(names), 'one row per quest')
+    check(ev(page, f"{last}.querySelector('.sblink-qbpts').textContent").endswith('P'), 'reward shown')
+    txt = ev(page, f"{last}.querySelector('.mes_text').innerText")
+    check('[SYS:QUEST]' not in txt and 'So early' in txt, 'plain lines hidden, the story kept')
+    check(ev(page, f"{last}.querySelector('.sblink-qbtitle').textContent") == ('[일일 퀘스트가 도착했습니다]' if ko else '[Daily quests have arrived]'), 'title in the voice')
+    check('[SYS:QUEST]' in ev(page, "SillyTavern.getContext().chat.at(-1).mes"), 'message text itself not changed')
+    check('[SYS:QUEST]' not in ev(page, 'window.__fakeST.livePrompt'), 'shown once: not asked again')
+    shot(page, f'{lang}_060_daily')
+    # tap: the quests tab opens
+    page.click('#chat .mes:last-child .sblink-qblock'); page.wait_for_timeout(300)
+    check(ev(page, "document.querySelector('#sblink-win [data-tab=\"quests\"]')?.classList.contains('sblink-tab-on')"), 'tap opens the quests tab')
+    page.click('[data-act="close"]'); page.wait_for_timeout(200)
+    # the lines are not evidence for the story check
+    check(ev(page, "(async () => (await import('/src/ai.js')).storyOnly('Hi [SYS:QUEST] DAILY · Drink tea<br>Bye'))()") == 'Hi Bye', 'quest lines left out of the story check')
+    # swipe: the new swipe is asked again; going on, not asked a third time
+    ev(page, "window.__nextReply = 'Another take.'")
+    ev(page, 'window.__fakeST.swipe()'); page.wait_for_timeout(1200)
+    check('[SYS:QUEST] DAILY' in ev(page, 'window.__fakeST.prompt'), 'a swipe asks for the lines again')
+    check('[SYS:QUEST]' not in ev(page, 'window.__fakeST.livePrompt'), 'after the swipe: not asked again')
+    # other kinds each get a window; an unknown name still shows
+    other = '<p>' + '<br>'.join(['[SYS:QUEST] SUDDEN · Find the owner of the wallet', '[SYS:QUEST] HIDDEN · Follow the cat', '[SYS:QUEST] PENALTY · Leave a note']) + '<br>Then quiet.</p>'
+    turn(page, 'go', other)
+    kinds = ev(page, f"[...{last}.querySelectorAll('.sblink-qblock')].map(b => [...b.classList].find(c => c.startsWith('sblink-qb-')))")
+    check(kinds == ['sblink-qb-sudden', 'sblink-qb-hidden', 'sblink-qb-penalty'], f'each kind its own window ({kinds})')
+    shot(page, f'{lang}_060_kinds')
+    # voices
+    for tone in ['star', 'threat']:
+        ev(page, f"(async () => {{ const m = await import('/src/prefs.js'); await m.setValue('tone', '{tone}'); }})()"); page.wait_for_timeout(200)
+        ev(page, 'window.__fakeST.render()'); ev(page, "(async () => (await import('/src/ui/pop.js')).renderCards())()"); page.wait_for_timeout(300)
+        check(ev(page, f"{last}.querySelector('.sblink-qblock').classList.contains('sblink-tn-{tone}')"), f'{tone} voice drawn')
+        shot(page, f'{lang}_060_{tone}')
+    # System switched off in this chat: the plain lines come back
+    ev(page, "(async () => { const m = await import('/src/engine.js'); m.switchOff(); })()"); page.wait_for_timeout(400)
+    check(ev(page, "document.querySelectorAll('.sblink-qblock').length") == 0 and '[SYS:QUEST]' in ev(page, f"{last}.querySelector('.mes_text').textContent"), 'System off: plain lines back')
+    check(not errors, f'no errors {errors[:3]}')
+    page.close()
+
+
+def story060_paras(browser):
+    print('--- 0.6.0 quest lines in separate paragraphs')
+    page, errors = open_page(browser, 'fresh&lang=en')
+    ev(page, "(async () => { const m = await import('/src/engine.js'); await m.switchOn(); })()"); page.wait_for_timeout(600)
+    close_pops(page)
+    reply = '<p>Morning.</p><p>[SYS:QUEST] DAILY · Water the plants</p><p>[SYS:QUEST] DAILY · Call a friend</p><p>"Fine."</p>'
+    turn(page, 'hi', reply)
+    last = "document.querySelector('#chat .mes:last-child')"
+    check(ev(page, f"{last}.querySelectorAll('.sblink-qblock').length") == 1 and ev(page, f"{last}.querySelectorAll('.sblink-qbrow').length") == 2, 'lines in separate paragraphs still share one window')
+    check(ev(page, f"{last}.querySelectorAll('.mes_text > p').length") == 2, 'their empty paragraphs are gone')
+    check(not errors, f'no errors {errors[:3]}')
+    page.close()
+
 
 if __name__ == '__main__':
     main()

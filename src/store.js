@@ -3,7 +3,7 @@
 
 export const MODULE = 'systemBlink';
 export const FORMAT = 2;
-export const VERSION = '0.5.4';
+export const VERSION = '0.6.0';
 export const TONES = ['game', 'star', 'threat'];
 export const DIFFS = ['off', 'easy', 'normal', 'hard', 'hell'];
 
@@ -23,6 +23,7 @@ const DEFAULTS = Object.freeze({
     suddenFreq: 'rare',     // off | rare (1/20) | normal (1/10) | often (1/5) — rolled after each reply
     suddenRest: 5,          // replies to rest after a sudden quest: 3 | 5 | 10
     hiddenOn: true,         // hidden quests can be found
+    storyQuest: false,      // 0.6.0: the AI writes a [SYS:QUEST] line in the story when a quest arrives
     goalSuggest: 'manual',  // auto (ask the AI as the page opens) | manual (only on the button) | off (no button)
     specOn: true,           // 2-D: spectators react now and then (small notices)
     specMode: 'light',      // light (ready-made lines, no AI call) | rich (the AI writes the line, one extra call)
