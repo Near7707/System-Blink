@@ -2,7 +2,7 @@
 // requests other extensions make in the background ("quiet") get nothing.
 
 import { conf, room } from './store.js';
-import { active, chatView, lastMine, lastReply, todays, questState, lifeNow, ownerName, goalNow, condsOf, suddenLeft, hiddenOpen, questsToTell, STORY_KIND } from './engine.js';
+import { active, chatView, lastMine, todays, questState, lifeNow, ownerName, goalNow, condsOf, suddenLeft, hiddenOpen, questsToTell, STORY_KIND } from './engine.js';
 
 const CHANCE = {
     off: 'Just know about them; do not push them into the story.',
@@ -30,7 +30,10 @@ export function buildPrompt(genType = 'normal') {
         ? `- ${who} has a game-like "System" (quests, points, a personal shop). People in this world know such Systems exist.`
         : `- ${who} has a game-like "System" (quests, points, a personal shop) that only ${who} can see and hear. Others do not notice it.`);
     const kind = String(genType);
-    const tell = kind === 'impersonate' ? [] : questsToTell(r, view, kind === 'swipe' ? lastReply(view)?.key : null);
+    // the reply being replaced (a swipe, or a regenerate — SillyTavern removes the old reply only after this) shows them again
+    const lastMsg = view.list[view.length - 1];
+    const redo = (kind === 'swipe' || kind === 'regenerate') && lastMsg && !lastMsg.is_user && !lastMsg.is_system ? view.keys[view.length - 1] : null;
+    const tell = kind === 'impersonate' ? [] : questsToTell(r, view, redo);
     lines.push(tell.length
         ? '- The extension shows point and shop notices itself and judges quests itself: apart from the quest lines asked for below, do not write System notices in the reply (no quest cleared, no rewards, no points). Keep writing any other status blocks (info blocks, trackers) as usual.'
         : '- The extension shows quest, point and shop notices itself: do not write such System notices in the reply. Keep writing any other status blocks (info blocks, trackers) as usual.');

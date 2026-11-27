@@ -118,6 +118,8 @@ def main():
             v068(browser, 'en')
             v069(browser, 'ko')
             v069(browser, 'en')
+            v0610(browser, 'ko')
+            v0610(browser, 'en')
             browser.close()
     finally:
         srv.terminate()
@@ -1943,6 +1945,86 @@ def v069(browser, lang):
     got = ev(page, """(async () => { const st = await import('/src/store.js'); const s = st.settings(); const r = s.chats[SillyTavern.getContext().getCurrentChatId()];
         delete r.lifeToAI; r.lifeMode = false; s.lifeToAI = false; st.migrate(s); return [r.lifeToAI, r.lifeMode]; })()""")
     check(got == [False, True], f'update: chats keep the shared value, daily life on ({got})')
+    check(not errors, f'no errors ({errors[:3]})')
+    page.close()
+
+
+def v0610(browser, lang):
+    """0.6.10: daily life kept past 12 checks, regenerate shows quest lines, settings checked once,
+    "this chat only" off does not dump old quests, AI asked only for the open chat."""
+    print(f'--- 0.6.10 fixes ({lang})')
+    page, errors = open_page(browser, f'fresh&lang={lang}')
+    page.click('#sblink-fab')
+    page.click('[data-act="roomOn"]'); page.wait_for_timeout(500)
+    page.click('#sblink-pop [data-pop="second"]'); page.wait_for_timeout(500)
+    close_pops(page)
+    if ev(page, "!!document.getElementById('sblink-win')"):
+        page.click('[data-act="close"]'); page.wait_for_timeout(200)
+    E = "const e = await import('/src/engine.js'); const st = await import('/src/store.js'); const id = SillyTavern.getContext().getCurrentChatId(); const r = st.room(id);"
+    # 1. a place seen once stays after more than 12 quiet checks
+    got = ev(page, "(async () => { " + E + """
+        const ctx = SillyTavern.getContext(); const key = (m) => e.msgKey(m);
+        const push = (i) => { ctx.chat.push({ is_user: false, is_system: false, name: 'X', mes: 'quiet ' + i, send_date: 'lt' + i }); return key(ctx.chat.at(-1)); };
+        e.storeCheck(id, push(0), { life: { place: 'Harbor', weather: 'Rain' }, quests: [] });
+        for (let i = 1; i <= 14; i++) e.storeCheck(id, push(i), { life: {}, quests: [] });
+        const now = e.lifeNow(r);
+        const n = r.lifeLog.length;
+        e.storeCheck(id, push(15), { life: { place: 'Harbor' }, quests: [] });
+        const again = r.lifeLog.length;
+        // the same reply checked again: its own earlier result does not hide its change
+        const k = key(ctx.chat.at(-1)); e.storeCheck(id, k, { life: { place: 'Station' }, quests: [] }); e.storeCheck(id, k, { life: { place: 'Station' }, quests: [] });
+        const re = r.lifeLog.filter(x => x.key === k).length;
+        ctx.chat.splice(ctx.chat.length - 16, 16);
+        return [now.place, now.weather, r.checks.length <= 12, n === again, re]; })()""")
+    check(got[:4] == ['Harbor', 'Rain', True, True], f'daily life kept past 12 checks, no repeat card ({got})')
+    check(got[4] == 1, f'a re-checked reply keeps its own change ({got[4]})')
+    # 2. regenerate: the replaced reply's quest lines are asked for again, not one reply late
+    ev(page, "SillyTavern.getContext().extensionSettings.systemBlink.storyQuest = true")
+    page.click('#sblink-fab'); page.click('#sblink-win [data-tab="status"]'); page.click('[data-act="nextDay"]'); page.click('[data-modal="yes"]'); page.wait_for_timeout(900)
+    close_pops(page)
+    if ev(page, "!!document.getElementById('sblink-win')"):
+        page.click('[data-act="close"]'); page.wait_for_timeout(200)
+    names = ev(page, room_js("r.quests.filter(q => q.kind === 'daily' && q.day === r.day).map(q => q.name)"))
+    reply = '<p>' + '<br>'.join(f'[SYS:QUEST] DAILY · {n}' for n in names) + '<br>Morning.</p>'
+    turn(page, 'look', reply)
+    check('[SYS:QUEST]' not in ev(page, 'window.__fakeST.livePrompt'), 'shown once')
+    ev(page, 'window.__fakeST.regenerate()'); page.wait_for_timeout(1200)
+    check('[SYS:QUEST] DAILY' in ev(page, 'window.__fakeST.prompt'), 'regenerate asks for the lines again')
+    turn(page, 'next')
+    check('[SYS:QUEST]' not in ev(page, 'window.__fakeST.prompt'), 'not asked again one reply late')
+    # regenerate with my message last: nothing is replaced, nothing asked again
+    ev(page, "SillyTavern.getContext().chat.push({ is_user: true, is_system: false, name: 'U', mes: 'mine', send_date: 'mine1' })")
+    ev(page, 'window.__fakeST.regenerate()'); page.wait_for_timeout(1200)
+    check('[SYS:QUEST]' not in ev(page, 'window.__fakeST.prompt'), 'my message last: not asked again')
+    # 3. settings are checked once (fast with many chats), an imported backup is checked again
+    got = ev(page, """(async () => { const st = await import('/src/store.js'); const s = st.settings();
+        for (let i = 0; i < 80; i++) s.chats['many' + i] = st.newRoom();
+        const t = performance.now(); for (let i = 0; i < 2000; i++) st.settings(); const ms = performance.now() - t;
+        for (let i = 0; i < 80; i++) delete s.chats['many' + i];
+        const same = st.settings() === s;
+        const back = st.exportData(); back.settings.tone = 'nope'; back.settings.pointRate = 7; st.importData(back);
+        const n = st.settings(); const fixed = n.pointRate === 1 && n !== s;
+        return [ms, same, fixed]; })()""")
+    check(got[0] < 40 and got[1] and got[2], f'settings checked once, import checked again ({got})')
+    # 4. "this chat only" off turns the story lines on: quests already running are not dumped
+    ev(page, "(async () => { " + E + """
+        st.settings().storyQuest = true; st.setRoomOwn(id, true); st.setRoomSetting(id, 'storyQuest', false);
+        r.quests.push({ id: 'qold', kind: 'sudden', state: 'accepted', name: 'Old errand', reward: 30, day: r.day, failed: false, limit: 3, seen: [], acceptKey: null }); })()""")
+    ev(page, 'window.__confirmAnswer = true')
+    ev(page, "(async () => { const p = await import('/src/prefs.js'); await p.setValue('roomOwn', false); })()"); page.wait_for_timeout(300)
+    got = ev(page, room_js("[r.own, (r.quests.find(q => q.id === 'qold') || {}).told]"))
+    check(got == [None, 'old'], f'own off: old quests marked as shown ({got})')
+    text = ev(page, "(async () => (await import('/src/prompt.js')).buildPrompt().text)()")
+    check('Old errand' in text and '[SYS:QUEST] SUDDEN · Old errand' not in text, 'old quest known, not asked as a line')
+    # 5. a chat that is not open: no AI request (built-in list instead), the result stays in that chat
+    got = ev(page, """(async () => { const e = await import('/src/engine.js'); const st = await import('/src/store.js');
+        const o = st.room('other-chat', true); o.on = true; o.own = { oddities: false };
+        const before = window.__calls.skill || 0;
+        const sk = await e.rewardSkill('other-chat', 'goal', { skillGiven: false });
+        const qBefore = window.__calls.quests;
+        await e.newQuests('other-chat');
+        return [(window.__calls.skill || 0) - before, !!sk && o.skills.some(k => k.id === sk.id), window.__calls.quests - qBefore, o.quests.length > 0]; })()""")
+    check(got == [0, True, 0, True], f'other chat: no AI asked, built-in list used there ({got})')
     check(not errors, f'no errors ({errors[:3]})')
     page.close()
 

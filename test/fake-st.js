@@ -164,6 +164,11 @@
         await eventSource.emit(eventTypes.GENERATION_STARTED, type, {}, false);
         sentPrompt = lastPrompt;
         const list = chat();
+        // like SillyTavern: a regenerate removes the last AI reply only after "generation started"
+        if (type === 'regenerate' && list.length && !list[list.length - 1].is_user) {
+            list.pop(); render();
+            await eventSource.emit(eventTypes.MESSAGE_DELETED, list.length);
+        }
         const ch = characters[state.characterId];
         const text = window.__nextReply || `Reply ${++replyNo}.`;
         window.__nextReply = null;
@@ -196,6 +201,7 @@
         get livePrompt() { return lastPrompt; },
         turn: (text, reply) => { if (reply) window.__nextReply = reply; return send(text); },
         swipe: () => generate('swipe'),
+        regenerate: () => generate('regenerate'),
         async quiet() { await eventSource.emit(eventTypes.GENERATION_STARTED, 'quiet', {}, false); await eventSource.emit(eventTypes.GENERATION_ENDED, 0); },
         async deleteLast() { chat().pop(); render(); await eventSource.emit(eventTypes.MESSAGE_DELETED, chat().length); },
         async branch() {

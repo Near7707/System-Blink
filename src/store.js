@@ -3,7 +3,7 @@
 
 export const MODULE = 'systemBlink';
 export const FORMAT = 2;
-export const VERSION = '0.6.9';
+export const VERSION = '0.6.10';
 export const TONES = ['game', 'star', 'threat'];
 export const DIFFS = ['off', 'easy', 'normal', 'hard', 'hell'];
 
@@ -51,10 +51,15 @@ const DEFAULTS = Object.freeze({
 let ctxGetter = () => globalThis.SillyTavern?.getContext?.();
 export function ctx() { return ctxGetter(); }
 
+// 0.6.10: the saved settings are checked and fixed once (when first read, or when a new object is put in their
+// place, e.g. by importing a backup) — not on every read, which went through every chat each time.
+const checked = new WeakSet();
 export function settings() {
     const all = ctx().extensionSettings;
     if (!all[MODULE] || typeof all[MODULE] !== 'object') all[MODULE] = structuredClone(DEFAULTS);
-    return migrate(all[MODULE]);
+    const s = all[MODULE];
+    if (!checked.has(s)) { migrate(s); checked.add(s); }
+    return s;
 }
 
 const ONE_OF = {

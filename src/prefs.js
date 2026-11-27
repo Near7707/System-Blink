@@ -154,7 +154,11 @@ export async function setValue(k, v, where = 'gear') {
             if (v) { setRoomOwn(id, true); scopeNow.gear = 'room'; scopeNow.panel = 'room'; break; }
             // off: this chat's values go, after asking
             hooks.redrawAll();
-            if (await confirmBox(t('own_off_q'))) setRoomOwn(id, false);
+            if (await confirmBox(t('own_off_q'))) {
+                const before = !!conf(id).storyQuest;
+                setRoomOwn(id, false);
+                if (!before && conf(id).storyQuest) skipOldTold(id);
+            }
             break;
         }
         case 'roomOn':

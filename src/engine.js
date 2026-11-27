@@ -50,6 +50,15 @@ export function lastMine(view = chatView()) {
 
 const alive = (key, view) => key == null || view.index.has(key);
 
+/**
+ * 0.6.10: ask the AI for one chat. The request reads the open chat (its story and settings), so when that chat
+ * is no longer open nothing is asked: the caller's built-in fallback is used (or it tries again later).
+ */
+function askFor(chatId, kind, opts) {
+    if (!chatId || chatId !== currentChatId()) return Promise.resolve(null);
+    return bus.ask(kind, opts);
+}
+
 // ---------- the room ----------
 export function active(r = room()) { return !!(conf().enabled && r?.on); }
 
@@ -393,7 +402,7 @@ async function makeNextStage(chatId) {
     if (!g.pending) return null;
     const i = g.list.length;
     let made = null;
-    try { made = await bus.ask('stage', { title: r.goal.title, done: g.list.map(q => q.name), index: i, total: r.goal.total }); } catch (e) { console.warn('[System Blink] stage', e); }
+    try { made = await askFor(chatId, 'stage', { title: r.goal.title, done: g.list.map(q => q.name), index: i, total: r.goal.total }); } catch (e) { console.warn('[System Blink] stage', e); }
     const rr = room(chatId);
     if (!rr?.goal || !made?.name) { changed(); return null; }
     if (goalNow(rr).list.length !== i) return null;
@@ -416,7 +425,7 @@ export function storeCheck(chatId, key, res) {
     if (!r) return out;
     const view = chatView();
     r.checks = r.checks.filter(c => c.key !== key);
-    const prev = lifeNow(r, view);
+    const prev = lifeNow(r, view, key); // what was known before this reply (its own earlier result left out)
     const life = {}, lifeFrom = {};
     if (r.lifeMode) for (const [k, v] of Object.entries(res.life || {})) if (v && v !== prev[k]) { life[k] = v; lifeFrom[k] = prev[k] || ''; }
     const check = { key, t: Date.now(), quests: [], life, lifeFrom, days: res.days || 0, dayReason: res.dayReason || '', nextTime: res.nextTime || '', dismissed: false };
@@ -499,10 +508,11 @@ export function tidy() {
 export function checkFor(r, key) { return r?.checks.find(c => c.key === key) || null; }
 
 /** Daily-life fields now: what I set by hand, then what valid AI checks noticed after that. */
-export function lifeNow(r = room(), view = chatView()) {
+export function lifeNow(r = room(), view = chatView(), skipKey = null) {
     const out = { ...(r?.lifeBase || {}) };
     if (!r) return out;
-    const list = r.checks.filter(c => c.t > (r.lifeBase.at || 0) && view.index.has(c.key)).sort((a, b) => a.t - b.t);
+    // 0.6.10: from the daily-life log (kept for good), not the last few checks — a place seen long ago stays
+    const list = (r.lifeLog || []).filter(c => c.t > (r.lifeBase.at || 0) && c.key !== skipKey && view.index.has(c.key)).sort((a, b) => a.t - b.t);
     for (const c of list) for (const k of ['date', 'time', 'weather', 'place']) if (c.life?.[k]) out[k] = c.life[k];
     return out;
 }
@@ -597,11 +607,11 @@ export async function newQuests(chatId = currentChatId(), { replaceOpen = false,
     const diff = diffOf(r);
     const tone = toneOf(r);
     let made = null;
-    try { made = await bus.ask('quests', { count: want, avoid: keep.map(q => q.name), diff, penalty, tone }); } catch (e) { console.warn('[System Blink] quests', e); }
+    try { made = await askFor(chatId, 'quests', { count: want, avoid: keep.map(q => q.name), diff, penalty, tone }); } catch (e) { console.warn('[System Blink] quests', e); }
     const rr = room(chatId);
     if (!rr) return;
     const aiList = Array.isArray(made) ? made : made?.quests;
-    let list = Array.isArray(aiList) && aiList.length ? aiList : fallbackQuests(want, keep.map(q => q.name), diff);
+    let list = Array.isArray(aiList) && aiList.length ? aiList : fallbackQuests(want, keep.map(q => q.name), diff, rr);
     list = list.slice(0, want).map(q => {
         const o = { id: uid('q'), kind: 'daily', name: String(q.name).slice(0, 80), reward: withMul(Math.min(30, Math.max(10, Math.round(Number(q.reward) || 10))), diff), day: rr.day, failed: false, diff, tone };
         const conds = cleanConds(q.conds, diff);
@@ -633,8 +643,8 @@ function cleanConds(conds, diff) {
 }
 
 /** The built-in list. Hard and Hell join two or three of them into one quest with conditions. */
-export function fallbackQuests(n, avoid = [], diff = 'off') {
-    const s = conf();
+export function fallbackQuests(n, avoid = [], diff = 'off', r = room()) {
+    const s = conf(r);
     const pool = shuffle(questPool(langOf(), s.oddities).filter(q => !avoid.includes(q.name)));
     if (!diffAtLeast(diff, 'hard')) return pool.slice(0, n);
     const out = [];
@@ -690,11 +700,11 @@ export async function stockDaily(chatId = currentChatId(), force = false) {
     let made = null;
     const book = wantBook();
     const count = 4 + Math.floor(Math.random() * 3) - (book ? 1 : 0);
-    try { made = await bus.ask('shop', { count, kind: 'daily', book }); } catch (e) { console.warn('[System Blink] shop', e); }
+    try { made = await askFor(chatId, 'shop', { count, kind: 'daily', book }); } catch (e) { console.warn('[System Blink] shop', e); }
     const rr = room(chatId);
     if (!rr) return;
     const aiItems = Array.isArray(made) ? made : made?.items;
-    const list = Array.isArray(aiItems) && aiItems.length ? aiItems : fallbackDaily();
+    const list = Array.isArray(aiItems) && aiItems.length ? aiItems : fallbackDaily(rr);
     rr.shop.daily = list.slice(0, book ? 5 : 6).map(x => ({ ...cleanItem(x), id: uid('d'), sold: false }));
     // a skill book sits in the daily shop now and then (the AI's, or one from the built-in list)
     if (book) {
@@ -715,7 +725,7 @@ export async function restockStanding(chatId = currentChatId()) {
     if (!active(r)) return false;
     if (points(r) < RESTOCK_COST) return 'short';
     let made = null;
-    try { made = await bus.ask('shop', { count: 4, kind: 'standing' }); } catch (e) { console.warn('[System Blink] shop', e); }
+    try { made = await askFor(chatId, 'shop', { count: 4, kind: 'standing' }); } catch (e) { console.warn('[System Blink] shop', e); }
     const rr = room(chatId);
     if (!rr) return false;
     const list = (Array.isArray(made) ? made : []).slice(0, 6);
@@ -726,8 +736,8 @@ export async function restockStanding(chatId = currentChatId()) {
     return true;
 }
 
-function fallbackDaily() {
-    const s = conf();
+function fallbackDaily(r = room()) {
+    const s = conf(r);
     const pool = dailyPool(langOf()).filter(x => s.oddities || !x.odd);
     // the legendary one shows up only now and then
     const picked = shuffle(pool).filter(x => x.rarity !== 'legendary' || Math.random() < 0.25);
@@ -937,7 +947,7 @@ export async function giveGoal(chatId = currentChatId(), force = false) {
     if (chatId !== currentChatId()) return null; // the AI reads the open chat
     givingGoal = chatId; goalFailed.delete(chatId); changed();
     let made = null;
-    try { made = await bus.ask('goal', {}); } catch (e) { console.warn('[System Blink] goal', e); }
+    try { made = await askFor(chatId, 'goal', {}); } catch (e) { console.warn('[System Blink] goal', e); }
     givingGoal = '';
     const rr = room(chatId);
     if (!rr || rr.goal || !active(rr) || currentChatId() !== chatId) { changed(); return null; }
@@ -1039,7 +1049,7 @@ export function lockedSkills(r = room(), view = chatView()) {
 
 function fallbackSkill(r) {
     const have = new Set(skillsOf(r).map(k => k.name));
-    const pool = skillPool(langOf(), conf().oddities);
+    const pool = skillPool(langOf(), conf(r).oddities);
     return shuffle(pool).find(x => !have.has(x.name)) || pool[0];
 }
 
@@ -1048,7 +1058,7 @@ async function makeSkill(chatId, grade, from) {
     const r = room(chatId);
     if (!r) return null;
     let made = null;
-    try { made = await bus.ask('skill', { grade, from, avoid: skillsOf(r).map(k => k.name) }); } catch (e) { console.warn('[System Blink] skill', e); }
+    try { made = await askFor(chatId, 'skill', { grade, from, avoid: skillsOf(r).map(k => k.name) }); } catch (e) { console.warn('[System Blink] skill', e); }
     const rr = room(chatId);
     if (!rr) return null;
     const sk = cleanSkill(made?.name ? made : fallbackSkill(rr), grade, from);
@@ -1092,7 +1102,7 @@ export async function openGacha(bagId) {
         } else {
             const rarity = pick(ITEM_ODDS);
             let made = null;
-            try { made = await bus.ask('drawItem', { rarity }); } catch (e) { console.warn('[System Blink] draw', e); }
+            try { made = await askFor(chatId, 'drawItem', { rarity }); } catch (e) { console.warn('[System Blink] draw', e); }
             const rr = room(chatId);
             if (!rr) return null;
             const base = made?.name ? made : fallbackDrawItem(rarity);
@@ -1186,7 +1196,7 @@ export async function spectate(chatId, key, ev = 'reply') {
     try {
         let made = null;
         // a sponsorship has its own fixed line: no AI call for it
-        if (s.specMode === 'rich' && !tip) { try { made = await bus.ask('spectator', { ev, tone, tip }); } catch (e) { console.warn('[System Blink] spectator', e); } }
+        if (s.specMode === 'rich' && !tip) { try { made = await askFor(chatId, 'spectator', { ev, tone, tip }); } catch (e) { console.warn('[System Blink] spectator', e); } }
         const rr = room(chatId);
         if (!active(rr)) return null;
         const lang = langOf();
