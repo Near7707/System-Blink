@@ -72,9 +72,12 @@ function gone() {
 function watchColumn() {
     if (colWatch || typeof ResizeObserver !== 'function') return;
     const col = $id('sheld');
-    if (!col) return;
+    const form = $id('form_sheld') || $id('send_form');
+    if (!col && !form) return;
     colWatch = new ResizeObserver(() => { if (!drag) place(); });
-    colWatch.observe(col);
+    if (col) colWatch.observe(col);
+    // 0.6.3: bars that come and go over the input box push the button only while they reach it
+    if (form) colWatch.observe(form);
 }
 
 export function setFabHidden(on) { hidden = !!on; const el = $id('sblink-fab'); if (el) el.hidden = hidden || noChat; }
@@ -103,12 +106,28 @@ function bounds(h) {
     const stripEl = $id('sblink-strip');
     const stripTop = stripEl && !stripEl.hidden ? stripEl.getBoundingClientRect().top - 8 : Infinity;
     const maxY = Math.min(bottomLimit, stripTop) - tall;
-    return { minX, maxX, minY, maxY: Math.max(minY, maxY), sz, vp, ins };
+    // 0.6.3: the place is kept as a share of the whole screen height (fullMax), not of the space above the
+    // input box — bars other extensions put over the input box no longer move the button, unless they reach it
+    const fullMax = Math.max(minY, vp.y + vp.h - Math.max(8, ins.bottom + 8) - tall);
+    return { minX, maxX, minY, maxY: Math.max(minY, maxY), fullMax, sz, vp, ins };
 }
 
+const clamp01 = (v) => Math.min(1, Math.max(0, Number(v) || 0));
+/** Height share → y on screen, pushed up only when the input box (or the strip) reaches it. */
+const yAt = (b, fy) => Math.min(b.maxY, Math.max(b.minY, b.minY + clamp01(fy) * (b.fullMax - b.minY)));
+const fyOf = (b, y) => (b.fullMax > b.minY ? clamp01((y - b.minY) / (b.fullMax - b.minY)) : 0.5);
+
 function savedPos() {
-    const p = device().pos[devKey()];
-    return p && typeof p.fx === 'number' ? p : null;
+    const d = device();
+    const p = d.pos[devKey()];
+    if (!p || typeof p.fx !== 'number') return null;
+    if (p.v !== 2) { // before 0.6.3: a share of the space above the input box → a share of the whole height (once)
+        const b = bounds(p.tuck ? TAB_H : undefined);
+        p.fy = fyOf(b, b.minY + clamp01(p.fy) * (b.maxY - b.minY));
+        p.v = 2;
+        saveDevice(d);
+    }
+    return p;
 }
 
 /** Put the button where it was kept (as a share of the screen, so turning the phone keeps it inside). */
@@ -122,7 +141,7 @@ export function place() {
     let x, y;
     if (p) {
         x = b.minX + p.fx * (b.maxX - b.minX);
-        y = b.minY + p.fy * (b.maxY - b.minY);
+        y = yAt(b, p.fy);
     } else { x = b.maxX; y = b.minY + 0.55 * (b.maxY - b.minY); }
     x = Math.min(b.maxX, Math.max(b.minX, x));
     y = Math.min(b.maxY, Math.max(b.minY, y));
@@ -152,7 +171,7 @@ function tabSpot(side, fy) {
         if (room >= TAB_W + 4) { x = c.l - HIT; flat = 'r'; }
         else { x = c.l; flat = 'l'; }
     }
-    const y = b.minY + Math.min(1, Math.max(0, Number(fy) || 0)) * (b.maxY - b.minY);
+    const y = yAt(b, fy);
     return { x, y, flat, b };
 }
 
@@ -250,9 +269,9 @@ function finishDrag(moved) {
             const tb = bounds(TAB_H);
             const ty = y + dims().body / 2 - TAB_H / 2;
             // fx is kept too, so turning bookmarks off leaves the hexagon on that side
-            d.pos[devKey()] = { fx: side === 'right' ? 1 : 0, fy: tb.maxY > tb.minY ? Math.min(1, Math.max(0, (ty - tb.minY) / (tb.maxY - tb.minY))) : 0.5, tuck: side };
+            d.pos[devKey()] = { fx: side === 'right' ? 1 : 0, fy: fyOf(tb, ty), tuck: side, v: 2 };
         } else {
-            d.pos[devKey()] = { fx: b.maxX > b.minX ? (x - b.minX) / (b.maxX - b.minX) : 1, fy: b.maxY > b.minY ? (y - b.minY) / (b.maxY - b.minY) : 0.5 };
+            d.pos[devKey()] = { fx: b.maxX > b.minX ? (x - b.minX) / (b.maxX - b.minX) : 1, fy: fyOf(b, y), v: 2 };
         }
         saveDevice(d);
     }

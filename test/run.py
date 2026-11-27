@@ -103,6 +103,7 @@ def main():
             fixes061(browser)
             goal062(browser, 'ko')
             goal062(browser, 'en')
+            fixes063(browser)
             browser.close()
     finally:
         srv.terminate()
@@ -1326,6 +1327,57 @@ def fixes061(browser):
     check(bg == 'rgb(179, 18, 42)', f'game voice: turn-off button is blood-red ({bg})')
     undo_bg = ev(page, "getComputedStyle(document.querySelector('#sblink-win [data-run=\"export\"]')).backgroundColor")
     check(undo_bg != 'rgb(179, 18, 42)', 'other buttons unchanged')
+    check(not errors, f'no errors {errors[:3]}')
+    page.close()
+
+
+def fixes063(browser):
+    """0.6.3: the opened select list stays readable under a theme; the button is not pushed by bars over the input box."""
+    print('--- 0.6.3 fixes (select list rows, button vs bars over the input box)')
+    page, errors = open_page(browser, 'fresh&lang=ko', width=1200, height=800)
+    page.click('#sblink-fab'); page.click('[data-act="roomOn"]'); page.wait_for_timeout(500)
+    page.click('#sblink-pop [data-pop="second"]'); page.wait_for_timeout(400); close_pops(page)
+    if not ev(page, "!!document.getElementById('sblink-win')"): page.click('#sblink-fab')
+    # a theme like the one seen: every row white with dark text, the chosen row dark
+    page.add_style_tag(content="select,option{background:#fff!important;color:#222!important;-webkit-text-fill-color:#222!important} option:checked{background:#333!important}")
+    page.click('[data-act="gear"]'); page.wait_for_timeout(300)
+    page.click('#sblink-win [data-fold="make"]'); page.wait_for_timeout(300)
+    opt = lambda sel: ev(page, "(() => { const o = document.querySelector('#sblink-win select.sblink-sel " + sel + "'); const c = getComputedStyle(o); return [c.backgroundColor, c.color]; })()")
+    chosen = opt('option:checked')
+    check(chosen[0] == 'rgb(90, 209, 255)' and chosen[1] == 'rgb(6, 17, 30)', f'chosen row: voice colour with dark text ({chosen})')
+    rows = ev(page, "[...document.querySelectorAll('#sblink-win select.sblink-sel option')].map(o => getComputedStyle(o)).filter((c, i, a) => true).map(c => c.backgroundColor)")
+    check(all(r in ('rgb(11, 26, 42)', 'rgb(90, 209, 255)') for r in rows), f'every row dark or chosen ({rows})')
+    for tone, acc in (('star', 'rgb(232, 190, 88)'), ('threat', 'rgb(255, 90, 90)')):
+        page.click(f'#sblink-win [data-set="tone"][data-val="{tone}"]'); page.wait_for_timeout(300)
+        if not ev(page, "!!document.querySelector('#sblink-win select.sblink-sel')"):
+            page.click('#sblink-win [data-fold="make"]'); page.wait_for_timeout(200)
+        c = opt('option:checked')
+        check(c[0] == acc, f'{tone}: chosen row in the voice colour ({c})')
+    page.click('[data-act="close"]'); page.wait_for_timeout(200)
+
+    # the button: put it high up, then a bar appears over the input box
+    page.close()
+    page, errors = open_page(browser, 'fresh&lang=ko', width=390, height=844)
+    ev(page, "(() => { const d = JSON.parse(localStorage.getItem('systemBlink.device') || '{}'); d.pos = { phone: { fx: 1, fy: 0.3, v: 2 } }; localStorage.setItem('systemBlink.device', JSON.stringify(d)); })()")
+    ev(page, "(async () => (await import('/src/ui/fab.js')).place())()"); page.wait_for_timeout(200)
+    y0 = ev(page, "Number(document.getElementById('sblink-fab').dataset.y)")
+    ev(page, "(() => { const b = document.createElement('div'); b.id = 'otherbar'; b.style.height = '160px'; document.getElementById('form_sheld').prepend(b); })()")
+    page.wait_for_timeout(300)
+    y1 = ev(page, "Number(document.getElementById('sblink-fab').dataset.y)")
+    check(abs(y1 - y0) < 1, f'a bar over the input box: the button stays ({y0:.0f} → {y1:.0f})')
+    ev(page, "document.getElementById('otherbar').style.height = '600px'"); page.wait_for_timeout(300)
+    y2 = ev(page, "Number(document.getElementById('sblink-fab').dataset.y)")
+    top = ev(page, "document.getElementById('form_sheld').getBoundingClientRect().top")
+    tall = ev(page, "document.getElementById('sblink-fab').getBoundingClientRect().height")
+    check(y2 < y0 and y2 + tall <= top, f'a bar that reaches it pushes it up ({y2:.0f}, bar top {top:.0f})')
+    ev(page, "document.getElementById('otherbar').remove()"); page.wait_for_timeout(300)
+    y3 = ev(page, "Number(document.getElementById('sblink-fab').dataset.y)")
+    check(abs(y3 - y0) < 1, f'the bar goes: back where it was ({y3:.0f})')
+    # an old saved place (share of the space above the input box) is moved over once, nearly where it was
+    ev(page, "(() => { const d = JSON.parse(localStorage.getItem('systemBlink.device') || '{}'); d.pos = { phone: { fx: 1, fy: 0.5 } }; localStorage.setItem('systemBlink.device', JSON.stringify(d)); })()")
+    ev(page, "(async () => (await import('/src/ui/fab.js')).place())()"); page.wait_for_timeout(200)
+    v = ev(page, "JSON.parse(localStorage.getItem('systemBlink.device')).pos.phone.v")
+    check(v == 2, 'old place moved to the new way once')
     check(not errors, f'no errors {errors[:3]}')
     page.close()
 

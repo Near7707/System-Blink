@@ -257,7 +257,7 @@
 .sblink-selwrap { position: relative; margin-top: 6px; }
 .sblink-selwrap::after { content: '▾'; position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: var(--sb-acc); pointer-events: none; }
 .sblink-sel { width: 100%; height: 36px; padding: 0 34px 0 10px; font-size: 16px; color: var(--sb-text); background: var(--sb-cell); border: 1px solid var(--sb-acc-dim); appearance: none; -webkit-appearance: none; border-radius: 0; text-overflow: ellipsis; white-space: nowrap; overflow: hidden; }
-.sblink-sel option { color: #111; background: #fff; }
+.sblink-sel option { color: #E6F4FF; background: #0B1A2A; }
 /* some themes paint every select white: keep ours dark with light text whatever the theme says */
 .sblink-holo select.sblink-sel { background-color: var(--sb-selbg) !important; background-image: none !important; box-shadow: inset 0 0 0 1000px var(--sb-selbg) !important; color: var(--sb-text) !important; -webkit-text-fill-color: var(--sb-text) !important; opacity: 1; }
 /* 0.6.1: a theme that paints selects with !important still loses to this narrower rule */
@@ -904,3 +904,18 @@
 .sblink-goallock { border-style: solid; opacity: 0.85; }
 .sblink-lockmark { flex: 0 0 auto; font-size: 13px; line-height: 1; filter: grayscale(1); }
 .sblink-goalnone > .sblink-spin { flex: 0 0 auto; width: 16px; height: 16px; }
+
+/* 0.6.3: the opened list too — themes paint option rows (the chosen one dark on dark); keep every row
+   dark with light text and the chosen row in the voice colour, whatever the theme says */
+.sblink-holo { --sb-optbg: #0B1A2A; --sb-opttext: #E6F4FF; --sb-optsel: #06111E; }
+.sblink-holo.sblink-tn-star, .sblink-tn-star .sblink-holo { --sb-optbg: #15152B; --sb-opttext: #F1EEF8; --sb-optsel: #15110A; }
+.sblink-holo.sblink-tn-threat, .sblink-tn-threat .sblink-holo { --sb-optbg: #1C0F13; --sb-opttext: #F6E9EA; --sb-optsel: #1A0507; }
+.sblink-holo select.sblink-sel option, .sblink-holo select.sblink-sel optgroup {
+    background: var(--sb-optbg) !important; background-color: var(--sb-optbg) !important; background-image: none !important;
+    color: var(--sb-opttext) !important; -webkit-text-fill-color: var(--sb-opttext) !important;
+}
+.sblink-holo select.sblink-sel option:checked, .sblink-holo select.sblink-sel option:hover {
+    background: var(--sb-acc) !important; background-color: var(--sb-acc) !important;
+    box-shadow: inset 0 0 0 1000px var(--sb-acc) !important;
+    color: var(--sb-optsel) !important; -webkit-text-fill-color: var(--sb-optsel) !important; font-weight: 700;
+}
