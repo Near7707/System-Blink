@@ -5,7 +5,7 @@ import { t } from '../i18n.js';
 import { settings, room, currentChatId, save } from '../store.js';
 import {
     active, chatView, points, todays, questState, clearByHand, undoClear, lifeNow, setLife, nextDay, ownerName,
-    standingItems, dailyReady, stockDaily, restockStanding, buy, useItem, tutorialStep, skipTutorial, switchOn, rate, bus,
+    standingItems, dailyReady, stockDaily, restockStanding, RESTOCK_COST, buy, useItem, tutorialStep, skipTutorial, switchOn, rate, bus,
     goalNow, condsOf, suddenLeft, setGoal, editGoal, nextStage, isMakingStage, goalLocked, isGivingGoal, goalGiveFailed, giveGoal,
     diffOf, penaltyFor, debuffsNow, priceOf, penaltyQuests, toneOf, warnFor, warnCount, WARN_MAX,
     skillsOf, hiddenOpen, seeSkill, useSkill, openGacha, isDrawing, gradeRarity,
@@ -417,7 +417,7 @@ function shopTab(r) {
         </div>
         <b class="sblink-ptsmall">${pts}P</b>
       </div>
-      <div class="sblink-hint sblink-ell">${esc(side === 'daily' ? t('shop_next') : t('shop_standing_hint'))}</div>
+      <div class="sblink-hint sblink-ell">${esc(side === 'daily' ? t('shop_next') : t('shop_standing_hint', { n: RESTOCK_COST }))}</div>
       ${pricey ? `<div class="sblink-debuff"><span class="sblink-debuffchip">${esc(t('debuff_pricey'))}</span><span class="sblink-code sblink-neg">${esc(t('until_next_day'))}</span></div>` : ''}`;
     let detail = '';
     if (sel) {
@@ -433,7 +433,7 @@ function shopTab(r) {
     const grid = items.length ? `<div class="sblink-grid sblink-grid3">${cells}</div>` : status || `<div class="sblink-hint sblink-center">${esc(t('shop_empty'))}</div>`;
     const can = sel && !sel.sold && pts >= selPrice;
     let foot = '';
-    if (side === 'standing') foot += `<button type="button" class="sblink-btn" data-act="restock"${ui.restocking ? ' disabled' : ''}><span class="sblink-ell">${esc(ui.restocking ? t('stocking') : t('restock'))}</span></button>`;
+    if (side === 'standing') foot += `<button type="button" class="sblink-btn" data-act="restock"${ui.restocking || pts < RESTOCK_COST ? ' disabled' : ''}><span class="sblink-ell">${esc(ui.restocking ? t('stocking') : `${t('restock')} ${RESTOCK_COST}P`)}</span></button>`;
     foot += `<button type="button" class="sblink-btn sblink-btn-main" data-act="buy"${can ? '' : ' disabled'}><span class="sblink-ell">${esc(!sel ? t('buy') : sel.sold ? t('sold_out') : pts < selPrice ? t('not_enough') : `${t('buy')} ${selPrice}P`)}</span></button>`;
     return { body: top + grid + detail, foot };
 }
@@ -847,7 +847,11 @@ async function onClick(e) {
         }
         case 'restock':
             ui.restocking = true; render();
-            try { const ok = await restockStanding(); if (!ok) notice(t('make_failed'), 'warn'); } finally { ui.restocking = false; render(); }
+            try {
+                const ok = await restockStanding();
+                if (ok === 'short') notice(t('not_enough'), 'warn');
+                else if (!ok) notice(t('restock_failed'), 'warn');
+            } finally { ui.restocking = false; render(); }
             return;
         case 'use': {
             const r = room();

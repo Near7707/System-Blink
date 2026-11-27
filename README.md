@@ -6,7 +6,7 @@ A game-like **System** for SillyTavern roleplay, in the style of Korean system n
 In the middle of the story, a translucent System window pops up — *"[Daily quests have arrived]"* —
 you clear quests in the story, earn points, and spend them in your own **personal shop**.
 
-This version (0.6.5): the System window, the tutorial, daily quests, the shop, the bag and daily-life mode,
+This version (0.6.6): the System window, the tutorial, daily quests, the shop, the bag and daily-life mode,
 sudden quests, hidden quests, a main goal, quests with several conditions, **difficulty with penalties**,
 **skills and gacha**, **three System voices** with **spectators** who react and sponsor — and, if you like, **new quests shown in the story**.
 A **quest panel** keeps the quests in progress in sight while you chat (beside the chat on a PC, one line on top on a phone),
@@ -58,7 +58,7 @@ https://github.com/Near7707/System-Blink
   - Points never go below 0. A re-rolled reply that revives a sudden quest gives its points back.
     New quests follow the difficulty; quests you already have keep theirs. No difficulty during the tutorial.
 - **Shop**: the *Daily* shop (4–6 random, unusual things, restocked every day) and the *Standing* shop
-  (everyday items, plus an AI-made set with *[Restock]*). Prices by rarity: Common / Rare / Epic / Legendary.
+  (everyday items, plus an AI-made set with *[Restock]* — 10P, paid only when the new set comes). Prices by rarity: Common / Rare / Epic / Legendary.
 - **Bag**: *[Use]* an item and the AI hears about it in your next message's reply (and its re-rolls).
 - **Skills**: grades F → S, and **SS** above S (very rare). *Passive* skills are always on — the AI knows them in every
   reply and lets them show when they fit. *Active* skills are used with *[Use]* (no cooldown, no mana); the AI hears about it

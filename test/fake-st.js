@@ -114,6 +114,7 @@
         }
         if (/personal shop/.test(sys)) {
             window.__calls.shop++;
+            if (window.__shopFail) return 'nope';
             const n = Number(/Make exactly (\d+)/.exec(user)?.[1] || 4);
             const pool = ko
                 ? [['호감 머리핀', '첫인상이 조금 좋아진다.', 'rare', 150, 'hairpin'], ['위로의 단팥빵', '나쁜 기분이 조금 풀린다.', 'common', 30, 'bread'], ['여유의 모래시계', '순간이 느려진다.', 'epic', 350, 'hourglass'], ['주머니 비구름', '나한테만 비가 온다.', 'rare', 140, 'cloud'], ['황금 만년필', '오늘 쓴 글은 기억된다.', 'legendary', 900, 'pen'], ['짝 맞는 양말', '다시는 짝을 안 잃는다.', 'common', 20, 'socks']]

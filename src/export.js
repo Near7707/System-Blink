@@ -58,7 +58,7 @@ export function systemEvents(r = room(), view = chatView()) {
         if (k.hidden?.key) add(k.hidden.key, { type: 'unlock', skill: k.name, effect: k.hidden.effect, evidence: k.hidden.reason || '', at: k.hidden.at || 0 });
     }
     for (const d of r.draws || []) if (d.kind === 'item') loose.push({ type: 'draw', item: d.name, rarity: d.grade, at: d.at });
-    for (const p of r.spend) loose.push({ type: 'buy', item: p.what, pts: p.pts, at: p.at });
+    for (const p of r.spend) loose.push(p.kind === 'restock' ? { type: 'restock', pts: p.pts, at: p.at } : { type: 'buy', item: p.what, pts: p.pts, at: p.at });
     // 2-D: spectators, warnings
     for (const c of r.cheers || []) add(c.key, { type: 'cheer', name: c.name, text: c.text, pts: c.pts || 0, gift: c.gift || '', star: c.tone === 'star', at: c.at });
     for (const b of r.bigs || []) loose.push({ type: 'big', day: b.day, at: b.at });
@@ -90,6 +90,7 @@ function line(ev) {
         case 'draw': return `${t('log_draw')}: ${ev.item} (${t(`rarity_${ev.rarity}`)})`;
         case 'unlock': return `${t('log_unlock')}: [${ev.skill}] ${ev.effect}${ev.evidence ? ` · ${t('evidence')} "${ev.evidence}"` : ''}`;
         case 'buy': return `${t('bought', { name: ev.item })} −${ev.pts}P`;
+        case 'restock': return `${t('restocked')} −${ev.pts}P`;
         case 'tutorial': return `${t('pop_tut_done')} +${ev.pts}P`;
         default: return '';
     }

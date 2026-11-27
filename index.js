@@ -180,6 +180,7 @@ function askWake(chatId) {
 // ---------- 0.6.5: "first time here?" — a short settings guide, once, before the first wake's popups ----------
 const GUIDE = [
     { title: 'guide_1', body: 'guide_1_body', group: 'system', tones: true },
+    { title: 'guide_world', body: 'guide_world_body', group: 'room' },
     { title: 'guide_2', body: 'guide_2_body', group: 'spectators' },
     { title: 'guide_3', body: 'guide_3_body', group: 'button' },
     { title: 'guide_4', body: 'guide_4_body', group: 'make' },
@@ -394,7 +395,27 @@ function watchScreen() {
     // SillyTavern redraws messages (swipe, edit, load more): put the cards back
     const chatEl = document.getElementById('chat');
     if (chatEl && 'MutationObserver' in window) {
-        new MutationObserver(() => { if (settings().enabled && settings().logCards) renderCardsSoon(); }).observe(chatEl, { childList: true });
+        // 0.6.6: translation extensions put the translated text over a message's text (with or without
+        // SillyTavern's redraw), which wipes the drawn quest lines. So the text inside messages is watched
+        // too: a message whose text still holds a plain [SYS:QUEST] line gets drawn again. Our own changes
+        // leave no plain line behind, so they do not set this off again. Waits a little so a reply that is
+        // still coming in is drawn once, at the end.
+        let textTimer = 0;
+        new MutationObserver((list) => {
+            const s = settings();
+            if (!s.enabled) return;
+            let msgs = false, lines = false;
+            for (const m of list) {
+                if (m.target === chatEl) { msgs = true; continue; }
+                if (lines) continue;
+                const el = m.target.nodeType === 1 ? m.target : m.target.parentElement;
+                if (!el || el.closest('.sblink-qblock, .sblink-card')) continue;
+                const mt = el.closest('.mes_text');
+                if (mt && mt.textContent.includes('[SYS:QUEST]')) lines = true;
+            }
+            if (msgs && s.logCards) renderCardsSoon();
+            if (lines) { clearTimeout(textTimer); textTimer = setTimeout(renderCards, 300); }
+        }).observe(chatEl, { childList: true, subtree: true, characterData: true });
     }
 }
 

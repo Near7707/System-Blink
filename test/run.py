@@ -110,6 +110,8 @@ def main():
             fixes063(browser)
             v065(browser, 'ko')
             v065(browser, 'en')
+            v066(browser, 'ko')
+            v066(browser, 'en')
             browser.close()
     finally:
         srv.terminate()
@@ -146,7 +148,7 @@ def flow(browser, lang):
     check(points(page) == 10, f'AI clear gives points ({points(page)})')
     check(ev(page, "!!document.querySelector('.mes[mesid=\"2\"] .sblink-card')"), 'log card under the AI reply')
     check(ev(page, "document.querySelectorAll('.sblink-card').length") == 1, 'only one card')
-    check('Buy someone a drink' not in ev(page, 'window.__fakeST.livePrompt') and 'Take a walk' in ev(page, 'window.__fakeST.livePrompt') if lang == 'en' else True, 'cleared quest leaves the AI lines')
+    check('Water the plants' not in ev(page, 'window.__fakeST.livePrompt') and 'Take a walk' in ev(page, 'window.__fakeST.livePrompt') if lang == 'en' else True, 'cleared quest leaves the AI lines')
     shot(page, L('06_card'))
     ev(page, "window.__checkAnswer = 'Q1: NO\\nQ2: NO\\nQ3: NO\\nTIME: -\\nWEATHER: -\\nPLACE: -\\nDATE: -\\nDAYS: 0\\nNEXT: -'")
     ev(page, 'window.__fakeST.swipe()')
@@ -1550,9 +1552,19 @@ def v065(browser, lang):
     shot(page, f'{lang}_065_03_gear')
     page.click('#sblink-win [data-act="close"]'); page.wait_for_timeout(900)
     check(('말투와 난이도' if ko else 'Voice and difficulty') in txt(), 'closing the window brings card 1 back')
+    # 0.6.6: card 2 = the world note, "you don't have to write anything"; opens the "this chat" part
+    page.click('#sblink-pop [data-pop="ok"]'); page.wait_for_timeout(900)
+    check(('세계관 지시' if ko else 'World note') in txt() and ('꼭 적지 않아도' if ko else "don't have to") in txt(), f'card 2: world note, optional ({txt()[:60]})')
+    check(('02 / 05') in txt(), 'five cards now')
+    shot(page, f'{lang}_066_world_card')
+    page.click('#sblink-pop [data-pop="link"]'); page.wait_for_timeout(500)
+    top = ev(page, "(() => { const b = document.querySelector('#sblink-win .sblink-body'); const g = b.querySelector('[data-group=\"room\"]'); return Math.round(g.getBoundingClientRect().top - b.getBoundingClientRect().top); })()")
+    check(abs(top) < 30, f'"open this setting" → this chat part ({top})')
+    page.click('#sblink-win [data-act="close"]'); page.wait_for_timeout(900)
+    check(('세계관 지시' if ko else 'World note') in txt(), 'closing brings card 2 back')
     for i in range(3):
         page.click('#sblink-pop [data-pop="ok"]'); page.wait_for_timeout(900)
-    check(('AI 호출' if ko else 'AI calls') in txt(), 'card 4')
+    check(('AI 호출' if ko else 'AI calls') in txt(), 'card 5 (last)')
     check(not ev(page, "!!document.querySelector('#sblink-pop [data-pop=\"second\"]')"), 'last card: no [Stop here]')
     page.click('#sblink-pop [data-pop="ok"]'); page.wait_for_timeout(900)
     check(ev(page, "!!document.querySelector('#sblink-pop .sblink-hexspin')"), 'then the awakening popup')
@@ -1672,6 +1684,88 @@ def v065(browser, lang):
     check(dv and dv.get('side') == 'left', f'let go by the column: sticks to it again ({dv})')
     page.click('#sblink-qpanel [data-qp-act="off"]'); page.wait_for_timeout(200)
     check(ev(page, f"{S}.questPanel") is False and ev(page, "document.getElementById('sblink-qpanel').hidden"), '✕ turns the panel off')
+    check(not errors, f'no errors ({errors[:3]})')
+    page.close()
+
+
+def v066(browser, lang):
+    """0.6.6: standing shop restock costs 10P and keeps the shelf when the AI fails; quest lines drawn again after a translation extension writes over the text."""
+    print(f'--- 0.6.6 restock / translated quest lines ({lang})')
+    ko = lang == 'ko'
+    page, errors = open_page(browser, f'fresh&lang={lang}')
+    page.click('#sblink-fab')
+    page.click('[data-act="roomOn"]'); page.wait_for_timeout(500)
+    page.click('#sblink-pop [data-pop="second"]'); page.wait_for_timeout(500)
+    close_pops(page)
+    if not ev(page, "!!document.getElementById('sblink-win')"):
+        page.click('#sblink-fab'); page.wait_for_timeout(300)
+    # --- restock
+    ev(page, room_js("(r.ledger.push({ id: 'seed', questId: 'x', pts: 15, key: null, reason: '', at: 1 }), 0)"))
+    page.click('#sblink-win [data-tab="shop"]'); page.wait_for_timeout(300)
+    page.click('#sblink-win [data-side="standing"]'); page.wait_for_timeout(300)
+    btn = "document.querySelector('#sblink-win [data-act=\"restock\"]')"
+    check('10P' in ev(page, f"{btn}.textContent"), f'button shows the cost ({ev(page, f"{btn}.textContent")})')
+    check('10P' in ev(page, "document.querySelector('#sblink-win .sblink-body').textContent"), 'hint shows the cost')
+    p0 = epoints(page)
+    calls0 = ev(page, 'window.__calls.shop')
+    page.click('#sblink-win [data-act="restock"]'); page.wait_for_timeout(900)
+    got = ev(page, room_js("r.shop.standing.map(x => x.name)"))
+    check(len(got) == 4, f'new set on the shelf ({len(got)})')
+    check(epoints(page) == p0 - 10, f'10P paid ({p0} → {epoints(page)})')
+    shot(page, f'{lang}_066_restock')
+    # AI fails: the shelf stays, no points used
+    ev(page, room_js("(r.ledger.push({ id: 'seed2', questId: 'x', pts: 50, key: null, reason: '', at: 2 }), 0)"))
+    ev(page, 'window.__shopFail = true')
+    page.click('#sblink-win [data-side="daily"]'); page.click('#sblink-win [data-side="standing"]'); page.wait_for_timeout(300)
+    p1 = epoints(page)
+    page.click('#sblink-win [data-act="restock"]'); page.wait_for_timeout(900)
+    check(ev(page, room_js("r.shop.standing.map(x => x.name)")) == got, 'AI failed: old set stays')
+    check(epoints(page) == p1, 'AI failed: no points used')
+    ev(page, 'window.__shopFail = false')
+    # not enough points: button off, no AI call
+    ev(page, room_js("(r.spend.push({ id: 'drain', what: 'x', pts: " + str(p1 - 5) + ", at: 3 }), 0)"))
+    page.click('#sblink-win [data-tab="status"]'); page.click('#sblink-win [data-tab="shop"]'); page.wait_for_timeout(300)
+    if not ev(page, f"!!{btn}"):
+        page.click('#sblink-win [data-side="standing"]'); page.wait_for_timeout(300)
+    check(ev(page, f"{btn}.disabled"), f'5P: restock button off ({epoints(page)}P)')
+    c1 = ev(page, 'window.__calls.shop')
+    ev(page, "(async () => (await import('/src/engine.js')).restockStanding())()")
+    page.wait_for_timeout(200)
+    check(ev(page, 'window.__calls.shop') == c1, 'short: AI not called')
+    log = ev(page, "(async () => (await import('/src/export.js')).buildLog('txt'))()")
+    check(('상시 상점 새로 진열 −10P' if ko else 'Standing shop restocked −10P') in log, 'export has the restock line')
+    page.click('#sblink-win [data-act="close"]'); page.wait_for_timeout(200)
+
+    # --- translated quest lines
+    reply = '<p>The light came in.<br>[SYS:QUEST] DAILY · Water the plants<br>[SYS:QUEST] DAILY · Call an old friend<br>"So early?"</p>'
+    turn(page, 'look', reply)
+    last = "document.querySelector('#chat .mes:last-child')"
+    check(ev(page, f"{last}.querySelectorAll('.sblink-qblock').length") == 1, 'drawn before translation')
+    tr = '<p>빛이 들어왔다.<br>[SYS:QUEST] DAILY · 화분에 물 주기<br>[SYS:QUEST] DAILY · 오랜 친구에게 전화하기<br>"벌써?"</p>'
+    # a translator that only swaps the text (like one that writes .mes_text itself)
+    ev(page, f"{last}.querySelector('.mes_text').innerHTML = {tr!r}")
+    page.wait_for_timeout(700)
+    check(ev(page, f"{last}.querySelectorAll('.sblink-qblock').length") == 1, 'translated text: drawn again')
+    check('[SYS:QUEST]' not in ev(page, f"{last}.querySelector('.mes_text').innerText") and '벌써' in ev(page, f"{last}.querySelector('.mes_text').innerText"), 'translated: plain lines hidden, story kept')
+    check(ev(page, f"{last}.querySelectorAll('.sblink-qbrow').length") == 2, 'translated: both rows')
+    shot(page, f'{lang}_066_translated')
+    # a translator that redraws through SillyTavern, with its own watcher adding a button (like one that watches #chat)
+    ev(page, """(() => {
+        window.__otherRuns = 0;
+        new MutationObserver(() => { window.__otherRuns++; document.querySelectorAll('#chat .mes').forEach(m => { const t = m.querySelector('.mes_text'); if (t && !t.querySelector('.other-btns')) { const d = document.createElement('div'); d.className = 'other-btns'; d.textContent = '*'; t.prepend(d); } }); })
+            .observe(document.getElementById('chat'), { childList: true, subtree: true });
+    })()""")
+    orig = reply
+    ev(page, f"{last}.querySelector('.mes_text').innerHTML = {orig!r}")  # back to the original
+    page.wait_for_timeout(1200)
+    check(ev(page, f"{last}.querySelectorAll('.sblink-qblock').length") == 1, 'back to original: drawn again')
+    runs = ev(page, 'window.__otherRuns'); page.wait_for_timeout(1200)
+    check(ev(page, 'window.__otherRuns') == runs, f'no back-and-forth with another watcher ({runs})')
+    # a reply still coming in: drawn once at the end
+    ev(page, f"""(() => {{ const t = {last}.querySelector('.mes_text'); let i = 0; const words = {tr!r}.split(' ');
+        const tick = setInterval(() => {{ t.innerHTML = words.slice(0, ++i).join(' '); if (i >= words.length) clearInterval(tick); }}, 60); }})()""")
+    page.wait_for_timeout(2200)
+    check(ev(page, f"{last}.querySelectorAll('.sblink-qblock').length") == 1, 'streamed text: drawn at the end')
     check(not errors, f'no errors ({errors[:3]})')
     page.close()
 

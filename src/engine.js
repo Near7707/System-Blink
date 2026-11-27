@@ -706,16 +706,24 @@ export async function stockDaily(chatId = currentChatId(), force = false) {
     save(); changed();
 }
 
+/** 0.6.6: a new AI set for the standing shop costs a few points (paid only when it comes). */
+export const RESTOCK_COST = 10;
+
+/** Returns true (restocked), 'short' (not enough points, nothing asked) or false (the AI failed: the old set stays). */
 export async function restockStanding(chatId = currentChatId()) {
     const r = room(chatId);
-    if (!active(r)) return;
+    if (!active(r)) return false;
+    if (points(r) < RESTOCK_COST) return 'short';
     let made = null;
     try { made = await bus.ask('shop', { count: 4, kind: 'standing' }); } catch (e) { console.warn('[System Blink] shop', e); }
     const rr = room(chatId);
-    if (!rr) return;
-    rr.shop.standing = (Array.isArray(made) ? made : []).slice(0, 6).map(x => ({ ...cleanItem(x), id: uid('s') }));
+    if (!rr) return false;
+    const list = (Array.isArray(made) ? made : []).slice(0, 6);
+    if (!list.length) return false; // keep what is on the shelf
+    rr.shop.standing = list.map(x => ({ ...cleanItem(x), id: uid('s') }));
+    rr.spend.push({ id: uid('p'), what: '', kind: 'restock', pts: RESTOCK_COST, at: Date.now() });
     save(); changed();
-    return Array.isArray(made) && made.length > 0;
+    return true;
 }
 
 function fallbackDaily() {
