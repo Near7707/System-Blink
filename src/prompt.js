@@ -66,7 +66,7 @@ export function buildPrompt(genType = 'normal') {
         lines.push(`- ${who}'s System skills (always on): ${passive.map(k => `[${k.name} (${k.grade})] ${k.effect}${hiddenOpen(k, view) ? ` Hidden effect, now open: ${k.hidden.effect}` : ''}`).join(' / ')}`);
         lines.push('- Let these skills show now and then when they fit; do not force them.');
     }
-    if (r.lifeMode && s.lifeToAI) {
+    if (r.lifeToAI !== false) {
         const l = lifeNow(r, view);
         const bits = [l.date && `date ${l.date}`, `day ${r.day}`, l.time && `time ${l.time}`, l.weather && `weather ${l.weather}`, l.place && `place ${l.place}`, l.plan && `plan for today: ${l.plan}`].filter(Boolean);
         lines.push(`- Now: ${bits.join(', ')}.`);

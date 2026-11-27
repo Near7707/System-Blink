@@ -3,7 +3,7 @@
 
 export const MODULE = 'systemBlink';
 export const FORMAT = 2;
-export const VERSION = '0.6.8';
+export const VERSION = '0.6.9';
 export const TONES = ['game', 'star', 'threat'];
 export const DIFFS = ['off', 'easy', 'normal', 'hard', 'hell'];
 
@@ -67,7 +67,7 @@ const ONE_OF = {
  * 0.6.8: settings a chat can keep for itself ("this chat only" switch). Kept in the chat's `own`
  * (null = follows the shared settings), so branching, backups and deleting a chat take it along.
  */
-export const ROOM_KEYS = Object.freeze(['pointRate', 'dayBasis', 'judgeEvery', 'visibility', 'lifeToAI', 'questChance',
+export const ROOM_KEYS = Object.freeze(['pointRate', 'dayBasis', 'judgeEvery', 'visibility', 'questChance',
     'suddenFreq', 'suddenRest', 'hiddenOn', 'storyQuest', 'goalAuto', 'specOn', 'specMode', 'specGift',
     'useDefaults', 'oddities', 'profileId']);
 
@@ -141,6 +141,9 @@ export function migrate(s) {
     for (const k of ['chats', 'branchDone', 'autoWake']) if (!s[k] || typeof s[k] !== 'object' || Array.isArray(s[k])) s[k] = {};
     if (typeof s.customShop !== 'string') s.customShop = '';
     if (typeof s.profileId !== 'string') s.profileId = '';
+    // 0.6.9: "tell the AI the daily-life fields" became each chat's own: chats keep the shared value they had
+    const toAI = s.lifeToAI !== false;
+    for (const r of Object.values(s.chats)) if (r && typeof r === 'object' && typeof r.lifeToAI !== 'boolean') r.lifeToAI = r.own && typeof r.own.lifeToAI === 'boolean' ? r.own.lifeToAI : toAI;
     for (const id of Object.keys(s.chats)) s.chats[id] = fixRoom(s.chats[id]);
     return s;
 }
@@ -149,7 +152,8 @@ export function newRoom() {
     return {
         on: false,              // the system is switched on in this chat
         own: null,              // 0.6.8: this chat's own settings ("this chat only"), null = follows the shared ones
-        lifeMode: true,         // daily-life mode
+        lifeMode: true,         // daily-life mode (always on since 0.6.9)
+        lifeToAI: true,         // 0.6.9: tell the story AI the daily-life fields (each chat its own; off where an info block does it)
         difficulty: 'off',      // off | easy | normal | hard | hell (stage 2-B; each chat its own)
         tone: 'game',           // the System's voice in this chat: game | star (sponsors) | threat (2-D)
         name: '',               // '' = the persona's name
@@ -210,6 +214,7 @@ function fixRoom(r) {
     for (const q of r.quests) if (!['daily', 'sudden', 'hidden', 'goal', 'penalty'].includes(q.kind)) q.kind = 'daily';
     if (!DIFFS.includes(r.difficulty)) r.difficulty = 'off';
     if (!TONES.includes(r.tone)) r.tone = 'game';
+    r.lifeMode = true;   // 0.6.9: always on
     if (r.own !== null && (typeof r.own !== 'object' || Array.isArray(r.own))) r.own = null;
     if (r.own) fixOwn(r.own);
     r.skills = r.skills.filter(x => x && typeof x === 'object' && x.id && x.name);
@@ -226,7 +231,7 @@ function fixOwn(o) {
     if ('suddenRest' in o && ![3, 5, 10].includes(Number(o.suddenRest))) delete o.suddenRest;
     for (const k of ['pointRate', 'suddenRest']) if (k in o) o[k] = Number(o[k]);
     if ('profileId' in o && typeof o.profileId !== 'string') delete o.profileId;
-    for (const k of ['lifeToAI', 'hiddenOn', 'storyQuest', 'goalAuto', 'specOn', 'specGift', 'useDefaults', 'oddities']) if (k in o && typeof o[k] !== 'boolean') delete o[k];
+    for (const k of ['hiddenOn', 'storyQuest', 'goalAuto', 'specOn', 'specGift', 'useDefaults', 'oddities']) if (k in o && typeof o[k] !== 'boolean') delete o[k];
 }
 
 let saveFailedOnce = false;

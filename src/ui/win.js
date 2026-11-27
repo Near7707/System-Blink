@@ -314,10 +314,12 @@ function skillsBlock(r, view) {
         const chip = (k, n) => `<button type="button" class="sblink-chip${f === k ? ' sblink-chip-on' : ''}" data-sfilter="${k}"><span class="sblink-ell">${esc(t(`skill_f_${k}`))} ${n}</span></button>`;
         html += `<div class="sblink-chips sblink-skillchips">${chip('all', all.length)}${chip('passive', all.length - nA)}${chip('active', nA)}</div>`;
     }
-    const tiles = list.map(k => skillTile(k, { on: k.id === ui.selSkill, locked: !!k.hidden && !hiddenOpen(k, view) }));
-    tiles.push(blankTile());
-    html += honeycomb(tiles);
-    if (!all.length) html += `<div class="sblink-hint sblink-center">${esc(t('skill_none'))}</div>`;
+    // 0.6.9: no skills yet = the hint alone, centred (no empty hexagon)
+    if (all.length) {
+        const tiles = list.map(k => skillTile(k, { on: k.id === ui.selSkill, locked: !!k.hidden && !hiddenOpen(k, view) }));
+        tiles.push(blankTile());
+        html += honeycomb(tiles);
+    } else html += `<div class="sblink-hint sblink-center sblink-skillnone">${esc(t('skill_none'))}</div>`;
     const sel = list.find(k => k.id === ui.selSkill);
     if (sel) {
         const open = hiddenOpen(sel, view);

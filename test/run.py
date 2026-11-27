@@ -116,6 +116,8 @@ def main():
             v067(browser, 'en')
             v068(browser, 'ko')
             v068(browser, 'en')
+            v069(browser, 'ko')
+            v069(browser, 'en')
             browser.close()
     finally:
         srv.terminate()
@@ -752,7 +754,7 @@ def skills2(browser, lang):
     page.click('[data-act="roomOn"]'); page.wait_for_timeout(500)
     page.click('#sblink-pop [data-pop="second"]'); page.wait_for_timeout(500)
     close_pops(page)
-    check(ev(page, "!!document.querySelector('.sblink-comb .sblink-hex-blank')"), 'empty skill grid shows the blank tile')
+    check(not ev(page, "!!document.querySelector('.sblink-comb')") and ev(page, "!!document.querySelector('#sblink-win .sblink-skillnone')"), 'no skills: the hint alone (0.6.9)')
     check(ev(page, room_js('Array.isArray(r.skills)')), 'rooms have a skill list')
     ev(page, room_js("(r.bag.push({ id: 'tk', name: 'Gacha Ticket', desc: 'One draw. (Opens in stage 2.)', rarity: 'rare', icon: 'ticket', kind: 'gacha', count: 5 }), r.ledger.push({ id: 'seed', questId: 'x', pts: 3000, key: null, reason: '', at: 1 }))"))
 
@@ -1041,12 +1043,12 @@ def fixes053(browser):
     close_pops(page, 8)
     z = ev(page, "[getComputedStyle(document.getElementById('sblink-shade')).zIndex, getComputedStyle(document.getElementById('sblink-win')).zIndex].map(Number)")
     check(z[0] > 3005 and z[1] > 3005 and z[1] < 4000, f'window above the SillyTavern menus ({z})')
-    # the world note sits in "this chat", right under daily-life mode
+    # the world note sits in "this chat", right under telling the AI the daily-life fields (0.6.9; "this chat only" is above everything)
     page.click('[data-act="gear"]'); page.wait_for_timeout(200)
-    order = ev(page, "[...document.querySelectorAll('#sblink-win [data-set], #sblink-win [data-text]')].map(e => e.dataset.set || e.dataset.text).slice(0, 4)")
-    check('world' in order and order.index('world') == order.index('lifeMode') + 1, f'world note right under daily-life mode {order}')
-    pw = ev(page, "[...document.querySelectorAll('#sblink_settings [data-pset]')].map(e => e.dataset.pset).filter(k => k !== 'autoWake').slice(0, 3)")
-    check(pw == ['roomOn', 'lifeMode', 'world'], f'the panel too {pw}')
+    order = ev(page, "[...document.querySelectorAll('#sblink-win [data-set], #sblink-win [data-text]')].map(e => e.dataset.set || e.dataset.text).slice(0, 5)")
+    check(order[0] == 'roomOwn' and 'world' in order and order.index('world') == order.index('lifeToAI') + 1, f'world note right under telling the AI the daily-life fields {order}')
+    pw = ev(page, "[...document.querySelectorAll('#sblink_settings [data-pset]')].map(e => e.dataset.pset).filter(k => k !== 'autoWake').slice(0, 4)")
+    check(pw == ['roomOwn', 'roomOn', 'lifeToAI', 'world'], f'the panel too {pw}')
     # a theme that paints every select white
     ev(page, "(() => { const st = document.createElement('style'); st.textContent = 'select { background-color: #fff !important; color: #ccc; }'; document.head.appendChild(st); })()")
     check(ev(page, "!!document.querySelector('[data-fold=\"data\"] .sblink-foldsub') && document.querySelector('[data-fold=\"data\"] .sblink-foldmark').textContent.includes('펼치기')"), 'folded bar: what is inside + open chip')
@@ -1900,6 +1902,47 @@ def v068(browser, lang):
     check(ev(page, "(async () => (await import('/src/engine.js')).rate(10))()") == 5, 'back to the shared rate')
     check(not ev(page, "!!document.querySelector('#sblink-win .sblink-scopetabs')"), 'off: tabs gone')
     check(ev(page, "!!document.querySelector('#sblink-win [data-group=\"screen\"]')"), 'off: one page again')
+    check(not errors, f'no errors ({errors[:3]})')
+    page.close()
+
+
+def v069(browser, lang):
+    """0.6.9: "this chat only" on top, smaller tabs, daily-life always on with telling the AI per chat, skills hint alone."""
+    print(f'--- 0.6.9 settings top / daily life ({lang})')
+    page, errors = open_page(browser, f'fresh&lang={lang}')
+    page.click('#sblink-fab')
+    page.click('[data-act="roomOn"]'); page.wait_for_timeout(500)
+    page.click('#sblink-pop [data-pop="second"]'); page.wait_for_timeout(500)
+    close_pops(page)
+    if not ev(page, "!!document.getElementById('sblink-win')"):
+        page.click('#sblink-fab'); page.wait_for_timeout(300)
+    page.click('#sblink-win [data-tab="status"]'); page.wait_for_timeout(200)
+    c = ev(page, "(() => { const e = document.querySelector('#sblink-win .sblink-skillnone'); const r = e.getBoundingClientRect(); const b = e.parentElement.getBoundingClientRect(); return { ta: getComputedStyle(e).textAlign, hex: !!document.querySelector('#sblink-win .sblink-comb') }; })()")
+    check(c['ta'] == 'center' and not c['hex'], f'no skills: hint alone, centred ({c})')
+    check(ev(page, room_js("r.lifeMode")) is True and ev(page, room_js("r.lifeToAI")) is True, 'daily life on, telling the AI on')
+    page.click('#sblink-win [data-act="gear"]'); page.wait_for_timeout(200)
+    first = ev(page, "document.querySelector('#sblink-win .sblink-body [data-set], #sblink-win .sblink-body [data-run]').dataset.set")
+    check(first == 'roomOwn', f'"this chat only" first ({first})')
+    check(not ev(page, "!!document.querySelector('#sblink-win [data-set=\"lifeMode\"]')"), 'no daily-life on/off row')
+    # telling the AI: this chat only
+    P = "(async () => (await import('/src/prompt.js')).buildPrompt().text)()"
+    check('- Now: ' in ev(page, P), 'on: the reply prompt has the daily-life line')
+    page.click('#sblink-win [data-set="lifeToAI"]'); page.wait_for_timeout(200)
+    check(ev(page, room_js("r.lifeToAI")) is False and ev(page, "SillyTavern.getContext().extensionSettings.systemBlink.lifeToAI") is True, 'off in this chat only')
+    check('- Now: ' not in ev(page, P), 'off: no daily-life line')
+    check(ev(page, room_js("r.lifeMode")) is True, 'daily-life fields still kept')
+    # tabs are smaller (chip height)
+    page.click('#sblink-win [data-set="roomOwn"]'); page.wait_for_timeout(300)
+    h = ev(page, "document.querySelector('#sblink-win .sblink-scopetab').getBoundingClientRect().height")
+    chip = ev(page, "document.querySelector('#sblink-win .sblink-chip').getBoundingClientRect().height")
+    check(abs(h - chip) <= 1, f'tabs as tall as the chips ({h} / {chip})')
+    first = ev(page, "[...document.querySelectorAll('#sblink-win .sblink-body [data-set]')].filter(e => !e.closest('.sblink-scopetabs'))[0].dataset.set")
+    check(first == 'roomOwn', f'with tabs: the switch right under them ({first})')
+    shot(page, f'{lang}_069_gear')
+    # update from 0.6.8: a chat takes the shared value it had; daily-life mode switched back on
+    got = ev(page, """(async () => { const st = await import('/src/store.js'); const s = st.settings(); const r = s.chats[SillyTavern.getContext().getCurrentChatId()];
+        delete r.lifeToAI; r.lifeMode = false; s.lifeToAI = false; st.migrate(s); return [r.lifeToAI, r.lifeMode]; })()""")
+    check(got == [False, True], f'update: chats keep the shared value, daily life on ({got})')
     check(not errors, f'no errors ({errors[:3]})')
     page.close()
 

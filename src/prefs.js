@@ -17,9 +17,8 @@ export const SCHEMA = [
     { group: 'room', rows: [
         { k: 'roomOn', kind: 'toggle', scope: 'room' },
         { k: 'autoWake', kind: 'toggle', scope: 'room', when: () => !!charKey() },
-        { k: 'lifeMode', kind: 'toggle', scope: 'room' },
+        { k: 'lifeToAI', kind: 'toggle', scope: 'room' },   // 0.6.9: each chat its own (daily-life mode is always on)
         { k: 'world', kind: 'text', scope: 'room' },
-        { k: 'roomOwn', kind: 'toggle', scope: 'room' },   // 0.6.8: this chat keeps its own settings
     ] },
     { group: 'system', rows: [
         { k: 'tone', kind: 'choice', opts: ['game', 'star', 'threat'], scope: 'room', dots: true },
@@ -29,7 +28,6 @@ export const SCHEMA = [
         { k: 'judgeEvery', kind: 'choice', opts: ['every', 'three', 'manual'] },
         { k: 'tutorialAuto', kind: 'toggle', common: true },
         { k: 'visibility', kind: 'choice', opts: ['me', 'all'] },
-        { k: 'lifeToAI', kind: 'toggle' },
         { k: 'questChance', kind: 'choice', opts: ['off', 'some', 'more'] },
     ] },
     { group: 'quests', rows: [
@@ -78,7 +76,9 @@ export const SCHEMA = [
     ] },
 ];
 
-export const ROWS = Object.fromEntries(SCHEMA.flatMap(g => g.rows).map(r => [r.k, r]));
+// 0.6.9: "this chat only" sits at the very top of the settings, outside the groups
+const OWN_ROW = { k: 'roomOwn', kind: 'toggle', scope: 'room' };
+export const ROWS = Object.fromEntries([...SCHEMA.flatMap(g => g.rows), OWN_ROW].map(r => [r.k, r]));
 
 // ---------- 0.6.8 "this chat only": a [This chat] [Shared] tab in the ⚙ page and in the extension panel ----------
 // The tab only shows in a chat that keeps its own settings. [This chat] holds what a chat can keep for itself;
@@ -113,7 +113,7 @@ export function getValue(k, where = 'gear') {
         case 'roomOn': return !!r?.on;
         case 'roomOwn': return !!r?.own;
         case 'autoWake': { const ck = charKey(); return !!ck && s.autoWake[ck] === true; }
-        case 'lifeMode': return r ? !!r.lifeMode : true;
+        case 'lifeToAI': return r ? r.lifeToAI !== false : true;
         case 'world': return r?.world || '';
         case 'difficulty': return r?.difficulty || 'off';
         case 'tone': return r?.tone || 'game';
@@ -127,7 +127,7 @@ export function getValue(k, where = 'gear') {
 
 const isDisabled = (row, where = 'gear') => {
     if (row.scope === 'room' && !currentChatId()) return true;
-    if (['lifeMode', 'world', 'difficulty', 'tone', 'roomOwn'].includes(row.k)) return !room()?.on;
+    if (['lifeToAI', 'world', 'difficulty', 'tone', 'roomOwn'].includes(row.k)) return !room()?.on;
     if (row.needs) { const n = getValue(row.needs, where); if (!n || n === 'off') return true; }
     return false;
 };
@@ -141,7 +141,7 @@ export async function setValue(k, v, where = 'gear') {
         const id = currentChatId();
         if (k === 'pointRate' || k === 'suddenRest') v = Number(v);
         if (k === 'storyQuest' && v && !conf().storyQuest) skipOldTold(id);
-        setRoomSetting(id, k, ['lifeToAI', 'hiddenOn', 'storyQuest', 'goalAuto', 'specOn', 'specGift', 'useDefaults', 'oddities'].includes(k) ? !!v : v);
+        setRoomSetting(id, k, ['hiddenOn', 'storyQuest', 'goalAuto', 'specOn', 'specGift', 'useDefaults', 'oddities'].includes(k) ? !!v : v);
         if (k === 'goalAuto' && v) giveGoal();
         bus.emit('change');
         hooks.redrawAll();
@@ -171,7 +171,7 @@ export async function setValue(k, v, where = 'gear') {
             break;
         case 'autoWake': { const ck = charKey(); if (ck) { s.autoWake[ck] = !!v; save(); } break; }
         case 'goalAuto': s.goalAuto = !!v; save(); if (v) giveGoal(); break;
-        case 'lifeMode': { const r = room(); if (r) { r.lifeMode = !!v; save(); } break; }
+        case 'lifeToAI': { const r = room(); if (r) { r.lifeToAI = !!v; save(); } break; }
         case 'difficulty': { const r = room(); if (r && ['off', 'easy', 'normal', 'hard', 'hell'].includes(v)) { r.difficulty = v; save(); } break; }
         case 'tone': { const r = room(); if (r && TONES.includes(v)) { r.tone = v; save(); } break; }
         case 'world': { const r = room(currentChatId(), true); if (r) { r.world = String(v || '').slice(0, 2000); save(); } break; }
@@ -286,6 +286,7 @@ export function gearHtml() {
     }
     // 0.6.5: the first-time guide, again
     out.unshift(`<div class="sblink-row"><button type="button" class="sblink-btn sblink-btn-wide sblink-guidebtn" data-run="guideAgain"><span class="sblink-dia">◆</span><span class="sblink-ell">${esc(t('guide_again'))}</span><span class="sblink-guidego">›</span></button></div>`);
+    if (currentChatId()) out.unshift(`<div class="sblink-ownrow">${gearRow(OWN_ROW)}</div>`);
     if (!s.enabled) out.unshift(`<div class="sblink-note">${esc(t('off_where'))}</div>`);
     if (ownOn()) {
         const tab = scopeNow.gear;
@@ -341,6 +342,7 @@ export function panelHtml() {
     // a new chat starts on its [This chat] tab
     const chatNow = currentChatId();
     if (chatNow !== panelChat) { panelChat = chatNow; scopeNow.panel = 'room'; }
+    if (chatNow) out.push(panelRow(OWN_ROW));
     if (ownOn()) {
         const tab = scopeNow.panel;
         out.push(`<div class="sblink-pbtns sblink-pscope">${['room', 'common'].map(x => `<button type="button" class="menu_button sblink-pbtn${x === tab ? ' sblink-pscope-on' : ''}" data-scope="${x}" aria-pressed="${x === tab}">${esc(t(`scope_${x}`))}</button>`).join('')}</div>`);
