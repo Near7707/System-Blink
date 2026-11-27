@@ -14,9 +14,10 @@ import { openWindow, closeWindow, isOpen, refreshWin, place as placeWin, setWinH
 import { mountFab, unmountFab, setFabHidden, setFabCount, setFabHooks, syncFabChat, place as placeFab, endDrag } from './src/ui/fab.js';
 import {
     popup, notice, hold, waiting, setPopHooks, placePops, renderStrip, placeStrip, foldStrip, stripShown, renderCards, renderCardsSoon,
-    removeCards, clearPopups, dropPopups, popupWaiting, questsPopup, suddenPopup, hiddenPopup, stagePopup, goalDonePopup, goalGivenPopup, failPopup, skillPopup, unlockPopup, bigPopup,
+    removeCards, clearPopups, dropPopups, popupWaiting, popupFront, pausePops, placeToasts, questsPopup, suddenPopup, hiddenPopup, stagePopup, goalDonePopup, goalGivenPopup, failPopup, skillPopup, unlockPopup, bigPopup,
 } from './src/ui/pop.js';
-import { esc } from './src/ui/util.js';
+import { esc, isPhone } from './src/ui/util.js';
+import { renderPanel, placePanel, setPanelHidden, setPanelHooks, foldPanel, unmountPanel, endPanelDrag } from './src/ui/panel.js';
 
 export { VERSION };
 const PROMPT_KEY = 'system_blink';
@@ -46,6 +47,7 @@ function redraw() {
     refreshWin();
     renderStrip();
     renderCards();
+    try { renderPanel(); placeToasts(); } catch (e) { console.error('[System Blink] panel', e); }
     badge();
     mountWand();
     if (!generating) updatePrompt();
@@ -68,7 +70,8 @@ function redrawAll() {
 }
 
 function turnedOff() {
-    closeWindow(); clearPopups(); unmountFab(); removeCards();
+    guideBack = -1; pausePops(false);
+    closeWindow(); clearPopups(); unmountFab(); removeCards(); unmountPanel();
     document.getElementById('sblink-strip')?.remove();
     try { ctx().setExtensionPrompt(PROMPT_KEY, '', 1, 1, false, 0); } catch { /* ignore */ }
     mountPanel(); mountWand();
@@ -174,6 +177,49 @@ function askWake(chatId) {
     });
 }
 
+// ---------- 0.6.5: "first time here?" — a short settings guide, once, before the first wake's popups ----------
+const GUIDE = [
+    { title: 'guide_1', body: 'guide_1_body', group: 'system', tones: true },
+    { title: 'guide_2', body: 'guide_2_body', group: 'spectators' },
+    { title: 'guide_3', body: 'guide_3_body', group: 'button' },
+    { title: 'guide_4', body: 'guide_4_body', group: 'make' },
+];
+let guideBack = -1; // the card to come back to when the window (opened by "Open this setting") closes
+
+function guideHi() {
+    popupFront({
+        tag: 'GUIDE', code: 'SYS.NOTICE // WELCOME', title: t('guide_hi'), body: esc(t('guide_hi_body')),
+        second: t('guide_no'), ok: t('guide_look'), onClose: (act) => { if (act === 'ok') guideCard(0); },
+    });
+}
+
+function guideCard(i) {
+    const c = GUIDE[i];
+    if (!c) return;
+    const last = i === GUIDE.length - 1;
+    const dots = `<span class="sblink-guidedots">${GUIDE.map((_, j) => `<i class="${j <= i ? 'sblink-on' : ''}"></i>`).join('')}</span>`;
+    const tones = c.tones ? `<div class="sblink-guidetones">${['game', 'star', 'threat'].map(x => `<span class="sblink-guidetone sblink-tn-${x}" style="color:var(--sb-acc);border-color:var(--sb-acc-dim)">● ${esc(t(`opt_tone_${x}`))}</span>`).join('')}</div>` : '';
+    popupFront({
+        tag: 'GUIDE', code: `SYS.NOTICE // 0${i + 1} / 0${GUIDE.length}`, title: t(c.title),
+        body: `${tones}<div>${esc(t(c.body))}</div><div class="sblink-hint">${dots}</div>`,
+        second: last ? '' : t('guide_stop'), ok: t(last ? 'guide_end' : 'guide_next'), link: t('guide_open'),
+        onClose: (act) => {
+            if (act === 'ok' && !last) guideCard(i + 1);
+            else if (act === 'link') { guideBack = i; pausePops(true); openWindow('', { gear: c.group }); }
+        },
+    });
+}
+
+function guideAgain() { if (isOpen()) closeWindow(); guideBack = -1; pausePops(false); guideCard(0); }
+
+function windowClosed() {
+    if (guideBack < 0) return;
+    const i = guideBack;
+    guideBack = -1;
+    guideCard(i);
+    pausePops(false);
+}
+
 // ---------- bus: things the rules tell the screen ----------
 function wireBus() {
     bus.on('change', redrawSoon);
@@ -195,6 +241,7 @@ function wireBus() {
         if (failed.length) cheer(chatId || currentChatId(), null, 'fail');
     });
     bus.on('bigEvent', () => bigPopup());
+    bus.on('woke', () => { const s = settings(); if (!s.guideSeen) { s.guideSeen = true; save(); guideHi(); } });
     bus.on('awaken', () => { dropPopups(p => !!p.wakeFor); awakenPopup(); }); // woken by hand: an open "wake?" question is moot
     bus.on('tutorialStep', () => redrawSoon());
     bus.on('tutorialDone', () => popup({ tag: 'CLEAR', code: 'SYS.NOTICE // TUTORIAL', title: t('pop_tut_done'), lines: [`<span class="sblink-dia">◆</span><span class="sblink-ell">${esc(t('tut_reward'))}</span>`] }));
@@ -292,7 +339,7 @@ function registerEvents() {
         ev.USER_MESSAGE_RENDERED, ev.CHARACTER_MESSAGE_RENDERED, ev.MORE_MESSAGES_LOADED, ev.CHAT_LOADED]) {
         on(name, () => { renderCardsSoon(); redrawSoon(); });
     }
-    on(ev.MESSAGE_SENT, () => { bindUses(); foldStrip(); redrawSoon(); });
+    on(ev.MESSAGE_SENT, () => { bindUses(); foldStrip(); foldPanel(); redrawSoon(); });
     on(ev.GENERATION_STARTED, (type, _opts, dryRun) => {
         const kind = String(type || 'normal');
         if (!dryRun && kind !== 'quiet') { generating = true; hold(true); }
@@ -321,17 +368,26 @@ function registerEvents() {
 
 function watchScreen() {
     let tm = 0;
-    const re = () => { cancelAnimationFrame(tm); tm = requestAnimationFrame(() => { placeWin(); placeFab(); placeStrip(); placePops(); }); };
+    const re = () => { cancelAnimationFrame(tm); tm = requestAnimationFrame(() => { placeWin(); placeFab(); placeStrip(); placePops(); placePanel(); placeToasts(); }); };
     window.addEventListener('resize', re);
     window.addEventListener('orientationchange', () => setTimeout(re, 250));
     window.visualViewport?.addEventListener('resize', re);
     window.visualViewport?.addEventListener('scroll', re);
-    document.addEventListener('focusin', () => setTimeout(re, 350));
+    document.addEventListener('focusin', (e) => {
+        // phone: typing a message closes the opened quest line, so it does not cover the chat
+        if (isPhone() && /^(INPUT|TEXTAREA)$/.test(e.target?.tagName || '') && !e.target.closest?.('#sblink-win')) foldPanel();
+        setTimeout(re, 350);
+    });
     document.addEventListener('focusout', () => setTimeout(re, 450));
     // always let go of a drag
-    window.addEventListener('blur', endDrag);
-    window.addEventListener('pagehide', endDrag);
-    document.addEventListener('visibilitychange', () => { if (document.hidden) endDrag(); });
+    window.addEventListener('blur', () => { endDrag(); endPanelDrag(); });
+    window.addEventListener('pagehide', () => { endDrag(); endPanelDrag(); });
+    document.addEventListener('visibilitychange', () => { if (document.hidden) { endDrag(); endPanelDrag(); } });
+    // the chat column changing width (side panels, chat width setting): the panel and notices follow it
+    if (typeof ResizeObserver === 'function') {
+        const ro = new ResizeObserver(() => { placePanel(); placeToasts(); });
+        for (const id of ['sheld', 'form_sheld']) { const el = document.getElementById(id); if (el) ro.observe(el); }
+    }
     window.addEventListener('keydown', (e) => {
         if (e.key === 'Escape' && isOpen() && !document.querySelector('dialog[open]')) closeWindow();
     });
@@ -347,8 +403,12 @@ async function init() {
     setLanguage(uiLang());
     setLangGetter(lang);
     wireBus();
-    setPrefsHooks({ redrawAll, turnedOff, turnedOn: redrawAll, lastPrompt: () => lastPrompt, langNow: uiLang, showText: showText });
-    setWinHooks({ opened: () => { setFabHidden(true); renderStrip(); }, closed: () => { setFabHidden(false); renderStrip(); badge(); } });
+    setPrefsHooks({ guide: guideAgain, redrawAll, turnedOff, turnedOn: redrawAll, lastPrompt: () => lastPrompt, langNow: uiLang, showText: showText });
+    setWinHooks({ opened: () => { setFabHidden(true); setPanelHidden(true); renderStrip(); }, closed: () => { setFabHidden(false); setPanelHidden(false); renderStrip(); badge(); windowClosed(); } });
+    setPanelHooks({
+        open: (opts) => openWindow('quests', opts),
+        off: () => { settings().questPanel = false; save(); notice(t('panel_off_toast')); redrawAll(); },
+    });
     setFabHooks({ open: () => openWindow() });
     setPopHooks({ openTab: (tab) => openWindow(tab), openSkill: (id) => openWindow('status', { skill: id }), badge });
     mountPanel();

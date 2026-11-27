@@ -9,6 +9,7 @@ import { gradeBadge, gradeClass, isTop, tag } from './skills.js';
 import { icon, hexMark } from '../icons.js';
 import { esc, $id, typeIn, motionOn, inputTop, viewport, safeInsets } from './util.js';
 import { drawQuestBlocks, undrawQuestBlocks, setQBlockHooks } from './qblock.js';
+import { panelBarBottom, setPanelDrawn } from './panel.js';
 
 let hooks = { openTab: () => {}, openSkill: () => {}, badge: () => {} };
 export function setPopHooks(h) { hooks = { ...hooks, ...h }; setQBlockHooks(hooks); }
@@ -67,10 +68,20 @@ export function popup(p) {
     hooks.badge();
     pump();
 }
+/** 0.6.5: this one next, before the others waiting (the settings guide). */
+export function popupFront(p) {
+    if (!settings().enabled) return;
+    queue.unshift(p);
+    hooks.badge();
+    pump();
+}
+let paused = false;
+/** 0.6.5: wait with popups while the guide has sent me to the settings (they come back when the window closes). */
+export function pausePops(on) { paused = !!on; if (!paused) setTimeout(pump, 120); }
 export const waiting = () => queue.length + (showing ? 1 : 0);
 
 function pump() {
-    if (held || showing || !queue.length) return;
+    if (held || paused || showing || !queue.length) return;
     showing = queue.shift();
     draw(showing);
     hooks.badge();
@@ -146,10 +157,47 @@ export function notice(text, kind = '', right = '') {
     el.className = `sblink-toast sblink-holo ${toneClass()} ${kind ? `sblink-toast-${kind}` : ''}`;
     el.innerHTML = `${hexMark()}<span class="sblink-ell">${esc(text)}</span>${right ? `<b class="sblink-toastpts">${esc(right)}</b>` : ''}<i class="sblink-toastbar"></i>`;
     box.appendChild(el);
+    placeToasts();
     const life = kind === 'spec' || kind === 'gold' ? 4200 : 2800;
     if (motionOn()) el.querySelector('.sblink-toastbar').style.animationDuration = `${life}ms`;
     setTimeout(() => { el.classList.add('sblink-gone'); setTimeout(() => el.remove(), 300); }, life);
     while (box.children.length > 3) box.firstChild.remove();
+}
+
+/**
+ * 0.6.5: where small notices sit (setting "toastPos"):
+ * column = top right inside the chat column (follows it on a PC), input = right above the input box (and the strip),
+ * screen = top right of the screen (as before). On a phone they all keep clear of the quest panel's line.
+ */
+setPanelDrawn(() => placeToasts());
+export function placeToasts() {
+    const box = $id('sblink-toasts');
+    if (!box) return;
+    const pos = settings().toastPos;
+    const vp = viewport();
+    const ins = safeInsets();
+    const under = panelBarBottom(true);
+    box.classList.toggle('sblink-toasts-up', pos === 'input');
+    if (pos === 'screen') {
+        Object.assign(box.style, { left: '', right: '', bottom: '', maxWidth: '', top: under ? `${Math.round(under + 6)}px` : '' });
+        return;
+    }
+    const left = vp.x + ins.left, right = vp.x + vp.w - ins.right;
+    const col = ($id('sheld') || $id('chat'))?.getBoundingClientRect();
+    const cl = col && col.width >= 160 ? Math.max(left, col.left) : left;
+    const cr = col && col.width >= 160 ? Math.min(right, col.right) : right;
+    const bar = ($id('top-settings-holder') || $id('top-bar'))?.getBoundingClientRect();
+    const top = Math.max(vp.y + ins.top, bar && bar.height ? bar.bottom : 0, col && col.width >= 160 ? col.top : 0, under);
+    const st = {
+        right: `${Math.round(window.innerWidth - cr + 10)}px`, left: 'auto',
+        maxWidth: `${Math.round(Math.max(160, Math.min(300, cr - cl - 20)))}px`,
+    };
+    if (pos === 'input') {
+        const stripEl = $id('sblink-strip');
+        const stripTop = stripEl && !stripEl.hidden ? stripEl.getBoundingClientRect().top : Infinity;
+        const above = Math.min(inputTop(), stripTop, vp.y + vp.h - ins.bottom);
+        Object.assign(box.style, st, { top: 'auto', bottom: `${Math.round(window.innerHeight - above + 8)}px` });
+    } else Object.assign(box.style, st, { bottom: 'auto', top: `${Math.round(top + 10)}px` });
 }
 
 // ---------- the "next day?" strip ----------

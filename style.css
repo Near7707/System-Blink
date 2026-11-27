@@ -924,3 +924,58 @@
 .sblink-poplink { display: block; width: 100%; margin: 6px 0 -6px; padding: 8px 4px; min-height: 36px; background: none !important; border: 0 !important; box-shadow: none !important;
     color: var(--sb-dim) !important; -webkit-text-fill-color: var(--sb-dim) !important; font-size: 13px; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; flex: none; }
 .sblink-poplink:hover, .sblink-poplink:focus-visible { color: var(--sb-text) !important; -webkit-text-fill-color: var(--sb-text) !important; }
+
+/* ---------- 0.6.5: the quest panel (PC: beside the chat column · phone: one line on top) ---------- */
+.sblink-qpanel { position: fixed; z-index: 2900; display: flex; flex-direction: column; overflow: hidden; border: 1px solid rgba(var(--sb-acc-rgb), 0.7);
+    background-image: linear-gradient(180deg, rgba(var(--sb-acc-rgb), 0.12), transparent 90px), repeating-linear-gradient(0deg, rgba(var(--sb-acc-rgb), 0.04) 0 1px, transparent 1px 3px);
+    box-shadow: 0 0 16px rgba(var(--sb-acc-rgb), 0.22); font-size: 13px; overscroll-behavior: contain; -webkit-touch-callout: none; touch-action: manipulation; }
+.sblink-qpanel[hidden] { display: none !important; }
+.sblink-qp-dragging { opacity: 0.92; cursor: grabbing; }
+.sblink-qp-side .sblink-qp-head, .sblink-qp-side .sblink-qp-sum { cursor: grab; user-select: none; -webkit-user-select: none; }
+.sblink-qp-head { display: flex; align-items: center; gap: 6px; padding: 7px 8px 6px 10px; border-bottom: 1px solid rgba(var(--sb-acc-rgb), 0.25); flex: none; }
+.sblink-qp-tag { font-family: var(--sb-mono); font-size: 10px; font-weight: 800; color: #08121C; background: var(--sb-acc); padding: 1px 6px; transform: skewX(-14deg); flex: none; letter-spacing: 0.04em; }
+.sblink-tn-star .sblink-qp-tag { color: #2A1A00; }
+#sblink-qpanel button.sblink-qp-btn { min-width: 30px; height: 28px; padding: 0 7px; margin: 0; background: transparent !important; border: 1px solid rgba(var(--sb-acc-rgb), 0.45) !important; color: var(--sb-acc) !important; font-size: 12px; line-height: 1; border-radius: 0; cursor: pointer; flex: none; max-width: 80px; display: inline-flex; align-items: center; justify-content: center; white-space: nowrap; }
+#sblink-qpanel button.sblink-qp-sum { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 38px; padding: 0 10px; margin: 0; background: transparent !important; border: 0 !important; color: var(--sb-text) !important; font-size: 12.5px; text-align: left; border-radius: 0; cursor: pointer; }
+.sblink-qp-folded { border-color: rgba(var(--sb-acc-rgb), 0.6); clip-path: var(--sb-cut-s); background-image: linear-gradient(90deg, rgba(var(--sb-acc-rgb), 0.16), transparent 70%); }
+.sblink-qp-sumtext { flex: 1 1 auto; }
+.sblink-qp-arrow { color: var(--sb-acc); flex: none; }
+.sblink-qp-sep { color: var(--sb-dim); }
+.sblink-qp-list { overflow-y: auto; overscroll-behavior: contain; flex: 1 1 auto; min-height: 0; }
+.sblink-qp-row { padding: 8px 10px; border-bottom: 1px solid rgba(255, 255, 255, 0.06); cursor: pointer; }
+.sblink-qp-k { font-family: var(--sb-mono); font-size: 10px; font-weight: 800; color: var(--sb-acc); display: flex; align-items: center; gap: 6px; letter-spacing: 0.04em; }
+.sblink-qp-goal .sblink-qp-k { color: var(--sb-goal); }
+.sblink-qp-sudden .sblink-qp-k, .sblink-qp-orange { color: var(--sb-orange); }
+.sblink-qp-hidden .sblink-qp-k, .sblink-qp-purple { color: var(--sb-purple); }
+.sblink-qp-pen .sblink-qp-k, .sblink-qp-red { color: var(--sb-hell); }
+.sblink-qp-pen { background-image: repeating-linear-gradient(-45deg, rgba(224, 33, 63, 0.14) 0 7px, transparent 7px 14px); }
+.sblink-qp-name { color: var(--sb-text); line-height: 1.4; flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.sblink-qp-line { display: flex; gap: 6px; align-items: baseline; padding: 3px 0 0; }
+.sblink-qp-daily .sblink-qp-line { padding: 4px 0 0; }
+.sblink-qp-mark { color: var(--sb-acc); font-size: 9px; flex: none; width: 10px; text-align: center; }
+.sblink-qp-d-done .sblink-qp-mark { font-size: 12px; }
+.sblink-qp-d-done .sblink-qp-name, .sblink-qp-d-failed .sblink-qp-name { color: var(--sb-dim); text-decoration: line-through; }
+.sblink-qp-d-failed .sblink-qp-mark { color: var(--sb-red); }
+.sblink-qp-pts { font-family: var(--sb-mono); font-size: 11.5px; color: var(--sb-acc); flex: none; white-space: nowrap; }
+.sblink-qp-sudden .sblink-qp-pts { color: var(--sb-orange); }
+.sblink-qp-hidden .sblink-qp-pts { color: var(--sb-purple); }
+.sblink-qp-meta { font-size: 11px; color: var(--sb-dim); margin-top: 4px; }
+.sblink-qp-wait { font-weight: 400; color: var(--sb-dim); }
+.sblink-qp-bar { display: flex; gap: 3px; margin-top: 6px; }
+.sblink-qp-bar i { flex: 1 1 0; height: 3px; background: rgba(255, 255, 255, 0.15); }
+.sblink-qp-bar i.sblink-on { background: var(--sb-goal); }
+.sblink-qp-bar i.sblink-now { box-shadow: 0 0 5px var(--sb-goal); }
+.sblink-qp-dias { display: inline-flex; gap: 4px; margin-left: 4px; vertical-align: middle; }
+.sblink-qp-dias.sblink-qp-right { margin-left: auto; }
+.sblink-qp-dias i { width: 7px; height: 7px; transform: rotate(45deg); border: 1.5px solid var(--sb-orange); box-sizing: border-box; }
+.sblink-qp-dias i.sblink-on { background: var(--sb-orange); }
+.sblink-qp-foot { font-size: 11px; color: var(--sb-dim); padding: 5px 10px 7px; flex: none; border-top: 1px solid rgba(255, 255, 255, 0.06); }
+.sblink-qp-row:hover, .sblink-qp-line[data-qp]:hover .sblink-qp-name { filter: brightness(1.15); }
+.sblink-pinrow { display: flex; justify-content: flex-end; margin: -2px 0 4px; }
+.sblink-guidebtn { justify-content: flex-start; gap: 8px; }
+.sblink-guidego { margin-left: auto; color: var(--sb-dim); }
+.sblink-guidetones { display: flex; gap: 6px; flex-wrap: wrap; margin: 2px 0 8px; }
+.sblink-guidetone { font-size: 12px; padding: 3px 9px; border: 1px solid; clip-path: var(--sb-cut-s); white-space: nowrap; }
+.sblink-guidedots { display: inline-flex; gap: 5px; margin-left: 8px; }
+.sblink-guidedots i { width: 8px; height: 8px; transform: rotate(45deg); border: 1.5px solid var(--sb-acc); box-sizing: border-box; }
+.sblink-guidedots i.sblink-on { background: var(--sb-acc); }

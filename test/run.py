@@ -32,6 +32,10 @@ def open_page(browser, query='fresh', width=390, height=844):
         show_everywhere(page)
     if 'autogoal' not in query:  # older checks set the main goal by hand (0.6.2 sets it by itself)
         ev(page, "SillyTavern.getContext().extensionSettings.systemBlink.goalAuto = false")
+    if 'guide' not in query:  # 0.6.5: older checks wake without the first-time guide
+        ev(page, "SillyTavern.getContext().extensionSettings.systemBlink.guideSeen = true")
+    if 'qpanel' not in query:  # 0.6.5: older checks run without the quest panel
+        ev(page, "SillyTavern.getContext().extensionSettings.systemBlink.questPanel = false")
     return page, errors
 
 
@@ -104,6 +108,8 @@ def main():
             goal062(browser, 'ko')
             goal062(browser, 'en')
             fixes063(browser)
+            v065(browser, 'ko')
+            v065(browser, 'en')
             browser.close()
     finally:
         srv.terminate()
@@ -1515,6 +1521,158 @@ def goal062(browser, lang):
     ev(page, "window.__fakeST.openCharChat(0, 'Mira - 2026-01-01')"); page.wait_for_timeout(1100)
     check(calls() == n + 1 and ev(page, room_js('!!r.goal')), 'entering an older chat without a goal: one goal')
     check(not errors, f'no script errors ({errors[:2]})')
+    page.close()
+
+
+def v065(browser, lang):
+    """0.6.5: first-time guide, where small notices sit, extra point rate wording, the quest panel."""
+    print(f'--- 0.6.5 guide / notices / panel ({lang})')
+    ko = lang == 'ko'
+    S = "SillyTavern.getContext().extensionSettings.systemBlink"
+    page, errors = open_page(browser, f'fresh&guide&qpanel&lang={lang}')
+    check(ev(page, f"{S}.guideSeen") is False, 'fresh install: guide not seen yet')
+    page.click('#sblink-fab')
+    page.click('[data-act="roomOn"]'); page.wait_for_timeout(600)
+    txt = lambda: ev(page, "document.querySelector('#sblink-pop')?.textContent || ''")
+    page.wait_for_timeout(900)
+    check(('처음 오셨나요' if ko else 'First time here') in txt(), f'first wake: the guide comes first ({txt()[:50]})')
+    check(ev(page, f"{S}.guideSeen") is True, 'guide marked as seen right away')
+    shot(page, f'{lang}_065_01_hi')
+    page.click('#sblink-pop [data-pop="ok"]'); page.wait_for_timeout(1200)
+    check(('말투와 난이도' if ko else 'Voice and difficulty') in txt(), 'card 1')
+    check(ev(page, "document.querySelectorAll('#sblink-pop .sblink-guidetone').length") == 3, 'card 1 shows the three voices')
+    shot(page, f'{lang}_065_02_card1')
+    page.click('#sblink-pop [data-pop="link"]'); page.wait_for_timeout(500)
+    check(ev(page, "document.querySelector('#sblink-win .sblink-body')?.dataset.view") == 'gear', '"open this setting" opens ⚙')
+    check(not ev(page, "!!document.getElementById('sblink-pop')"), 'popups wait while in the settings')
+    top = ev(page, "(() => { const b = document.querySelector('#sblink-win .sblink-body'); const g = b.querySelector('[data-group=\"system\"]'); return Math.round(g.getBoundingClientRect().top - b.getBoundingClientRect().top); })()")
+    check(abs(top) < 30, f'scrolled to the system part ({top})')
+    shot(page, f'{lang}_065_03_gear')
+    page.click('#sblink-win [data-act="close"]'); page.wait_for_timeout(900)
+    check(('말투와 난이도' if ko else 'Voice and difficulty') in txt(), 'closing the window brings card 1 back')
+    for i in range(3):
+        page.click('#sblink-pop [data-pop="ok"]'); page.wait_for_timeout(900)
+    check(('AI 호출' if ko else 'AI calls') in txt(), 'card 4')
+    check(not ev(page, "!!document.querySelector('#sblink-pop [data-pop=\"second\"]')"), 'last card: no [Stop here]')
+    page.click('#sblink-pop [data-pop="ok"]'); page.wait_for_timeout(900)
+    check(ev(page, "!!document.querySelector('#sblink-pop .sblink-hexspin')"), 'then the awakening popup')
+    page.click('#sblink-pop [data-pop="second"]'); page.wait_for_timeout(600)  # skip the tutorial
+    close_pops(page)
+    if ev(page, "!!document.getElementById('sblink-win')"):
+        page.click('#sblink-win [data-act="close"]'); page.wait_for_timeout(200)
+
+    # a second chat's first wake: no guide again
+    ev(page, "window.__fakeST.openChat('Other chat')"); page.wait_for_timeout(1200)
+    seen_txt = []
+    for _ in range(5):
+        if not ev(page, "!!document.getElementById('sblink-pop')"):
+            break
+        page.wait_for_timeout(700); seen_txt.append(txt())
+        page.click('#sblink-pop [data-pop="second"]' if ev(page, "!!document.querySelector('#sblink-pop [data-pop=\"second\"]')") else '#sblink-pop [data-pop="ok"]'); page.wait_for_timeout(700)
+    check(ev(page, room_js('r.on')), 'second chat woken')
+    check(not any(('처음 오셨나요' if ko else 'First time here') in x for x in seen_txt), f'second wake: no guide ({[x[:30] for x in seen_txt]})')
+    close_pops(page)
+    ev(page, "window.__fakeST.openChat('Mira - 2026-01-01')"); page.wait_for_timeout(1000)
+    close_pops(page)
+    if ev(page, "!!document.getElementById('sblink-win')"):
+        page.click('#sblink-win [data-act="close"]'); page.wait_for_timeout(200)
+
+    # people who already use it: no guide (settings with chats but no guideSeen)
+    seen = ev(page, f"(async () => {{ const st = await import('/src/store.js'); const s = {S}; delete s.guideSeen; st.migrate(s); return s.guideSeen; }})()")
+    check(seen is True, 'existing user: guide counted as seen')
+    seen2 = ev(page, "(async () => { const st = await import('/src/store.js'); const s = { chats: {} }; st.migrate(s); return s.guideSeen; })()")
+    check(seen2 is False, 'no chats yet: guide not seen')
+
+    # the quest panel on a phone: one line on top, opens downwards
+    page.wait_for_timeout(300)
+    check(ev(page, "!!document.getElementById('sblink-qpanel') && !document.getElementById('sblink-qpanel').hidden"), 'phone: the quest panel shows')
+    check(ev(page, "document.getElementById('sblink-qpanel').className.includes('sblink-qp-bar') && document.getElementById('sblink-qpanel').className.includes('sblink-qp-folded')"), 'phone: a folded line')
+    h = ev(page, "document.getElementById('sblink-qpanel').getBoundingClientRect().height")
+    check(h <= 44, f'phone: the line is thin ({h})')
+    sum_ = ev(page, "document.querySelector('.sblink-qp-sumtext').textContent")
+    check(('일일' if ko else 'Daily') in sum_, f'line sums up the dailies ({sum_})')
+    shot(page, f'{lang}_065_04_line')
+    ev(page, "(async () => (await import('/src/ui/pop.js')).notice('Test notice', '', '+5P'))()"); page.wait_for_timeout(150)
+    gap = ev(page, "document.getElementById('sblink-toasts').getBoundingClientRect().top - document.getElementById('sblink-qpanel').getBoundingClientRect().bottom")
+    check(gap >= 0, f'phone: notices sit under the line ({gap})')
+    fab_top = ev(page, "document.getElementById('sblink-fab').getBoundingClientRect().top - document.getElementById('sblink-qpanel').getBoundingClientRect().bottom")
+    check(fab_top >= 0, f'phone: the button stays under the line ({fab_top})')
+    page.click('.sblink-qp-sum'); page.wait_for_timeout(200)
+    check(not ev(page, "document.getElementById('sblink-qpanel').className.includes('sblink-qp-folded')"), 'tap opens the line')
+    n = ev(page, "document.querySelectorAll('#sblink-qpanel .sblink-qp-daily [data-qp]').length")
+    check(n >= 2, f'opened: the daily quests ({n})')
+    shot(page, f'{lang}_065_05_open')
+    qid = ev(page, "document.querySelector('#sblink-qpanel .sblink-qp-daily [data-qp]').dataset.qp")
+    page.click('#sblink-qpanel .sblink-qp-daily [data-qp] >> nth=0'); page.wait_for_timeout(400)
+    check(ev(page, "document.querySelector('#sblink-win .sblink-body')?.dataset.view") == 'quests', 'a line opens the Quests tab')
+    check(ev(page, f"!!document.querySelector('#sblink-win .sblink-quest-open[data-quest=\"{qid}\"]')"), 'that quest is opened')
+    check(ev(page, "document.getElementById('sblink-qpanel').hidden"), 'panel hides while the window is open')
+    check(ev(page, "!!document.querySelector('#sblink-win [data-act=\"pinPanel\"].sblink-btn-main')"), 'Quests tab: 📌 shows it is pinned')
+    shot(page, f'{lang}_065_06_tab')
+    page.click('#sblink-win [data-act="pinPanel"]'); page.wait_for_timeout(200)
+    check(ev(page, f"{S}.questPanel") is False, '📌 turns the panel off')
+    page.click('#sblink-win [data-act="pinPanel"]'); page.wait_for_timeout(200)
+    check(ev(page, f"{S}.questPanel") is True, '📌 turns it on again')
+    page.click('#sblink-win [data-act="close"]'); page.wait_for_timeout(300)
+    check(ev(page, "!document.getElementById('sblink-qpanel').hidden && document.getElementById('sblink-qpanel').className.includes('sblink-qp-folded')"), 'back: the line, folded again')
+    # sending a message folds it
+    page.click('.sblink-qp-sum'); page.wait_for_timeout(150)
+    turn(page, 'hello', 'Hi.', 'Q1: NO\nQ2: NO\nQ3: NO\nTIME: -\nWEATHER: -\nPLACE: -\nDATE: -\nDAYS: 0\nNEXT: -')
+    check(ev(page, "document.getElementById('sblink-qpanel').className.includes('sblink-qp-folded')"), 'sending folds the line')
+    # the point rate words
+    page.click('#sblink-fab'); page.click('#sblink-win [data-act="gear"]'); page.wait_for_timeout(200)
+    g = ev(page, "document.querySelector('#sblink-win .sblink-body').textContent")
+    check(('추가 포인트 배율' if ko else 'Extra point rate') in g and ('쉬워' if ko else 'easier') in g, 'extra point rate + "gets easier"')
+    check(('설정 안내 다시 보기' if ko else 'settings guide again') in g, '⚙: see the guide again')
+    check(('작은 알림 위치' if ko else 'Where small notices show') in g, '⚙: where notices show')
+    shot(page, f'{lang}_065_07_gear')
+    page.click('#sblink-win [data-run="guideAgain"]'); page.wait_for_timeout(1000)
+    check(('말투와 난이도' if ko else 'Voice and difficulty') in txt() and not ev(page, "!!document.getElementById('sblink-win')"), 'see again: card 1, window closed')
+    page.click('#sblink-pop [data-pop="second"]'); page.wait_for_timeout(300)
+    panel_text = ev(page, "document.getElementById('sblink_settings').textContent")
+    check(('추가 포인트 배율' if ko else 'Extra point rate') in panel_text and ('퀘스트 패널' if ko else 'Quest panel') in panel_text, 'extension panel has the new rows')
+    check(not errors, f'no errors ({errors[:3]})')
+    page.close()
+
+    # PC: the panel beside the chat column; notices inside the column
+    page, errors = open_page(browser, f'fresh&qpanel&lang={lang}', 1400, 860)
+    page.click('#sblink-fab'); page.click('[data-act="roomOn"]'); page.wait_for_timeout(600)
+    page.click('#sblink-pop [data-pop="second"]'); page.wait_for_timeout(600)
+    close_pops(page)
+    if ev(page, "!!document.getElementById('sblink-win')"):
+        page.click('#sblink-win [data-act="close"]'); page.wait_for_timeout(300)
+    box = ev(page, "(() => { const p = document.getElementById('sblink-qpanel').getBoundingClientRect(); const c = document.getElementById('sheld').getBoundingClientRect(); return { cls: document.getElementById('sblink-qpanel').className, pr: p.right, pl: p.left, cl: c.left, cr: c.right, h: p.height }; })()")
+    check('sblink-qp-side' in box['cls'] and 'folded' not in box['cls'], 'PC: a panel beside the column, open')
+    check(box['pr'] <= box['cl'] - 4 and box['pl'] >= 0, f'PC: left of the chat column ({box})')
+    shot(page, f'{lang}_065_08_pc')
+    ev(page, "(async () => (await import('/src/ui/pop.js')).notice('Test notice', '', '+5P'))()"); page.wait_for_timeout(150)
+    t1 = ev(page, "(() => { const t = document.getElementById('sblink-toasts').getBoundingClientRect(); const c = document.getElementById('sheld').getBoundingClientRect(); return { tr: t.right, cr: c.right, tl: t.left, cl: c.left }; })()")
+    check(t1['tr'] <= t1['cr'] - 4 and t1['tl'] >= t1['cl'], f'PC: notices inside the chat column ({t1})')
+    shot(page, f'{lang}_065_09_pc_notice')
+    ev(page, f"{S}.toastPos = 'input'")
+    ev(page, "(async () => (await import('/src/ui/pop.js')).notice('Test notice 2'))()"); page.wait_for_timeout(150)
+    t2 = ev(page, "(() => { const t = document.getElementById('sblink-toasts').getBoundingClientRect(); const f = document.getElementById('form_sheld').getBoundingClientRect(); return { tb: t.bottom, ft: f.top }; })()")
+    check(t2['tb'] <= t2['ft'] and t2['ft'] - t2['tb'] < 40, f'"above input": right above the input box ({t2})')
+    ev(page, f"{S}.toastPos = 'screen'")
+    ev(page, "(async () => (await import('/src/ui/pop.js')).notice('Test notice 3'))()"); page.wait_for_timeout(150)
+    t3 = ev(page, "1400 - document.getElementById('sblink-toasts').getBoundingClientRect().right")
+    check(t3 < 20, f'"screen corner": the right edge of the screen ({t3})')
+    # fold, drag away, drop back by the column
+    page.click('#sblink-qpanel [data-qp-act="fold"]'); page.wait_for_timeout(150)
+    check(ev(page, "document.getElementById('sblink-qpanel').className.includes('sblink-qp-folded')"), 'PC: fold')
+    page.click('.sblink-qp-sum'); page.wait_for_timeout(150)
+    hd = ev(page, "(() => { const r = document.querySelector('.sblink-qp-head').getBoundingClientRect(); return [r.left + 30, r.top + 12]; })()")
+    page.mouse.move(hd[0], hd[1]); page.mouse.down(); page.mouse.move(hd[0] + 40, hd[1] + 200, steps=6); page.mouse.move(1200, 520, steps=6); page.mouse.up(); page.wait_for_timeout(200)
+    dv = ev(page, "JSON.parse(localStorage.getItem('systemBlink.device')).panel")
+    check(dv and dv.get('side') is None, f'dragged away: kept where it was let go ({dv})')
+    hd = ev(page, "(() => { const r = document.querySelector('.sblink-qp-head').getBoundingClientRect(); return [r.left + 30, r.top + 12]; })()")
+    off = ev(page, "document.getElementById('sheld').getBoundingClientRect().left - 12 - document.getElementById('sblink-qpanel').getBoundingClientRect().right")
+    page.mouse.move(hd[0], hd[1]); page.mouse.down(); page.mouse.move(hd[0] + off, 300, steps=8); page.mouse.up(); page.wait_for_timeout(200)
+    dv = ev(page, "JSON.parse(localStorage.getItem('systemBlink.device')).panel")
+    check(dv and dv.get('side') == 'left', f'let go by the column: sticks to it again ({dv})')
+    page.click('#sblink-qpanel [data-qp-act="off"]'); page.wait_for_timeout(200)
+    check(ev(page, f"{S}.questPanel") is False and ev(page, "document.getElementById('sblink-qpanel').hidden"), '✕ turns the panel off')
+    check(not errors, f'no errors ({errors[:3]})')
     page.close()
 
 

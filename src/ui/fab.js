@@ -7,6 +7,7 @@ import { t } from '../i18n.js';
 import { settings, device, saveDevice, currentChatId, room } from '../store.js';
 import { hexMark } from '../icons.js';
 import { $id, esc, viewport, safeInsets, inputTop, isPhone } from './util.js';
+import { panelBarBottom } from './panel.js';
 
 let hooks = { open: () => {} };
 export function setFabHooks(h) { hooks = { ...hooks, ...h }; }
@@ -101,7 +102,8 @@ function bounds(h) {
     const tall = h || dims().h;
     const minX = vp.x + Math.max(4, ins.left + 4);
     const maxX = vp.x + vp.w - sz - Math.max(4, ins.right + 4);
-    const minY = vp.y + Math.max(8, ins.top + 8) + 40; // under the top bar
+    // under the top bar (0.6.5: and under the quest panel's line on a phone)
+    const minY = Math.max(vp.y + Math.max(8, ins.top + 8) + 40, panelBarBottom() + 6);
     const bottomLimit = Math.min(vp.y + vp.h - Math.max(8, ins.bottom + 8), inputTop() - 8);
     const stripEl = $id('sblink-strip');
     const stripTop = stripEl && !stripEl.hidden ? stripEl.getBoundingClientRect().top - 8 : Infinity;

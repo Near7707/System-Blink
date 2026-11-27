@@ -3,7 +3,7 @@
 
 export const MODULE = 'systemBlink';
 export const FORMAT = 2;
-export const VERSION = '0.6.4';
+export const VERSION = '0.6.5';
 export const TONES = ['game', 'star', 'threat'];
 export const DIFFS = ['off', 'easy', 'normal', 'hard', 'hell'];
 
@@ -37,6 +37,9 @@ const DEFAULTS = Object.freeze({
     btnTuck: true,          // 0.5.5: let go against the chat column's side = tuck in as a bookmark tab
     btnOnlyOn: true,        // 0.5.5: show the button only in chats where the System is awake
     btnDim: true,
+    toastPos: 'column',     // 0.6.5: small notices — column (top right inside the chat column) | input (above the input box) | screen (top right of the screen)
+    questPanel: true,       // 0.6.5: a small panel of the quests in progress, beside the chat (PC) / one line on top (phone)
+    guideSeen: false,       // 0.6.5: the "first time here?" settings guide was shown (or this is not a first-time user)
     useDefaults: true,
     oddities: true,
     customShop: '',         // one item per line: name | price | rarity | description
@@ -57,7 +60,7 @@ export function settings() {
 const ONE_OF = {
     tone: TONES, specMode: ['light', 'rich'], dayBasis: ['story', 'real'], judgeEvery: ['every', 'three', 'manual'],
     visibility: ['me', 'all'], questChance: ['off', 'some', 'more'], lang: ['en', 'ko'],
-    suddenFreq: ['off', 'rare', 'normal', 'often'], goalSuggest: ['auto', 'manual', 'off'],
+    suddenFreq: ['off', 'rare', 'normal', 'often'], goalSuggest: ['auto', 'manual', 'off'], toastPos: ['column', 'input', 'screen'],
 };
 
 const BACKUP_KEY = 'systemBlink.backup.v1';
@@ -88,6 +91,8 @@ export function migrate(s) {
     if (s.goalSuggest === true) s.goalSuggest = 'manual';
     if (s.goalSuggest === false) s.goalSuggest = 'off';
     if (!s.v051) { s.btnSnap = false; s.v051 = true; }
+    // 0.6.5: people who already use the System (a chat with data) don't get the first-time guide
+    if (s.guideSeen === undefined) s.guideSeen = !!(s.chats && typeof s.chats === 'object' && Object.keys(s.chats).length);
     for (const [k, v] of Object.entries(DEFAULTS)) if (s[k] === undefined) s[k] = structuredClone(v);
     for (const [k, list] of Object.entries(ONE_OF)) if (!list.includes(s[k])) s[k] = DEFAULTS[k];
     if (![0.5, 1, 2].includes(Number(s.pointRate))) s.pointRate = 1;

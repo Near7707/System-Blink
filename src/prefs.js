@@ -8,6 +8,7 @@ import { getProfiles, sentLog } from './ai.js';
 import { buildLog, logFileName } from './export.js';
 import { esc } from './ui/util.js';
 import { resetPos } from './ui/fab.js';
+import { resetPanelPos } from './ui/panel.js';
 
 export { VERSION };
 
@@ -46,6 +47,8 @@ export const SCHEMA = [
         { k: 'lang', kind: 'choice', opts: ['en', 'ko'] },
         { k: 'motion', kind: 'toggle' },
         { k: 'logCards', kind: 'toggle' },
+        { k: 'toastPos', kind: 'choice', opts: ['column', 'input', 'screen'] },
+        { k: 'questPanel', kind: 'toggle' },
     ] },
     { group: 'button', rows: [
         { k: 'btnShow', kind: 'toggle' },
@@ -101,7 +104,7 @@ const isDisabled = (row) => {
     return false;
 };
 
-let hooks = { redrawAll: () => {}, turnedOff: () => {}, turnedOn: () => {}, lastPrompt: () => '', openText: () => {}, showText: () => {}, langNow: () => 'en' };
+let hooks = { guide: () => {}, redrawAll: () => {}, turnedOff: () => {}, turnedOn: () => {}, lastPrompt: () => '', openText: () => {}, showText: () => {}, langNow: () => 'en' };
 export function setPrefsHooks(h) { hooks = { ...hooks, ...h }; }
 
 export async function setValue(k, v) {
@@ -138,7 +141,8 @@ export async function setValue(k, v) {
 }
 
 export async function runButton(k) {
-    if (k === 'btnReset') { resetPos(); globalThis.toastr?.info?.(t('btn_reset_done'), t('ext_name')); return; }
+    if (k === 'guideAgain') return hooks.guide();
+    if (k === 'btnReset') { resetPos(); resetPanelPos(); globalThis.toastr?.info?.(t('btn_reset_done'), t('ext_name')); return; }
     if (k === 'export') return doExport();
     if (k === 'logTxt' || k === 'logJson') {
         if (!currentChatId()) { globalThis.toastr?.info?.(t('no_chat'), t('ext_name')); return; }
@@ -217,19 +221,22 @@ const optLabel = (row, o) => (row.k === 'lang' ? (o === 'ko' ? '한국어' : 'En
 
 let openGroups = new Set();
 export function toggleGroup(g) { if (openGroups.has(g)) openGroups.delete(g); else openGroups.add(g); }
+export function openGroup(g) { openGroups.add(g); }
 
 export function gearHtml() {
     const s = settings();
     const out = [];
     for (const g of SCHEMA) {
         const isOpen = !g.folded || openGroups.has(g.group);
-        out.push(`<div class="sblink-sec${g.folded ? ' sblink-fold' : ''}">
+        out.push(`<div class="sblink-sec${g.folded ? ' sblink-fold' : ''}" data-group="${g.group}">
           ${g.folded
             ? `<div class="sblink-sechead sblink-foldbar" data-fold="${g.group}" role="button" tabindex="0" aria-expanded="${isOpen}"><span class="sblink-dia">◆</span><span class="sblink-foldtitle"><span>${esc(t(`grp_${g.group}`))}</span><span class="sblink-foldsub">${esc(t(`fold_sub_${g.group}`))}</span></span><span class="sblink-foldmark">${esc(t(isOpen ? 'fold_close' : 'fold_open'))}</span></div>`
             : `<div class="sblink-sechead"><span class="sblink-dia">◆</span><span>${esc(t(`grp_${g.group}`))}</span><i class="sblink-secline"></i></div>`}
           ${isOpen ? g.rows.filter(r => !r.when || r.when()).map(gearRow).join('') : ''}
         </div>`);
     }
+    // 0.6.5: the first-time guide, again
+    out.unshift(`<div class="sblink-row"><button type="button" class="sblink-btn sblink-btn-wide sblink-guidebtn" data-run="guideAgain"><span class="sblink-dia">◆</span><span class="sblink-ell">${esc(t('guide_again'))}</span><span class="sblink-guidego">›</span></button></div>`);
     if (!s.enabled) out.unshift(`<div class="sblink-note">${esc(t('off_where'))}</div>`);
     out.push(`<div class="sblink-gearfoot">${esc(t('full_settings'))}<span class="sblink-code">v${VERSION}</span></div>`);
     return out.join('');
@@ -276,6 +283,7 @@ export function panelHtml() {
     const s = settings();
     const out = [];
     if (!s.enabled) out.push(`<div class="sblink-phint"><b>${esc(t('off_short'))}</b> <button type="button" class="menu_button sblink-pbtn" data-run="allOn">${esc(t('turn_on'))}</button></div>`);
+    else out.push(`<div class="sblink-pbtns"><button type="button" class="menu_button sblink-pbtn" data-run="guideAgain">${esc(t('guide_again'))}</button></div>`);
     for (const g of SCHEMA) {
         out.push(`<h4 class="sblink-ph">${esc(t(`grp_${g.group}`))}</h4>`);
         const rows = g.rows.filter(row => !row.when || row.when());

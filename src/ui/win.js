@@ -11,7 +11,7 @@ import {
     skillsOf, hiddenOpen, seeSkill, useSkill, openGacha, isDrawing, gradeRarity,
 } from '../engine.js';
 import { runCheck, isChecking, cancelCheck } from '../ai.js';
-import { gearHtml, setValue, runButton, toggleGroup, ROWS, getValue } from '../prefs.js';
+import { gearHtml, setValue, runButton, toggleGroup, openGroup, ROWS, getValue } from '../prefs.js';
 import { icon, hexMark } from '../icons.js';
 import { esc, $id, viewport, safeInsets, isPhone, motionOn } from './util.js';
 import { notice, popup, diamonds, gachaShow, warnDias, fitPop } from './pop.js';
@@ -56,6 +56,9 @@ export function openWindow(tab, opts = {}) {
     if (!settings().enabled) return openOffline();
     if (tab && TABS.includes(tab)) ui.view = tab;
     if (opts.skill) { ui.skillFilter = 'all'; ui.selSkill = opts.skill; seeSkill(opts.skill); }
+    // 0.6.5: straight to one part of ⚙ (the first-time guide), or to one quest (the quest panel)
+    if (opts.gear) { ui.back = TABS.includes(ui.view) ? ui.view : 'status'; ui.view = 'gear'; openGroup(opts.gear); }
+    if (opts.quest) { ui.view = 'quests'; ui.openQuest = opts.quest; }
     if (!TABS.includes(ui.view) && !SUBS.includes(ui.view)) ui.view = 'status';
     let win = $id('sblink-win');
     if (!win) {
@@ -79,6 +82,11 @@ export function openWindow(tab, opts = {}) {
     win.className = `sblink-win sblink-holo${motionOn() ? ' sblink-moving' : ''}`;
     render();
     place();
+    if (opts.gear || opts.quest) {
+        const el = opts.gear ? win.querySelector(`[data-group="${opts.gear}"]`) : win.querySelector(`[data-quest="${CSS.escape(opts.quest)}"]`);
+        const body = win.querySelector('.sblink-body');
+        if (el && body) body.scrollTop = Math.max(0, body.scrollTop + el.getBoundingClientRect().top - body.getBoundingClientRect().top - 6);
+    }
     const r = room();
     if (active(r)) { tutorialStep(r, 0); save(); }
     hooks.opened();
@@ -533,7 +541,8 @@ function goalBlock(r, view) {
 
 function questsTab(r) {
     const view = chatView();
-    let body = '';
+    const pinned = !!settings().questPanel;
+    let body = `<div class="sblink-pinrow"><button type="button" class="sblink-btn sblink-btn-sm${pinned ? ' sblink-btn-main' : ''}" data-act="pinPanel" aria-pressed="${pinned}"><span class="sblink-ell">${esc(t(pinned ? 'panel_pinned' : 'panel_pin'))}</span></button></div>`;
     const tut = r.tutorial;
     if (tut.state === 'active') {
         const next = tut.done.findIndex(x => !x);
@@ -791,6 +800,7 @@ async function onClick(e) {
             return go();
         }
         case 'goalSuggest': return askSuggest();
+        case 'pinPanel': return setValue('questPanel', !settings().questPanel);
         case 'goalRetry': { const p = giveGoal(currentChatId(), true); render(); await p; return render(); }
         case 'stageRetry': return retryStage();
         case 'goalSave': {

@@ -884,6 +884,7 @@ export async function switchOn(tut = '') {
     if (!r.realDate) r.realDate = realDateNow();
     save(); changed();
     if (first) {
+        bus.emit('woke', { chatId }); // 0.6.5: the first-time guide comes before anything else
         if (tut) r.tutorial.state = tut === 'start' ? 'active' : 'skipped';
         else if (settings().tutorialAuto) { r.tutorial.state = 'active'; bus.emit('awaken'); }
         else r.tutorial.state = 'skipped';

@@ -6,9 +6,11 @@ A game-like **System** for SillyTavern roleplay, in the style of Korean system n
 In the middle of the story, a translucent System window pops up — *"[Daily quests have arrived]"* —
 you clear quests in the story, earn points, and spend them in your own **personal shop**.
 
-This version (0.6.4): the System window, the tutorial, daily quests, the shop, the bag and daily-life mode,
+This version (0.6.5): the System window, the tutorial, daily quests, the shop, the bag and daily-life mode,
 sudden quests, hidden quests, a main goal, quests with several conditions, **difficulty with penalties**,
 **skills and gacha**, **three System voices** with **spectators** who react and sponsor — and, if you like, **new quests shown in the story**.
+A **quest panel** keeps the quests in progress in sight while you chat (beside the chat on a PC, one line on top on a phone),
+and a short **settings guide** greets you the first time you wake the System.
 
 ## Install
 
@@ -103,7 +105,7 @@ https://github.com/Near7707/System-Blink
 ## Settings
 
 Everything is both in the window's ⚙ page and in SillyTavern's extension settings (same values).
-Highlights: voice and difficulty (per chat), spectators (on/off, light / rich, sponsorships), point rate, story date / real time as the day basis, how often the story is checked
+Highlights: voice and difficulty (per chat), spectators (on/off, light / rich, sponsorships), an extra point rate (on top of the difficulty reward), the quest panel, where small notices show (chat column / above the input box / screen corner), story date / real time as the day basis, how often the story is checked
 (every reply / every 3rd / by hand), who sees the System, telling the AI the daily-life fields,
 opening chances for quests, how often sudden quests come (and the rest after one), hidden quests on/off, new quests in the story,
 getting the main goal by itself, a **world note** per chat (used when making quests and items), your own
