@@ -3,7 +3,7 @@
 
 import { t, setLanguage, lang } from './i18n.js';
 import { settings, save, room, currentChatId, device, saveDevice, exportData, importData, oldBackup, VERSION, TONES } from './store.js';
-import { switchOn, switchOff, bus, skipOldTold } from './engine.js';
+import { switchOn, switchOff, bus, skipOldTold, charKey, giveGoal } from './engine.js';
 import { getProfiles, sentLog } from './ai.js';
 import { buildLog, logFileName } from './export.js';
 import { esc } from './ui/util.js';
@@ -15,6 +15,7 @@ export { VERSION };
 export const SCHEMA = [
     { group: 'room', rows: [
         { k: 'roomOn', kind: 'toggle', scope: 'room' },
+        { k: 'autoWake', kind: 'toggle', scope: 'room', when: () => !!charKey() },
         { k: 'lifeMode', kind: 'toggle', scope: 'room' },
         { k: 'world', kind: 'text', scope: 'room' },
     ] },
@@ -34,7 +35,7 @@ export const SCHEMA = [
         { k: 'suddenRest', kind: 'choice', opts: [3, 5, 10], needs: 'suddenFreq' },
         { k: 'hiddenOn', kind: 'toggle' },
         { k: 'storyQuest', kind: 'toggle' },
-        { k: 'goalSuggest', kind: 'choice', opts: ['auto', 'manual', 'off'] },
+        { k: 'goalAuto', kind: 'toggle' },
     ] },
     { group: 'spectators', rows: [
         { k: 'specOn', kind: 'toggle' },
@@ -80,6 +81,7 @@ export function getValue(k) {
     const r = room();
     switch (k) {
         case 'roomOn': return !!r?.on;
+        case 'autoWake': { const ck = charKey(); return !!ck && s.autoWake[ck] === true; }
         case 'lifeMode': return r ? !!r.lifeMode : true;
         case 'world': return r?.world || '';
         case 'difficulty': return r?.difficulty || 'off';
@@ -105,7 +107,20 @@ export function setPrefsHooks(h) { hooks = { ...hooks, ...h }; }
 export async function setValue(k, v) {
     const s = settings();
     switch (k) {
-        case 'roomOn': if (v) await switchOn(); else switchOff(); break;
+        case 'roomOn':
+            if (v) { await switchOn(); break; }
+            switchOff();
+            // 0.6.2: new chats with this character wake by themselves — ask whether that should stop too
+            {
+                const ck = charKey();
+                if (ck && s.autoWake[ck] === true) {
+                    bus.emit('change'); hooks.redrawAll();
+                    if (await confirmBox(t('autowake_off_q'))) { s.autoWake[ck] = false; save(); }
+                }
+            }
+            break;
+        case 'autoWake': { const ck = charKey(); if (ck) { s.autoWake[ck] = !!v; save(); } break; }
+        case 'goalAuto': s.goalAuto = !!v; save(); if (v) giveGoal(); break;
         case 'lifeMode': { const r = room(); if (r) { r.lifeMode = !!v; save(); } break; }
         case 'difficulty': { const r = room(); if (r && ['off', 'easy', 'normal', 'hard', 'hell'].includes(v)) { r.difficulty = v; save(); } break; }
         case 'tone': { const r = room(); if (r && TONES.includes(v)) { r.tone = v; save(); } break; }

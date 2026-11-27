@@ -30,6 +30,8 @@ def open_page(browser, query='fresh', width=390, height=844):
     page.wait_for_timeout(200)
     if 'onlyon' not in query:  # older checks tap the button in a chat that is not awake yet
         show_everywhere(page)
+    if 'autogoal' not in query:  # older checks set the main goal by hand (0.6.2 sets it by itself)
+        ev(page, "SillyTavern.getContext().extensionSettings.systemBlink.goalAuto = false")
     return page, errors
 
 
@@ -99,6 +101,8 @@ def main():
             story060(browser, 'en')
             story060_paras(browser)
             fixes061(browser)
+            goal062(browser, 'ko')
+            goal062(browser, 'en')
             browser.close()
     finally:
         srv.terminate()
@@ -1028,7 +1032,7 @@ def fixes053(browser):
     page.click('[data-act="gear"]'); page.wait_for_timeout(200)
     order = ev(page, "[...document.querySelectorAll('#sblink-win [data-set], #sblink-win [data-text]')].map(e => e.dataset.set || e.dataset.text).slice(0, 4)")
     check('world' in order and order.index('world') == order.index('lifeMode') + 1, f'world note right under daily-life mode {order}')
-    pw = ev(page, "[...document.querySelectorAll('#sblink_settings [data-pset]')].map(e => e.dataset.pset).slice(0, 3)")
+    pw = ev(page, "[...document.querySelectorAll('#sblink_settings [data-pset]')].map(e => e.dataset.pset).filter(k => k !== 'autoWake').slice(0, 3)")
     check(pw == ['roomOn', 'lifeMode', 'world'], f'the panel too {pw}')
     # a theme that paints every select white
     ev(page, "(() => { const st = document.createElement('style'); st.textContent = 'select { background-color: #fff !important; color: #ccc; }'; document.head.appendChild(st); })()")
@@ -1088,8 +1092,8 @@ def fixes051(browser):
     page.click('#sblink-win [data-act="gear"]'); page.wait_for_timeout(200)
     st = ev(page, "document.querySelector('#sblink-win .sblink-body').scrollTop")
     check(abs(st - 300) < 3, f'settings page remembers its scroll ({st})')
-    check(ev(page, "document.querySelectorAll('#sblink-win [data-set=\"goalSuggest\"]').length") == 3, 'goal suggestion: auto / manual / off in ⚙')
-    check(ev(page, "document.querySelectorAll('.sblink-panel [data-pset=\"goalSuggest\"] option').length") == 3, 'and in the extension panel')
+    check(ev(page, "document.querySelectorAll('#sblink-win [data-set=\"goalAuto\"]').length") == 1, 'goal by itself: a switch in ⚙ (0.6.2)')
+    check(ev(page, "document.querySelectorAll('.sblink-panel [data-pset=\"goalAuto\"]').length") == 1, 'and in the extension panel')
     check(ev(page, "[...document.querySelectorAll('.sblink-panel .sblink-pbtns')].some(d => d.querySelectorAll('button').length === 2)"), 'paired buttons sit side by side in the panel')
     check('\n' in ev(page, "document.querySelector('.sblink-panel textarea[data-pset=\"world\"]')?.placeholder || ''"), 'world examples are several lines')
     check(not errors, f'no script errors ({errors[:2]})')
@@ -1323,6 +1327,110 @@ def fixes061(browser):
     undo_bg = ev(page, "getComputedStyle(document.querySelector('#sblink-win [data-run=\"export\"]')).backgroundColor")
     check(undo_bg != 'rgb(179, 18, 42)', 'other buttons unchanged')
     check(not errors, f'no errors {errors[:3]}')
+    page.close()
+
+
+def goal062(browser, lang):
+    """0.6.2: the main goal comes by itself (locked during the tutorial); new chats with a woken character wake by themselves."""
+    print(f'--- 0.6.2 goal by itself / wake new chats ({lang})')
+    ko = lang == 'ko'
+    page, errors = open_page(browser, f'fresh&autogoal&lang={lang}')
+    S = "SillyTavern.getContext().extensionSettings.systemBlink"
+    calls = lambda: ev(page, 'window.__calls.goal || 0')
+    page.click('#sblink-fab')
+    page.click('[data-act="roomOn"]'); page.wait_for_timeout(600)
+    check(ev(page, "!!document.querySelector('#sblink-pop')"), 'waking: the tutorial popup')
+    page.click('#sblink-pop [data-pop="ok"]'); page.wait_for_timeout(500)  # start the tutorial
+    close_pops(page)
+    if not ev(page, "!!document.getElementById('sblink-win')"):
+        page.click('#sblink-fab'); page.wait_for_timeout(200)
+    page.click('#sblink-win [data-tab="quests"]'); page.wait_for_timeout(200)
+    check(ev(page, "!!document.querySelector('.sblink-goallock')"), 'tutorial: the goal is locked')
+    check(not ev(page, "!!document.querySelector('.sblink-goalnone [data-act=\"goalNew\"]')"), 'no [Set a goal] while locked')
+    check(('튜토리얼을 마치면' if ko else 'after the tutorial') in ev(page, "document.querySelector('.sblink-goallock').textContent"), 'lock text')
+    shot(page, f'{lang}_062_01_locked')
+    check(calls() == 0, 'no goal request during the tutorial')
+    page.click('[data-act="close"]')
+    check(ev(page, f"{S}.autoWake['c:mira.png']") is True, 'waking remembers the character')
+
+    # finish the tutorial: the goal arrives by itself
+    ev(page, "(async () => { const m = await import('/src/engine.js'); const r = " + S + ".chats[SillyTavern.getContext().getCurrentChatId()]; r.tutorial.done = [true, true, true, false]; m.tutorialStep(r, 3); })()")
+    page.wait_for_timeout(900)
+    check(calls() == 1, f'tutorial done: one goal request ({calls()})')
+    check(ev(page, room_js('!!r.goal && r.goalAuto')), 'the goal is set')
+    titles = []
+    for _ in range(4):
+        if not ev(page, "!!document.getElementById('sblink-pop')"):
+            break
+        page.wait_for_timeout(1500)  # the title types itself out
+        titles.append(ev(page, "document.querySelector('#sblink-pop').textContent"))
+        if ('부여' if ko else 'has been set') in titles[-1]:
+            shot(page, f'{lang}_062_02_goal_popup')
+        page.click('#sblink-pop [data-pop="ok"]'); page.wait_for_timeout(300)
+    check(any(('메인 목표가 부여' if ko else 'main goal has been set') in x for x in titles), f'the "goal set" popup ({[x[:60] for x in titles]})')
+    # entering again asks nothing more
+    ev(page, "window.__fakeST.openChat('Mira - 2026-01-01')"); page.wait_for_timeout(1000)
+    check(calls() == 1, 'entering again: no second goal')
+
+    # an old chat never woken stays asleep
+    ev(page, "window.__fakeST.chats['Mira - old'] = [{is_user:false,name:'Mira',mes:'Hi.',send_date:'2025-01-01T00:00:00Z'},{is_user:true,name:'Ari',mes:'Hey.',send_date:'2025-01-01T00:01:00Z'},{is_user:false,name:'Mira',mes:'Hm?',send_date:'2025-01-01T00:02:00Z'}]")
+    ev(page, "window.__fakeST.openChat('Mira - old')"); page.wait_for_timeout(1100)
+    check(not ev(page, f"!!{S}.chats['Mira - old']"), 'an old chat is not woken')
+    # another character's new chat stays asleep
+    ev(page, "window.__fakeST.openCharChat(1, 'Juno - new')"); page.wait_for_timeout(1100)
+    check(not ev(page, f"!!{S}.chats['Juno - new']"), "another character's new chat is not woken")
+    # a brand-new chat with Mira wakes by itself, with the tutorial choice
+    ev(page, "window.__fakeST.openCharChat(0, 'Mira - new')"); page.wait_for_timeout(1300)
+    check(ev(page, f"!!{S}.chats['Mira - new']?.on"), 'a new chat with the same character wakes by itself')
+    check(ev(page, "!!document.querySelector('#sblink-pop')") and ev(page, "!!document.querySelector('#sblink-pop [data-pop=\"second\"]')"), 'the tutorial popup asks start / skip')
+    page.click('#sblink-pop [data-pop="second"]'); page.wait_for_timeout(900)  # skip
+    check(calls() == 2, f'skipped: the goal comes at once ({calls()})')
+    check(ev(page, f"!!{S}.chats['Mira - new'].goal"), 'goal set in the new chat')
+    close_pops(page)
+
+    # ⚙: the row for this character, and switching the chat off asks about new chats
+    page.click('#sblink-fab'); page.wait_for_timeout(200)
+    page.click('#sblink-win [data-act="gear"]'); page.wait_for_timeout(200)
+    check(ev(page, "!!document.querySelector('#sblink-win [data-set=\"autoWake\"].sblink-on')"), '⚙: "wake new chats too" is on')
+    check(ev(page, "!!document.querySelector('.sblink-panel [data-pset=\"autoWake\"]:checked')"), 'and in the extension panel')
+    shot(page, f'{lang}_062_03_gear')
+    ev(page, 'window.__lastPopup = ""; window.__confirmAnswer = true')
+    page.click('#sblink-win [data-set="roomOn"]'); page.wait_for_timeout(500)
+    check(('저절로 깨우지' if ko else 'waking new chats') in ev(page, 'window.__lastPopup || ""'), 'switching off asks about new chats')
+    check(ev(page, f"{S}.autoWake['c:mira.png']") is False, 'yes: new chats no longer wake')
+    page.click('[data-act="close"]')
+    ev(page, "window.__fakeST.openCharChat(0, 'Mira - newer')"); page.wait_for_timeout(1100)
+    check(not ev(page, f"!!{S}.chats['Mira - newer']"), 'the next new chat stays asleep')
+    # waking by hand again does not turn it back on (it was switched off for this character)
+    ev(page, "(async () => (await import('/src/engine.js')).switchOn())()"); page.wait_for_timeout(500)
+    check(ev(page, f"{S}.autoWake['c:mira.png']") is False, 'waking by hand keeps it off')
+    close_pops(page)
+
+    # the AI fails: [Try again] in the Quest tab
+    ev(page, f"{S}.tutorialAuto = false; window.__goalFail = true")
+    ev(page, "window.__fakeST.openCharChat(1, 'Juno - two')"); page.wait_for_timeout(700)
+    ev(page, "(async () => (await import('/src/engine.js')).switchOn())()"); page.wait_for_timeout(900)
+    check(not ev(page, room_js('!!r.goal')), 'failed: no goal')
+    close_pops(page)
+    ev(page, "(async () => (await import('/src/ui/win.js')).openWindow('quests'))()"); page.wait_for_timeout(300)
+    check(ev(page, "!!document.querySelector('[data-act=\"goalRetry\"]')"), '[Try again] shows')
+    shot(page, f'{lang}_062_04_retry')
+    ev(page, 'window.__goalFail = false')
+    page.click('[data-act="goalRetry"]'); page.wait_for_timeout(900)
+    check(ev(page, room_js('!!r.goal')), 'try again: goal set')
+    close_pops(page)
+
+    # an older chat (awake, tutorial done, no goal) gets one when entered; with the setting off, none
+    ev(page, f"{S}.chats['Mira - 2026-01-01'].goal = null; {S}.chats['Mira - 2026-01-01'].goalAuto = false; {S}.chats['Mira - 2026-01-01'].quests = {S}.chats['Mira - 2026-01-01'].quests.filter(q => q.kind !== 'goal')")
+    ev(page, f"{S}.goalAuto = false")
+    n = calls()
+    ev(page, "window.__fakeST.openCharChat(0, 'Mira - 2026-01-01')"); page.wait_for_timeout(1100)
+    check(calls() == n, 'setting off: no goal by itself')
+    ev(page, f"{S}.goalAuto = true")
+    ev(page, "window.__fakeST.openCharChat(1, 'Juno - two')"); page.wait_for_timeout(300)
+    ev(page, "window.__fakeST.openCharChat(0, 'Mira - 2026-01-01')"); page.wait_for_timeout(1100)
+    check(calls() == n + 1 and ev(page, room_js('!!r.goal')), 'entering an older chat without a goal: one goal')
+    check(not errors, f'no script errors ({errors[:2]})')
     page.close()
 
 

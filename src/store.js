@@ -3,7 +3,7 @@
 
 export const MODULE = 'systemBlink';
 export const FORMAT = 2;
-export const VERSION = '0.6.1';
+export const VERSION = '0.6.2';
 export const TONES = ['game', 'star', 'threat'];
 export const DIFFS = ['off', 'easy', 'normal', 'hard', 'hell'];
 
@@ -24,7 +24,9 @@ const DEFAULTS = Object.freeze({
     suddenRest: 5,          // replies to rest after a sudden quest: 3 | 5 | 10
     hiddenOn: true,         // hidden quests can be found
     storyQuest: false,      // 0.6.0: the AI writes a [SYS:QUEST] line in the story when a quest arrives
-    goalSuggest: 'manual',  // auto (ask the AI as the page opens) | manual (only on the button) | off (no button)
+    goalSuggest: 'manual',  // (before 0.6.2) auto | manual | off — replaced by goalAuto, kept unused
+    goalAuto: true,         // 0.6.2: the System sets the main goal by itself (once per chat, after the tutorial)
+    autoWake: {},           // 0.6.2: character / group key -> true (new chats wake by themselves) | false (switched off for it)
     specOn: true,           // 2-D: spectators react now and then (small notices)
     specMode: 'light',      // light (ready-made lines, no AI call) | rich (the AI writes the line, one extra call)
     specGift: true,         // spectators sometimes sponsor points (and, very rarely, a skill)
@@ -92,7 +94,7 @@ export function migrate(s) {
     s.pointRate = Number(s.pointRate);
     if (![3, 5, 10].includes(Number(s.suddenRest))) s.suddenRest = 5;
     s.suddenRest = Number(s.suddenRest);
-    for (const k of ['chats', 'branchDone']) if (!s[k] || typeof s[k] !== 'object' || Array.isArray(s[k])) s[k] = {};
+    for (const k of ['chats', 'branchDone', 'autoWake']) if (!s[k] || typeof s[k] !== 'object' || Array.isArray(s[k])) s[k] = {};
     if (typeof s.customShop !== 'string') s.customShop = '';
     if (typeof s.profileId !== 'string') s.profileId = '';
     for (const id of Object.keys(s.chats)) s.chats[id] = fixRoom(s.chats[id]);
@@ -128,6 +130,7 @@ export function newRoom() {
         debuffs: [],            // { id, kind: 'pricey', day (the day it lasts), questId (its penalty quest) | null, at }
         lost: [],               // items taken from the bag as a Hell penalty: { id, name, icon, rarity, at, day }
         goal: null,             // { id, title, total, done: false, skillGiven } — its stages are quests of kind 'goal'
+        goalAuto: false,        // 0.6.2: this chat has had its goal (set by the System or by hand): no more goals by itself
         // stage 2-C: { id, name, grade (F…S, SS), type: passive | active, effect, hidden: { effect, key (AI reply that opened it) | null, reason, at } | null,
         //   from: gacha | book | goal | hidden, mode, day, at, uses, fresh (NEW until looked at) }
         skills: [],

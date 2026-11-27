@@ -899,3 +899,8 @@
 .sblink-qbbar i { flex: 1 1 0; height: 4px; background: rgba(255, 255, 255, 0.15); }
 .sblink-qbbar i.sblink-on { background: var(--qb); }
 .sblink-qbbar i.sblink-now { background: var(--qb); box-shadow: 0 0 6px var(--qb); opacity: 0.7; }
+
+/* 0.6.2: the main goal is locked during the tutorial */
+.sblink-goallock { border-style: solid; opacity: 0.85; }
+.sblink-lockmark { flex: 0 0 auto; font-size: 13px; line-height: 1; filter: grayscale(1); }
+.sblink-goalnone > .sblink-spin { flex: 0 0 auto; width: 16px; height: 16px; }

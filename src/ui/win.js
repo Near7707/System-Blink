@@ -6,7 +6,7 @@ import { settings, room, currentChatId, save } from '../store.js';
 import {
     active, chatView, points, todays, questState, clearByHand, undoClear, lifeNow, setLife, nextDay, ownerName,
     standingItems, dailyReady, stockDaily, restockStanding, buy, useItem, tutorialStep, skipTutorial, switchOn, rate, bus,
-    goalNow, condsOf, suddenLeft, setGoal, editGoal, nextStage, isMakingStage,
+    goalNow, condsOf, suddenLeft, setGoal, editGoal, nextStage, isMakingStage, goalLocked, isGivingGoal, goalGiveFailed, giveGoal,
     diffOf, penaltyFor, debuffsNow, priceOf, penaltyQuests, toneOf, warnFor, warnCount, WARN_MAX,
     skillsOf, hiddenOpen, seeSkill, useSkill, openGacha, isDrawing, gradeRarity,
 } from '../engine.js';
@@ -510,7 +510,12 @@ const stageBar = (done, total, now) => `<div class="sblink-stagebar">${Array.fro
 
 function goalBlock(r, view) {
     if (!r.goal) {
-        return sec(t('main_goal'), '', 'sblink-goalhead') + `<div class="sblink-goalnone"><span class="sblink-ell">${esc(t('no_goal'))}</span>
+        const head = sec(t('main_goal'), '', 'sblink-goalhead');
+        // 0.6.2: locked while the tutorial runs; the System sets it by itself afterwards
+        if (goalLocked(r)) return head + `<div class="sblink-goalnone sblink-goallock"><span class="sblink-lockmark">🔒</span><span class="sblink-ell">${esc(t('goal_locked'))}</span></div>`;
+        if (isGivingGoal()) return head + `<div class="sblink-goalnone">${hexMark('sblink-spin')}<span class="sblink-ell">${esc(t('goal_giving'))}</span></div>`;
+        const retry = goalGiveFailed() ? `<button type="button" class="sblink-btn sblink-btn-sm" data-act="goalRetry"><span class="sblink-ell">${esc(t('goal_retry'))}</span></button>` : '';
+        return head + `<div class="sblink-goalnone"><span class="sblink-ell">${esc(t('no_goal'))}</span>${retry}
           <button type="button" class="sblink-btn sblink-btn-sm" data-act="goalNew"><span class="sblink-ell">${esc(t('goal_set'))}</span></button></div>`;
     }
     const g = goalNow(r, view);
@@ -635,7 +640,7 @@ function goalEditPage() {
     const f = (k, label, val, ph) => `<label class="sblink-field"><span class="sblink-code">${esc(label)}</span><input class="sblink-input" data-goal="${k}" maxlength="80" value="${esc(val)}" placeholder="${esc(ph)}"></label>`;
     const totals = [3, 4, 5].filter(n => n >= (d.minTotal || 2));
     let body = '';
-    if (ui.goalMode === 'new' && settings().goalSuggest !== 'off') {
+    if (ui.goalMode === 'new') {
         body += `<button type="button" class="sblink-btn sblink-btn-wide sblink-suggest" data-act="goalSuggest"${ui.suggesting ? ' disabled' : ''}>${ui.suggesting ? hexMark('sblink-spin') : ''}<span class="sblink-ell">${esc(ui.suggesting ? t('goal_suggesting') : t('goal_suggest'))}</span></button>
           <div class="sblink-hint">${esc(t('goal_suggest_hint'))}</div>`;
     }
@@ -780,12 +785,13 @@ async function onClick(e) {
             const go = () => {
                 const kept = ui.drafts[currentChatId()];
                 ui.back = 'quests'; ui.goalMode = 'new'; ui.goalDraft = kept ? structuredClone(kept) : blankDraft(); ui.freshDraft = true; ui.view = 'goalEdit'; render();
-                if (settings().goalSuggest === 'auto' && !kept && !ui.suggesting) suggestGoal();
             };
+            if (goalLocked()) return notice(t('goal_locked'));
             if (room()?.goal && !goalNow().complete) { ui.modal = { title: t('goal_new_q'), body: t('goal_new_body'), yes: t('goal_new'), code: 'SYS.CONFIRM // GOAL', run: go }; return render(); }
             return go();
         }
         case 'goalSuggest': return askSuggest();
+        case 'goalRetry': { const p = giveGoal(currentChatId(), true); render(); await p; return render(); }
         case 'stageRetry': return retryStage();
         case 'goalSave': {
             readDraft();

@@ -6,7 +6,7 @@ A game-like **System** for SillyTavern roleplay, in the style of Korean system n
 In the middle of the story, a translucent System window pops up — *"[Daily quests have arrived]"* —
 you clear quests in the story, earn points, and spend them in your own **personal shop**.
 
-This version (0.6.1): the System window, the tutorial, daily quests, the shop, the bag and daily-life mode,
+This version (0.6.2): the System window, the tutorial, daily quests, the shop, the bag and daily-life mode,
 sudden quests, hidden quests, a main goal, quests with several conditions, **difficulty with penalties**,
 **skills and gacha**, **three System voices** with **spectators** who react and sponsor — and, if you like, **new quests shown in the story**.
 
@@ -22,6 +22,8 @@ https://github.com/Near7707/System-Blink
 
 - **Wake the System in a chat.** Open *System Blink* in the ✨ wand menu and press *[Wake the System]*.
   Each chat has its own System: points, bag, quests and tutorial. Other chats are not touched.
+  After that, **new chats with the same character (or group) wake by themselves** — you still choose to do or skip the tutorial.
+  Chats you already have stay as they are. Turn it off in ⚙ › *Wake new chats with this character too*, or say yes when you switch a chat off.
   From then on a floating hexagon button opens it in that chat. Let go of the button against the side of the chat
   and it tucks in as a small bookmark tab; drag it inward to bring it back.
 - **Tutorial** (once per chat): open the window → clear your first daily quest → buy something → use something.
@@ -39,7 +41,9 @@ https://github.com/Near7707/System-Blink
   a new main-goal stage, a penalty quest — the AI writes a short `[SYS:QUEST] …` line in its next reply. On screen the line is
   drawn as a small System window in your voice's colours (daily quests share one, with their rewards). Tap it to open your quests.
   The message text keeps the plain line; the story check ignores these lines; a swiped reply asks for them again.
-- **Main goal**: one big goal per chat in 3–5 stages. The AI can suggest it from the character card — on the button, or right away if set to Auto (you can edit every line);
+- **Main goal**: one big goal per chat in 3–5 stages. It is locked during the tutorial; when the tutorial ends (or is skipped), the System
+  sets one by itself from the character card and the story — once per chat (*[Edit goal]* changes any line). You can also write one,
+  or ask the AI on the *[Set a goal]* page;
   each next stage is made from the story when you clear the one before. A stage may have two conditions —
   each is checked on its own, and the points come when both are done.
 - **Difficulty** (each chat its own; *Off* by default = as before): *Easy* / *Normal* / *Hard* / *Hell*.
@@ -101,7 +105,7 @@ Everything is both in the window's ⚙ page and in SillyTavern's extension setti
 Highlights: voice and difficulty (per chat), spectators (on/off, light / rich, sponsorships), point rate, story date / real time as the day basis, how often the story is checked
 (every reply / every 3rd / by hand), who sees the System, telling the AI the daily-life fields,
 opening chances for quests, how often sudden quests come (and the rest after one), hidden quests on/off, new quests in the story,
-the AI suggesting the main goal (auto / manual / off), a **world note** per chat (used when making quests and items), your own
+getting the main goal by itself, a **world note** per chat (used when making quests and items), your own
 shop items, a connection profile for the side requests (a cheap, fast model is enough), backup / restore,
 and *What was sent*.
 

@@ -5,7 +5,7 @@
 
 import { t, setLanguage, lang } from './src/i18n.js';
 import { ctx, settings, save, uiLang, room, currentChatId, onChatRenamed, onChatDeleted, copyFromParent, VERSION } from './src/store.js';
-import { bus, storeCheck, bindUses, markDelivered, markTold, active, checkRealDay, setLangGetter, skipTutorial, rate, lastReply, chatView, nextStage, tidy, answerSudden, penaltyFor, rewardSkill, warnFor, checkBig, spectate, toneOf } from './src/engine.js';
+import { bus, storeCheck, bindUses, markDelivered, markTold, active, checkRealDay, setLangGetter, skipTutorial, rate, lastReply, chatView, nextStage, tidy, answerSudden, penaltyFor, rewardSkill, warnFor, checkBig, spectate, toneOf, autoWake, giveGoal } from './src/engine.js';
 import { runCheck } from './src/ai.js';
 import { buildPrompt } from './src/prompt.js';
 import { panelHtml, panelChange, runButton, setPrefsHooks } from './src/prefs.js';
@@ -14,7 +14,7 @@ import { openWindow, closeWindow, isOpen, refreshWin, place as placeWin, setWinH
 import { mountFab, unmountFab, setFabHidden, setFabCount, setFabHooks, syncFabChat, place as placeFab, endDrag } from './src/ui/fab.js';
 import {
     popup, notice, hold, waiting, setPopHooks, placePops, renderStrip, placeStrip, foldStrip, stripShown, renderCards, renderCardsSoon,
-    removeCards, clearPopups, questsPopup, suddenPopup, hiddenPopup, stagePopup, goalDonePopup, failPopup, skillPopup, unlockPopup, bigPopup,
+    removeCards, clearPopups, questsPopup, suddenPopup, hiddenPopup, stagePopup, goalDonePopup, goalGivenPopup, failPopup, skillPopup, unlockPopup, bigPopup,
 } from './src/ui/pop.js';
 import { esc } from './src/ui/util.js';
 
@@ -144,6 +144,8 @@ function wireBus() {
     bus.on('stageCleared', (q) => { stagePopup(q, rate(q.reward)); nextStage(); });
     bus.on('stageArrived', (q) => notice(t('toast_stage_new', { name: q.name })));
     bus.on('goalDone', (g) => goalDonePopup(g));
+    bus.on('goalGiven', ({ goal, stage }) => goalGivenPopup(goal, stage, stage ? rate(stage.reward) : 0));
+    bus.on('goalFailed', () => notice(t('goal_give_failed'), 'warn'));
     bus.on('questsArrived', (list) => questsPopup(list.map(q => ({ name: q.name, pts: q.kind === 'penalty' ? 0 : rate(q.reward), penalty: q.kind === 'penalty', conds: q.conds || null, diff: q.diff }))));
     bus.on('sudden', ({ id, yes }) => answered(id, yes));
     bus.on('dayMoved', ({ days, failed, pen = [], debuff, lost, chatId }) => {
@@ -231,6 +233,22 @@ function mountWand() {
     return true;
 }
 
+// ---------- 0.6.2: entering a chat ----------
+// A brand-new chat with a character woken before wakes by itself; a chat without a main goal gets one.
+// Waits a moment so the chat (and its greeting) is loaded before it is looked at.
+let enterTimer = 0;
+function enteredSoon() {
+    clearTimeout(enterTimer);
+    const chatId = currentChatId();
+    enterTimer = setTimeout(async () => {
+        if (!chatId || currentChatId() !== chatId || !settings().enabled || generating) return;
+        try {
+            if (await autoWake()) { mountPanel(); redrawSoon(); return; } // waking gives the goal itself (after the tutorial)
+            await giveGoal(chatId);
+        } catch (e) { console.warn('[System Blink] enter', e); }
+    }, 600);
+}
+
 // ---------- events ----------
 function registerEvents() {
     const { eventSource } = ctx();
@@ -238,7 +256,7 @@ function registerEvents() {
     // while switched off nothing runs, except keeping saved data with renamed / deleted chats
     const on = (name, fn, always = false) => { if (name) eventSource.on(name, (...a) => { try { if (always || settings().enabled) return fn(...a); } catch (e) { console.error('[System Blink]', e); } }); };
 
-    on(ev.CHAT_CHANGED, () => { copyFromParent(); if (!settings().enabled) return; generating = false; hold(false); checkRealDay(); redrawSoon(); }, true);
+    on(ev.CHAT_CHANGED, () => { copyFromParent(); mountPanel(); if (!settings().enabled) return; generating = false; hold(false); checkRealDay(); redrawSoon(); enteredSoon(); }, true);
     for (const name of [ev.MESSAGE_DELETED, ev.MESSAGE_SWIPED, ev.MESSAGE_EDITED, ev.MESSAGE_UPDATED,
         ev.USER_MESSAGE_RENDERED, ev.CHARACTER_MESSAGE_RENDERED, ev.MORE_MESSAGES_LOADED, ev.CHAT_LOADED]) {
         on(name, () => { renderCardsSoon(); redrawSoon(); });
@@ -267,7 +285,7 @@ function registerEvents() {
     on(ev.CHAT_RENAMED, (data) => { onChatRenamed(data?.oldFileName, data?.newFileName); redrawSoon(); }, true);
     on(ev.CHAT_DELETED, (name) => onChatDeleted(name), true);
     on(ev.GROUP_CHAT_DELETED, (name) => onChatDeleted(name), true);
-    on(ev.APP_READY, () => { mountWand(); if (!settings().enabled) return; mountFab(); checkRealDay(); redraw(); }, true);
+    on(ev.APP_READY, () => { mountWand(); if (!settings().enabled) return; mountFab(); checkRealDay(); redraw(); enteredSoon(); }, true);
 }
 
 function watchScreen() {

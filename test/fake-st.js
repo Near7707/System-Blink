@@ -16,7 +16,8 @@
         on(n, f) { (listeners[n] ||= []).push(f); },
         async emit(n, ...a) { for (const f of listeners[n] || []) await f(...a); },
     };
-    const characters = [{ name: 'Mira', avatar: 'mira.png', description: 'A cheerful barista in a small seaside town.' }];
+    const characters = [{ name: 'Mira', avatar: 'mira.png', description: 'A cheerful barista in a small seaside town.' },
+        { name: 'Juno', avatar: 'juno.png', description: 'A quiet night-shift librarian.' }];
     const extensionSettings = { connectionManager: { profiles: [{ id: 'p1', name: 'Fast model' }] } };
     try { Object.assign(extensionSettings, JSON.parse(localStorage.getItem('sblink_test_settings') || '{}')); } catch { /* ignore */ }
     if (params.has('fresh')) { for (const k of Object.keys(extensionSettings)) if (k !== 'connectionManager') delete extensionSettings[k]; localStorage.removeItem('systemBlink.device'); }
@@ -28,7 +29,7 @@
     const stamp = () => new Date(state.clock += 60_000).toISOString();
     function chat() {
         if (!chats[state.chatName]) {
-            chats[state.chatName] = [{ is_user: false, is_system: false, name: 'Mira', mes: 'Morning! The café just opened. Want your usual?', send_date: stamp() }];
+            chats[state.chatName] = [{ is_user: false, is_system: false, name: characters[state.characterId]?.name || 'Mira', mes: 'Morning! The café just opened. Want your usual?', send_date: stamp() }];
             // a long chat for speed checks: made-up lines only
             const n = Number(params.get('long') || 0);
             for (let i = 1; i < n; i++) chats[state.chatName].push(i % 2
@@ -71,6 +72,7 @@
         }
         if (/ONE main goal/.test(sys)) {
             window.__calls.goal = (window.__calls.goal || 0) + 1;
+            if (window.__goalFail) return 'nope';
             return ko ? '{"title":"작은 찻집을 내 가게로 만들기","total":4,"stage":{"name":"찻집의 단골 되기","conds":[],"reward":100}}'
                 : '{"title":"Make the little tea house my own","total":4,"stage":{"name":"Become a regular at the tea house","conds":[],"reward":100}}';
         }
@@ -209,6 +211,8 @@
             await eventSource.emit(eventTypes.CHAT_RENAMED, { oldFileName: `${from}.jsonl`, newFileName: `${to}.jsonl` });
             await eventSource.emit(eventTypes.CHAT_CHANGED, to);
         },
+        // another character's chat (a new name = a brand-new chat with only the greeting)
+        async openCharChat(charId, name) { state.characterId = charId; state.chatName = name; render(); await eventSource.emit(eventTypes.CHAT_CHANGED, name); },
         async openChat(name) { state.chatName = name; render(); await eventSource.emit(eventTypes.CHAT_CHANGED, name); },
         async closeChat() { state.keep = state.characterId; state.characterId = undefined; render(); await eventSource.emit(eventTypes.CHAT_CHANGED, undefined); },
         async reopenChat() { state.characterId = state.keep ?? 0; render(); await eventSource.emit(eventTypes.CHAT_CHANGED, state.chatName); },

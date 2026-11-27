@@ -328,8 +328,8 @@ export function needsEveryCheck(r = room(), view = chatView()) {
 
 // ----- main goal -----
 /** Set (or replace) the main goal with its first stage. */
-export function setGoal({ title, total, stage }) {
-    const r = room();
+export function setGoal({ title, total, stage }, chatId = currentChatId()) {
+    const r = room(chatId);
     if (!r) return null;
     // stages of an old goal stay only if they gave points (so points are not lost)
     r.quests = r.quests.filter(q => q.kind !== 'goal' || r.ledger.some(e => e.questId === q.id && !e.undone));
@@ -857,6 +857,7 @@ function finishTutorial(r) {
     if (!r.titles.includes(title)) r.titles.push(title);
     if (!r.title) r.title = title;
     bus.emit('tutorialDone');
+    goalSoon();
 }
 
 export function skipTutorial() {
@@ -864,6 +865,7 @@ export function skipTutorial() {
     if (!r) return;
     r.tutorial.state = 'skipped';
     save(); changed();
+    goalSoon();
 }
 
 /** Switch the system on in this chat (first time: the awakening and day 1). */
@@ -873,6 +875,9 @@ export async function switchOn() {
     if (!r) return;
     const first = r.tutorial.state === 'none' && !r.quests.length;
     r.on = true;
+    // 0.6.2: waking a chat once = new chats with this character wake too (unless that was switched off for it)
+    const ck = charKey();
+    if (ck && settings().autoWake[ck] === undefined) settings().autoWake[ck] = true;
     if (!r.realDate) r.realDate = realDateNow();
     save(); changed();
     if (first) {
@@ -880,6 +885,7 @@ export async function switchOn() {
         else r.tutorial.state = 'skipped';
         save();
         await newQuests(chatId);
+        goalSoon(chatId);
     }
 }
 
@@ -888,6 +894,74 @@ export function switchOff() {
     if (!r) return;
     r.on = false;
     save(); changed();
+}
+
+// ---------- 0.6.2: the main goal comes by itself, and new chats wake by themselves ----------
+let givingGoal = '';
+const goalFailed = new Set(); // chats where making the goal failed (this session): no more tries until [Try again]
+export const isGivingGoal = (chatId = currentChatId()) => !!chatId && givingGoal === chatId;
+export const goalGiveFailed = (chatId = currentChatId()) => goalFailed.has(chatId);
+/** The goal is locked while the tutorial runs (only when there is no goal yet). */
+export const goalLocked = (r = room()) => !r?.goal && r?.tutorial?.state === 'active';
+
+function goalWanted(r, force) {
+    if (!active(r) || r.goal || r.tutorial?.state === 'active' || r.tutorial?.state === 'none') return false;
+    if (force) return true;
+    return !!settings().goalAuto && !r.goalAuto;
+}
+
+function goalSoon(chatId = currentChatId()) { setTimeout(() => { giveGoal(chatId).catch(e => console.warn('[System Blink] goal', e)); }, 0); }
+
+/** The System sets the main goal by itself: once per chat (when there is none), after the tutorial or when the chat is entered. */
+export async function giveGoal(chatId = currentChatId(), force = false) {
+    const r = room(chatId);
+    if (!r) return null;
+    if (r.goal && !r.goalAuto) { r.goalAuto = true; save(); }
+    if (givingGoal || (!force && goalFailed.has(chatId)) || !goalWanted(r, force)) return null;
+    if (chatId !== currentChatId()) return null; // the AI reads the open chat
+    givingGoal = chatId; goalFailed.delete(chatId); changed();
+    let made = null;
+    try { made = await bus.ask('goal', {}); } catch (e) { console.warn('[System Blink] goal', e); }
+    givingGoal = '';
+    const rr = room(chatId);
+    if (!rr || rr.goal || !active(rr) || currentChatId() !== chatId) { changed(); return null; }
+    if (!made?.title || !made?.stage?.name) {
+        goalFailed.add(chatId); changed();
+        bus.emit('goalFailed');
+        return null;
+    }
+    const total = [3, 4, 5].includes(Math.round(made.total)) ? Math.round(made.total) : 4;
+    const g = setGoal({ title: made.title, total, stage: made.stage }, chatId);
+    rr.goalAuto = true; save(); changed();
+    bus.emit('goalGiven', { goal: g, stage: goalNow(rr).current });
+    return g;
+}
+
+/** Who this chat is with: a character (by its card file) or a group. */
+export function charKey() {
+    try {
+        const c = ctx();
+        if (c.groupId) return `g:${c.groupId}`;
+        const ch = c.characters?.[c.characterId];
+        return ch?.avatar ? `c:${ch.avatar}` : null;
+    } catch { return null; }
+}
+
+/**
+ * A brand-new chat (nothing saved for it, at most the greeting) with a character whose chats were woken before:
+ * wake it. Old chats that were never woken are left alone.
+ */
+export async function autoWake() {
+    const s = settings();
+    const chatId = currentChatId();
+    if (!s.enabled || !chatId || s.chats[chatId]) return false;
+    const ck = charKey();
+    if (!ck || s.autoWake[ck] !== true) return false;
+    let n = 0;
+    try { n = (ctx().chat || []).filter(m => m && !m.is_system).length; } catch { return false; }
+    if (n > 1) return false;
+    await switchOn();
+    return true;
 }
 
 // ---------- skills (stage 2-C) ----------

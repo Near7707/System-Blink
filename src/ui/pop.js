@@ -454,6 +454,18 @@ export function goalDonePopup(g) {
     });
 }
 
+/** 0.6.2: the System set the main goal by itself. */
+export function goalGivenPopup(g, stage, pts) {
+    const lines = [`<span class="sblink-dia">◆</span><span class="sblink-qtext">${esc(g.title)}</span>`];
+    if (stage) lines.push(`<span class="sblink-code">${esc(t('stage_now'))} ▸</span><span class="sblink-qtext">${esc(stage.name)}</span><b class="sblink-pts">${esc(ptsText(pts))}</b>`);
+    popup({
+        tag: 'MAIN', code: 'SYS.GOAL // MAIN', title: t('pop_goal_given'),
+        lines, body: esc(t('goal_given_body')),
+        second: t('view_quests'), ok: t('ok'),
+        onClose: (act) => { if (act === 'second') hooks.openTab('quests'); },
+    });
+}
+
 export function todayCount(r = room()) { return todays(r).length; }
 
 /** Threat voice: three warnings set off a big event in the story. */
