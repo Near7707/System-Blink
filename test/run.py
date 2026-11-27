@@ -94,6 +94,7 @@ def main():
             fixes051(browser)
             fixes053(browser)
             fab055(browser)
+            shapes056(browser)
             browser.close()
     finally:
         srv.terminate()
@@ -1173,6 +1174,43 @@ def fab055(browser):
     check(not errors, f'no errors {errors[:3]}')
     page.close()
 
+
+
+def shapes056(browser):
+    print('--- 0.5.6 button shapes')
+    for width, height, tag in [(390, 844, 'phone'), (1400, 860, 'pc')]:
+        page, errors = open_page(browser, 'fresh&lang=ko', width, height)
+        ev(page, "(async () => { const m = await import('/src/engine.js'); await m.switchOn(); })()"); page.wait_for_timeout(700)
+        close_pops(page, 8)
+        if ev(page, "!!document.getElementById('sblink-win')"):
+            page.click('[data-act="close"]'); page.wait_for_timeout(250)
+        want = {'phone': {'hex': (46, 64), 'hexb': (46, 64), 'tab': (30, 68), 'badge': (46, 64)},
+                'pc': {'hex': (60, 78), 'hexb': (60, 78), 'tab': (34, 76), 'badge': (54, 72)}}[tag]
+        for shape, (w, h) in want.items():
+            ev(page, f"(async () => {{ const m = await import('/src/prefs.js'); await m.setValue('btnShape', '{shape}'); }})()"); page.wait_for_timeout(300)
+            b = page.locator('#sblink-fab').bounding_box()
+            check(abs(b['width'] - w) < 1 and abs(b['height'] - h) < 1, f'{tag} {shape}: box {b["width"]:.0f}x{b["height"]:.0f} (want {w}x{h})')
+            vis = ev(page, "(() => { const f = document.getElementById('sblink-fab'); const v = (c) => getComputedStyle(f.querySelector(c)).display !== 'none'; return [v('.sblink-fabring'), v('.sblink-fabtab')]; })()")
+            check(vis == ([False, True] if shape == 'tab' else [shape != 'badge', False]), f'{tag} {shape}: right parts shown {vis}')
+            shot(page, f'shape056_{tag}_{shape}')
+        # every shape tucks into the same bookmark, and comes back as itself
+        drag_to(page, width - 2 if tag == 'phone' else ev(page, "document.getElementById('sheld').getBoundingClientRect().right") + 8, 400)
+        check(ev(page, "document.getElementById('sblink-fab').classList.contains('sblink-fab-tuck')"), f'{tag} badge tucks in')
+        tb = page.locator('#sblink-fab .sblink-fabtab').bounding_box()
+        check(abs(tb['width'] - 24) < 1 and abs(tb['height'] - 72) < 1, f'{tag}: the bookmark is the same for every shape')
+        drag_to(page, width / 2 - 100, 380)
+        b = page.locator('#sblink-fab').bounding_box()
+        check(not ev(page, "document.getElementById('sblink-fab').classList.contains('sblink-fab-tuck')") and abs(b['width'] - want['badge'][0]) < 1, f'{tag}: comes back as the badge')
+        # ring row only for the hologram hexagon
+        page.click('#sblink-fab'); page.wait_for_timeout(300); page.click('[data-act="gear"]'); page.wait_for_timeout(250)
+        check(not ev(page, "!!document.querySelector('#sblink-win [data-set=\"btnRing\"]')") and ev(page, "document.querySelectorAll('#sblink-win [data-set=\"btnShape\"]').length") == 4, f'{tag}: 4 shape chips, no ring row for the badge')
+        if tag == 'phone':
+            page.locator('#sblink-win [data-set="btnShape"]').first.scroll_into_view_if_needed()
+            shot(page, 'shape056_settings')
+        page.click('#sblink-win [data-set="btnShape"][data-val="hex"]'); page.wait_for_timeout(300)
+        check(ev(page, "!!document.querySelector('#sblink-win [data-set=\"btnRing\"]')"), f'{tag}: ring row back for the hexagon')
+        check(not errors, f'{tag} no errors {errors[:3]}')
+        page.close()
 
 if __name__ == '__main__':
     main()

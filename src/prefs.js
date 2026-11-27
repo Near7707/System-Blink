@@ -49,7 +49,8 @@ export const SCHEMA = [
         { k: 'btnShow', kind: 'toggle' },
         { k: 'btnOnlyOn', kind: 'toggle', needs: 'btnShow' },
         { k: 'btnSize', kind: 'choice', opts: ['small', 'normal'], scope: 'device', needs: 'btnShow' },
-        { k: 'btnRing', kind: 'choice', opts: ['dotted', 'solid'], scope: 'device', needs: 'btnShow', preview: true },
+        { k: 'btnShape', kind: 'choice', opts: ['hex', 'hexb', 'tab', 'badge'], scope: 'device', needs: 'btnShow', shapes: true },
+        { k: 'btnRing', kind: 'choice', opts: ['dotted', 'solid'], scope: 'device', needs: 'btnShow', preview: true, when: () => device().shape === 'hex' },
         { k: 'btnTuck', kind: 'toggle', needs: 'btnShow' },
         { k: 'btnDim', kind: 'toggle', needs: 'btnShow' },
         { k: 'btnReset', kind: 'button', needs: 'btnShow' },
@@ -85,6 +86,7 @@ export function getValue(k) {
         case 'lang': return lang();
         case 'btnSize': return device().size;
         case 'btnRing': return device().ring;
+        case 'btnShape': return device().shape;
         default: return s[k];
     }
 }
@@ -109,6 +111,7 @@ export async function setValue(k, v) {
         case 'world': { const r = room(currentChatId(), true); if (r) { r.world = String(v || '').slice(0, 2000); save(); } break; }
         case 'lang': s.lang = v === 'ko' ? 'ko' : 'en'; s.langChosen = true; setLanguage(s.lang); save(); break;
         case 'btnSize': case 'btnRing': { const d = device(); d[k === 'btnSize' ? 'size' : 'ring'] = v; if (k === 'btnSize') d.sizePicked = true; saveDevice(d); break; }
+        case 'btnShape': { const d = device(); if (['hex', 'hexb', 'tab', 'badge'].includes(v)) { d.shape = v; saveDevice(d); } break; }
         case 'pointRate': s.pointRate = Number(v); save(); break;
         case 'suddenRest': s.suddenRest = Number(v); save(); break;
         default: s[k] = v; save();
@@ -226,7 +229,7 @@ function gearRow(row) {
           <button type="button" class="sblink-tog${v ? ' sblink-on' : ''}" data-set="${row.k}" data-val="${v ? '0' : '1'}" role="switch" aria-checked="${v ? 'true' : 'false'}"${dis ? ' disabled' : ''}><i></i></button></div>${hintHtml}</div>`;
     }
     if (row.kind === 'choice') {
-        const chips = row.opts.map(o => `<button type="button" class="sblink-chip${String(o) === String(v) ? ' sblink-chip-on' : ''}" data-set="${row.k}" data-val="${o}"${dis ? ' disabled' : ''}>${row.preview ? `<i class="sblink-ringprev sblink-ring-${o}"></i>` : ''}${row.dots ? `<i class="sblink-tonedot sblink-tonedot-${o}"></i>` : ''}<span class="sblink-ell">${esc(optLabel(row, o))}</span></button>`).join('');
+        const chips = row.opts.map(o => `<button type="button" class="sblink-chip${String(o) === String(v) ? ' sblink-chip-on' : ''}" data-set="${row.k}" data-val="${o}"${dis ? ' disabled' : ''}>${row.preview ? `<i class="sblink-ringprev sblink-ring-${o}"></i>` : ''}${row.shapes ? `<i class="sblink-shapeprev sblink-shapeprev-${o}"></i>` : ''}${row.dots ? `<i class="sblink-tonedot sblink-tonedot-${o}"></i>` : ''}<span class="sblink-ell">${esc(optLabel(row, o))}</span></button>`).join('');
         return `<div class="sblink-row${d}"><div class="sblink-rowlabel">${esc(label(row))}</div><div class="sblink-chips">${chips}</div>${hintHtml}</div>`;
     }
     if (row.kind === 'radio') {

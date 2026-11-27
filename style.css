@@ -264,6 +264,12 @@
 .sblink-ringprev { width: 16px; height: 16px; flex: none; border: 2px dotted currentColor; clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%); }
 .sblink-ringprev.sblink-ring-solid { border-style: solid; }
 .sblink-moving .sblink-ringprev { animation: sblink-spin 6s linear infinite; }
+/* 0.5.6 shape chips: a tiny picture of each button shape */
+.sblink-shapeprev { width: 14px; height: 16px; flex: none; box-sizing: border-box; border: 1.5px solid currentColor; }
+.sblink-shapeprev-hex { border-style: dotted; border-width: 2px; clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%); background: rgba(var(--sb-acc-rgb), 0.35); }
+.sblink-shapeprev-hexb { clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%); border-bottom-width: 3px; }
+.sblink-shapeprev-tab { width: 9px; height: 17px; clip-path: polygon(3px 0, calc(100% - 3px) 0, 100% 3px, 100% calc(100% - 3px), calc(100% - 3px) 100%, 3px 100%, 0 calc(100% - 3px), 0 3px); border-top-width: 3px; }
+.sblink-shapeprev-badge { width: 15px; height: 15px; clip-path: polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px); border-bottom-width: 3px; }
 .sblink-fold .sblink-sechead { cursor: pointer; min-height: 36px; }
 /* a folded group looks like a bar you can press: box, what is inside, an open/close chip */
 .sblink-foldbar { margin: 12px 0 8px; padding: 9px 12px; min-height: 44px; border: 1px solid var(--sb-acc-dim); background: rgba(var(--sb-acc-rgb), 0.07); clip-path: var(--sb-cut-s); }
@@ -405,6 +411,45 @@
     .sblink-tab-r:hover .sblink-fabtab { transform: translateX(-5px); }
 }
 .sblink-fab:not(.sblink-moving) .sblink-fabtab { transition: none; }
+
+/* 0.5.6 button shapes (this device). Sizes of the box come from fab.js; these draw what is inside. */
+.sblink-fabringlow { display: none; }
+/* B-hexagon: a dark hexagon with a thin solid line and a bright bottom edge */
+.sblink-shape-hexb .sblink-fabring { animation: none !important; }
+.sblink-shape-hexb .sblink-fabring polygon { fill: var(--sb-bg); stroke-dasharray: none; stroke-width: 3; stroke-opacity: 0.75; }
+.sblink-shape-hexb .sblink-fabringlow { display: inline; fill: none; stroke: var(--sb-acc); stroke-width: 5; stroke-dasharray: none; }
+.sblink-shape-hexb .sblink-fabbody { background: none; box-shadow: none; }
+.sblink-shape-hexb .sblink-fabbody::before, .sblink-shape-hexb .sblink-fabscan { display: none; }
+.sblink-shape-hexb .sblink-fabmark { color: var(--sb-acc); filter: none; }
+/* B-badge: a square with two cut corners, like the window's buttons */
+.sblink-shape-badge .sblink-fabring { display: none; }
+.sblink-shape-badge .sblink-fabbody { left: 0; top: 0; width: 54px; height: 54px; box-sizing: border-box; background: var(--sb-bg); border: 1px solid rgba(var(--sb-acc-rgb), 0.7);
+    box-shadow: inset 0 -2px 0 var(--sb-acc); clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px); }
+.sblink-shape-badge.sblink-fab-small .sblink-fabbody { width: 46px; height: 46px; clip-path: polygon(9px 0, 100% 0, 100% calc(100% - 9px), calc(100% - 9px) 100%, 0 100%, 0 9px); }
+.sblink-shape-badge .sblink-fabbody::before, .sblink-shape-badge .sblink-fabscan { display: none; }
+.sblink-shape-badge .sblink-fabmark { width: 22px; height: 22px; color: var(--sb-acc); filter: none; }
+.sblink-shape-badge.sblink-fab-small .sblink-fabmark { width: 20px; height: 20px; }
+.sblink-shape-badge .sblink-fabcode { top: 56px; }
+.sblink-shape-badge.sblink-fab-small .sblink-fabcode { top: 48px; }
+.sblink-shape-badge .sblink-fabchip { right: -7px; top: -6px; }
+.sblink-dragging.sblink-shape-badge .sblink-fabbody { transform: scale(1.06); }
+/* B-tab: the bookmark itself, floating free (all four corners cut, a bright top edge) */
+.sblink-shape-tab:not(.sblink-fab-tuck) .sblink-fabring, .sblink-shape-tab:not(.sblink-fab-tuck) .sblink-fabbody, .sblink-shape-tab:not(.sblink-fab-tuck) .sblink-fabcode { display: none; }
+.sblink-shape-tab:not(.sblink-fab-tuck) .sblink-fabtab {
+    position: absolute; left: 0; top: 0; width: 100%; height: 100%; box-sizing: border-box;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+    background: var(--sb-bg); border: 1px solid rgba(var(--sb-acc-rgb), 0.7); box-shadow: inset 0 2px 0 var(--sb-acc);
+    clip-path: polygon(7px 0, calc(100% - 7px) 0, 100% 7px, 100% calc(100% - 7px), calc(100% - 7px) 100%, 7px 100%, 0 calc(100% - 7px), 0 7px);
+}
+.sblink-shape-tab:not(.sblink-fab-tuck) .sblink-fabtabmark { width: 17px; height: 17px; }
+.sblink-shape-tab:not(.sblink-fab-tuck) .sblink-fabtabcode { font-size: 10px; letter-spacing: 0.14em; }
+.sblink-shape-tab.sblink-fab-small:not(.sblink-fab-tuck) .sblink-fabtabmark { width: 15px; height: 15px; }
+.sblink-shape-tab.sblink-fab-small:not(.sblink-fab-tuck) .sblink-fabtabcode { font-size: 9px; }
+.sblink-shape-tab:not(.sblink-fab-tuck) .sblink-fabchip { right: -8px; top: -6px; }
+.sblink-dragging.sblink-shape-tab .sblink-fabtab { transform: scale(1.06); }
+/* the ghost left behind while dragging takes the same outline */
+.sblink-fabghost.sblink-shape-badge { clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px); }
+.sblink-fabghost.sblink-shape-tab { clip-path: polygon(7px 0, calc(100% - 7px) 0, 100% 7px, 100% calc(100% - 7px), calc(100% - 7px) 100%, 7px 100%, 0 calc(100% - 7px), 0 7px); }
 
 /* ---------- wand menu & extension panel (SillyTavern's own look) ---------- */
 .sblink-wandico svg { width: 1.1em; height: 1.1em; vertical-align: middle; }

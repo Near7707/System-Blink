@@ -20,7 +20,15 @@ let idleTimer = 0;
 let colWatch = null; // watches the chat column's width
 
 const TAB_W = 24, TAB_H = 72, HIT = 36, TUCK_NEAR = 36;
-const sizeOf = () => (device().size === 'small' ? 46 : 60);
+/** The button's box for its shape and size: w wide, h tall in all, body = the part a finger aims at. */
+function dims() {
+    const d = device();
+    const small = d.size === 'small';
+    if (d.shape === 'tab') return small ? { w: 30, h: 68, body: 68 } : { w: 34, h: 76, body: 76 };
+    const sz = d.shape === 'badge' ? (small ? 46 : 54) : (small ? 46 : 60);
+    return { w: sz, h: sz + 18, body: sz }; // the SYS mark sits under it
+}
+const sizeOf = () => dims().w;
 const devKey = () => (isPhone() ? 'phone' : 'pc');
 
 export function mountFab() {
@@ -37,10 +45,10 @@ export function mountFab() {
         el.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); hooks.open(); } });
     }
     const d = device();
-    el.className = `sblink-fab sblink-fab-${d.size} sblink-ring-${d.ring}${settings().motion ? ' sblink-moving' : ''}`;
+    el.className = `sblink-fab sblink-fab-${d.size} sblink-ring-${d.ring} sblink-shape-${d.shape}${settings().motion ? ' sblink-moving' : ''}`;
     el.setAttribute('aria-label', t('ext_name'));
     el.innerHTML = `
-      <svg class="sblink-fabring" viewBox="0 0 100 100" aria-hidden="true"><polygon points="50,3 91,26.5 91,73.5 50,97 9,73.5 9,26.5"/></svg>
+      <svg class="sblink-fabring" viewBox="0 0 100 100" aria-hidden="true"><polygon points="50,3 91,26.5 91,73.5 50,97 9,73.5 9,26.5"/><polyline class="sblink-fabringlow" points="9,73.5 50,97 91,73.5"/></svg>
       <div class="sblink-fabbody"><i class="sblink-fabscan"></i>${hexMark('sblink-fabmark')}</div>
       <div class="sblink-fabcode">SYS<span class="sblink-cursor">▌</span></div>
       <div class="sblink-fabtab">${hexMark('sblink-fabtabmark')}<span class="sblink-fabtabcode">SYS</span></div>
@@ -87,7 +95,7 @@ function bounds(h) {
     const vp = viewport();
     const ins = safeInsets();
     const sz = sizeOf();
-    const tall = h || sz + 18; // the hexagon has the SYS mark under it
+    const tall = h || dims().h;
     const minX = vp.x + Math.max(4, ins.left + 4);
     const maxX = vp.x + vp.w - sz - Math.max(4, ins.right + 4);
     const minY = vp.y + Math.max(8, ins.top + 8) + 40; // under the top bar
@@ -156,6 +164,9 @@ function placeTab(el, side, fy) {
 }
 
 function setTucked(el, flat) {
+    const dm = dims();
+    el.style.width = `${flat ? HIT : dm.w}px`;
+    el.style.height = `${flat ? TAB_H : dm.h}px`;
     el.classList.toggle('sblink-fab-tuck', !!flat);
     el.classList.toggle('sblink-tab-l', flat === 'l');
     el.classList.toggle('sblink-tab-r', flat === 'r');
@@ -189,7 +200,7 @@ function onDown(e) {
     if (fromTab) { // the hexagon that comes out sits where the tab was
         const b = bounds();
         ox = Math.min(b.maxX, Math.max(b.minX, ox + HIT / 2 - b.sz / 2));
-        oy = Math.min(b.maxY, Math.max(b.minY, oy + TAB_H / 2 - b.sz / 2));
+        oy = Math.min(b.maxY, Math.max(b.minY, oy + TAB_H / 2 - dims().body / 2));
     }
     drag = { id: e.pointerId, sx: e.clientX, sy: e.clientY, ox, oy, moved: false, fromTab };
     try { el.setPointerCapture(e.pointerId); } catch { /* ignore */ }
@@ -213,7 +224,9 @@ function onMove(e) {
         el.classList.add('sblink-dragging');
         const ghost = document.createElement('div');
         ghost.id = 'sblink-fabghost';
-        ghost.className = `sblink-fabghost sblink-fab-${device().size}`;
+        const dm = dims();
+        ghost.className = `sblink-fabghost sblink-shape-${device().shape}`;
+        ghost.style.width = `${dm.w}px`; ghost.style.height = `${dm.body}px`;
         ghost.style.transform = `translate(${drag.ox}px, ${drag.oy}px)`;
         document.body.appendChild(ghost);
     }
@@ -242,7 +255,7 @@ function finishDrag(moved) {
         const d = device();
         if (side) {
             const tb = bounds(TAB_H);
-            const ty = y + b.sz / 2 - TAB_H / 2;
+            const ty = y + dims().body / 2 - TAB_H / 2;
             // fx is kept too, so turning bookmarks off leaves the hexagon on that side
             d.pos[devKey()] = { fx: side === 'right' ? 1 : 0, fy: tb.maxY > tb.minY ? Math.min(1, Math.max(0, (ty - tb.minY) / (tb.maxY - tb.minY))) : 0.5, tuck: side };
         } else {
