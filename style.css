@@ -350,23 +350,24 @@
 /* ---------- floating button ---------- */
 .sblink-fab { position: fixed; left: 0; top: 0; z-index: 2900; width: 60px; height: 78px; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; cursor: pointer; transition: opacity 0.4s; }
 .sblink-fab[hidden] { display: none; }
-.sblink-fab-small { width: 48px; height: 64px; }
+.sblink-fab-small { width: 46px; height: 62px; }
 .sblink-fabring { position: absolute; left: 0; top: 0; width: 60px; height: 60px; fill: none; stroke: var(--sb-acc); stroke-width: 2.5; stroke-dasharray: 5 5; overflow: visible; }
 .sblink-ring-solid .sblink-fabring { stroke-dasharray: none; }
-.sblink-fab-small .sblink-fabring { width: 48px; height: 48px; }
+.sblink-fab-small .sblink-fabring { width: 46px; height: 46px; }
 .sblink-moving .sblink-fabring { animation: sblink-spin 14s linear infinite; }
 .sblink-fabbody { position: absolute; left: 7px; top: 7px; width: 46px; height: 46px; overflow: hidden; clip-path: polygon(50% 0, 93% 25%, 93% 75%, 50% 100%, 7% 75%, 7% 25%); background: linear-gradient(180deg, rgba(var(--sb-acc-rgb), 0.55), rgba(var(--sb-acc-rgb), 0.08)); display: flex; align-items: center; justify-content: center; box-shadow: inset 0 0 12px rgba(var(--sb-acc-rgb), 0.6); }
-.sblink-fab-small .sblink-fabbody { left: 6px; top: 6px; width: 36px; height: 36px; }
+.sblink-fab-small .sblink-fabbody { left: 5px; top: 5px; width: 36px; height: 36px; }
 .sblink-fabbody::before { content: ''; position: absolute; inset: 0; background: repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.08) 0 1px, transparent 1px 3px); }
 .sblink-fabscan { position: absolute; left: 0; right: 0; top: -30%; height: 30%; background: linear-gradient(180deg, transparent, rgba(255, 255, 255, 0.5), transparent); }
 .sblink-moving .sblink-fabscan { animation: sblink-scan 2.8s linear infinite; }
 @keyframes sblink-scan { to { top: 110%; } }
 .sblink-fabmark { width: 24px; height: 24px; color: #fff; position: relative; filter: drop-shadow(0 0 4px var(--sb-acc)); }
-.sblink-fab-small .sblink-fabmark { width: 19px; height: 19px; }
+.sblink-fab-small .sblink-fabmark { width: 18px; height: 18px; }
 .sblink-moving .sblink-fabmark path:last-child { animation: sblink-pulse 2s ease-in-out infinite; transform-origin: center; }
 @keyframes sblink-pulse { 50% { opacity: 0.35; } }
 .sblink-fabcode { position: absolute; left: 0; right: 0; top: 61px; text-align: center; font-family: var(--sb-mono); font-size: 10px; color: var(--sb-acc); text-shadow: 0 0 4px #000; }
-.sblink-fab-small .sblink-fabcode { top: 49px; }
+.sblink-fab-small .sblink-fabcode { top: 47px; font-size: 9px; }
+.sblink-fab-small .sblink-fabchip { min-width: 17px; height: 15px; line-height: 15px; font-size: 10px; padding: 0 4px; }
 .sblink-fabchip { position: absolute; right: -6px; top: -4px; min-width: 20px; height: 18px; padding: 0 5px; font-size: 11px; font-weight: 800; line-height: 18px; text-align: center; color: #1A1200; background: var(--sb-gold); transform: skewX(-14deg); font-family: var(--sb-mono); }
 .sblink-fabchip[hidden] { display: none; }
 .sblink-fab { filter: drop-shadow(0 0 6px rgba(var(--sb-acc-rgb), 0.55)); }
@@ -376,7 +377,34 @@
 .sblink-dragging .sblink-fabring, .sblink-dragging .sblink-fabbody { transform: scale(1.1); }
 .sblink-moving.sblink-dragging .sblink-fabring { animation-duration: 3s; }
 .sblink-fabghost { position: fixed; left: 0; top: 0; z-index: 2899; width: 60px; height: 60px; border: 1px dashed var(--sb-acc-dim); clip-path: polygon(50% 0, 93% 25%, 93% 75%, 50% 100%, 7% 75%, 7% 25%); pointer-events: none; }
-.sblink-fabghost.sblink-fab-small { width: 48px; height: 48px; }
+.sblink-fabghost.sblink-fab-small { width: 46px; height: 46px; }
+
+/* 0.5.5 bookmark tab: the button tucked against the side of the chat column.
+   The box is 36px wide to be easy to hit; the tab drawn in it is 24px, on its straight (flat) side. */
+.sblink-fabtab { display: none; }
+.sblink-fab.sblink-fab-tuck { width: 36px; height: 72px; filter: drop-shadow(0 0 5px rgba(var(--sb-acc-rgb), 0.45)); }
+.sblink-fab-tuck .sblink-fabring, .sblink-fab-tuck .sblink-fabbody, .sblink-fab-tuck .sblink-fabcode { display: none; }
+.sblink-fab-tuck .sblink-fabtab {
+    position: absolute; top: 0; width: 24px; height: 72px; box-sizing: border-box;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+    background: var(--sb-bg); border: 1px solid rgba(var(--sb-acc-rgb), 0.6); transition: transform 0.18s ease;
+}
+/* flat on the left: cut corners on the right, a bright line along the straight side */
+.sblink-tab-l .sblink-fabtab { left: 0; border-left: none; box-shadow: inset 2px 0 0 var(--sb-acc);
+    clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%); }
+.sblink-tab-r .sblink-fabtab { right: 0; border-right: none; box-shadow: inset -2px 0 0 var(--sb-acc);
+    clip-path: polygon(8px 0, 100% 0, 100% 100%, 8px 100%, 0 calc(100% - 8px), 0 8px); }
+.sblink-fabtabmark { width: 14px; height: 14px; color: var(--sb-acc); flex: none; }
+.sblink-fabtabcode { font-family: var(--sb-mono); font-size: 8px; line-height: 1; letter-spacing: 0.1em; color: var(--sb-acc); writing-mode: vertical-rl; }
+.sblink-fab-tuck .sblink-fabchip { top: -8px; min-width: 15px; height: 14px; line-height: 14px; font-size: 9px; padding: 0 3px; }
+.sblink-tab-r .sblink-fabchip { left: 4px; right: auto; }
+.sblink-tab-l .sblink-fabchip { left: 16px; right: auto; }
+/* PC: the tab peeks out a little under the mouse, away from the edge it touches */
+@media (hover: hover) and (pointer: fine) {
+    .sblink-tab-l:hover .sblink-fabtab { transform: translateX(5px); }
+    .sblink-tab-r:hover .sblink-fabtab { transform: translateX(-5px); }
+}
+.sblink-fab:not(.sblink-moving) .sblink-fabtab { transition: none; }
 
 /* ---------- wand menu & extension panel (SillyTavern's own look) ---------- */
 .sblink-wandico svg { width: 1.1em; height: 1.1em; vertical-align: middle; }

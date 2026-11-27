@@ -9,6 +9,9 @@
   body { margin: 0; font-family: system-ui, sans-serif; height: 100dvh; display: flex; flex-direction: column; background: #1c1f24; color: #ddd; }
   #fake_top { display: flex; gap: 6px; padding: 6px; flex-wrap: wrap; align-items: center; font-size: 13px; }
   #fake_top button { height: 28px; }
+  /* like SillyTavern: the chat column is the whole width on a phone, a centred column on a PC */
+  #sheld { flex: 1; min-height: 0; display: flex; flex-direction: column; width: 100%; margin: 0 auto; }
+  @media (min-width: 1000px) { #sheld { width: 50vw; } }
   #chat { flex: 1; overflow-y: auto; padding: 8px; }
   #chat .mes { padding: 6px 0; border-bottom: 1px solid #8884; }
   #chat .mes_text { font-size: 15px; }
@@ -40,9 +43,11 @@
   <div id="extensions_settings2"></div>
 </div>
 </details>
+<div id="sheld">
 <div id="chat"></div>
 <div id="form_sheld">
   <div id="send_form"><textarea id="send_textarea" placeholder="Type a message"></textarea></div>
+</div>
 </div>
 <script src="/test/fake-st.js"></script>
 <script type="module">

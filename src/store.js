@@ -30,7 +30,9 @@ const DEFAULTS = Object.freeze({
     motion: true,
     logCards: true,
     btnShow: true,
-    btnSnap: false,         // free placement by default since 0.5.1
+    btnSnap: false,         // (before 0.5.5) stick to the edge — replaced by btnTuck, kept unused
+    btnTuck: true,          // 0.5.5: let go against the chat column's side = tuck in as a bookmark tab
+    btnOnlyOn: true,        // 0.5.5: show the button only in chats where the System is awake
     btnDim: true,
     useDefaults: true,
     oddities: true,
@@ -252,11 +254,13 @@ export function importData(obj) {
 }
 
 // ---------- per device ----------
+const isPhoneNow = () => typeof window !== 'undefined' && (Math.min(window.innerWidth, window.innerHeight) < 600 || window.innerWidth < 600);
 const DEV_KEY = 'systemBlink.device';
 export function device() {
     let d = {};
     try { d = JSON.parse(localStorage.getItem(DEV_KEY) || '{}') || {}; } catch { d = {}; }
-    if (!['small', 'normal'].includes(d.size)) d.size = 'normal';
+    // 0.5.5: until the size is picked by hand, a phone starts small and a PC normal
+    if (!d.sizePicked || !['small', 'normal'].includes(d.size)) d.size = isPhoneNow() ? 'small' : 'normal';
     if (!['dotted', 'solid'].includes(d.ring)) d.ring = 'dotted';
     if (!d.pos || typeof d.pos !== 'object') d.pos = {};
     return d;

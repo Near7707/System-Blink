@@ -20,8 +20,10 @@ https://github.com/Near7707/System-Blink
 
 ## How it works
 
-- **Wake the System in a chat.** Tap the floating hexagon button (or *System Blink* in the ✨ wand menu) and press
-  *[Wake the System]*. Each chat has its own System: points, bag, quests and tutorial. Other chats are not touched.
+- **Wake the System in a chat.** Open *System Blink* in the ✨ wand menu and press *[Wake the System]*.
+  Each chat has its own System: points, bag, quests and tutorial. Other chats are not touched.
+  From then on a floating hexagon button opens it in that chat. Let go of the button against the side of the chat
+  and it tucks in as a small bookmark tab; drag it inward to bring it back.
 - **Tutorial** (once per chat): open the window → clear your first daily quest → buy something → use something.
   Reward: 100P + a Gacha Ticket. You can skip it.
 - **Daily quests** (2–3 a day) are short, checkable actions — *"Buy someone a drink"*.

@@ -47,9 +47,10 @@ export const SCHEMA = [
     ] },
     { group: 'button', rows: [
         { k: 'btnShow', kind: 'toggle' },
+        { k: 'btnOnlyOn', kind: 'toggle', needs: 'btnShow' },
         { k: 'btnSize', kind: 'choice', opts: ['small', 'normal'], scope: 'device', needs: 'btnShow' },
         { k: 'btnRing', kind: 'choice', opts: ['dotted', 'solid'], scope: 'device', needs: 'btnShow', preview: true },
-        { k: 'btnSnap', kind: 'toggle', needs: 'btnShow' },
+        { k: 'btnTuck', kind: 'toggle', needs: 'btnShow' },
         { k: 'btnDim', kind: 'toggle', needs: 'btnShow' },
         { k: 'btnReset', kind: 'button', needs: 'btnShow' },
     ] },
@@ -107,7 +108,7 @@ export async function setValue(k, v) {
         case 'tone': { const r = room(); if (r && TONES.includes(v)) { r.tone = v; save(); } break; }
         case 'world': { const r = room(currentChatId(), true); if (r) { r.world = String(v || '').slice(0, 2000); save(); } break; }
         case 'lang': s.lang = v === 'ko' ? 'ko' : 'en'; s.langChosen = true; setLanguage(s.lang); save(); break;
-        case 'btnSize': case 'btnRing': { const d = device(); d[k === 'btnSize' ? 'size' : 'ring'] = v; saveDevice(d); break; }
+        case 'btnSize': case 'btnRing': { const d = device(); d[k === 'btnSize' ? 'size' : 'ring'] = v; if (k === 'btnSize') d.sizePicked = true; saveDevice(d); break; }
         case 'pointRate': s.pointRate = Number(v); save(); break;
         case 'suddenRest': s.suddenRest = Number(v); save(); break;
         default: s[k] = v; save();

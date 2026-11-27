@@ -28,7 +28,14 @@ def open_page(browser, query='fresh', width=390, height=844):
     page.goto(f'{BASE}?{query}')
     page.wait_for_function('window.__loaded === true')
     page.wait_for_timeout(200)
+    if 'onlyon' not in query:  # older checks tap the button in a chat that is not awake yet
+        show_everywhere(page)
     return page, errors
+
+
+def show_everywhere(page):
+    page.evaluate("(async () => { SillyTavern.getContext().extensionSettings.systemBlink.btnOnlyOn = false; (await import('/src/ui/fab.js')).syncFabChat(); })()")
+    page.wait_for_timeout(100)
 
 
 def shot(page, name):
@@ -86,6 +93,7 @@ def main():
             button(browser)
             fixes051(browser)
             fixes053(browser)
+            fab055(browser)
             browser.close()
     finally:
         srv.terminate()
@@ -222,7 +230,7 @@ def flow(browser, lang):
     page.click('[data-act="gear"]')
     page.click('[data-set="btnShow"]')
     page.wait_for_timeout(200)
-    check(ev(page, "document.querySelector('[data-set=\"btnSnap\"]').disabled"), 'button rows lock when the button is off')
+    check(ev(page, "document.querySelector('[data-set=\"btnTuck\"]').disabled"), 'button rows lock when the button is off')
     page.click('[data-set="btnShow"]')
     page.click('[data-act="close"]')
     check(ev(page, "!!document.getElementById('sblink-fab') && !document.getElementById('sblink-fab').hidden"), 'button back after closing')
@@ -974,14 +982,7 @@ def button(browser):
     page.wait_for_timeout(200)
     check(not ev(page, "!!document.getElementById('sblink-win')"), 'a drag does not open the window')
     x = page.locator('#sblink-fab').bounding_box()['x']
-    check(40 < x < 300, f'stays where it was let go (no edge snap by default) ({x:.0f})')
-    ev(page, "SillyTavern.getContext().extensionSettings.systemBlink.btnSnap = true")
-    box = page.locator('#sblink-fab').bounding_box()
-    page.mouse.move(box['x'] + 30, box['y'] + 30); page.mouse.down()
-    page.mouse.move(box['x'] + 25, box['y'] + 28)
-    page.mouse.move(box['x'] - 20, box['y'] + 40, steps=8); page.mouse.up(); page.wait_for_timeout(200)
-    x = page.locator('#sblink-fab').bounding_box()['x']
-    check(x < 40 or x > 300, f'with "stick to the edge" on, it sticks to an edge ({x:.0f})')
+    check(40 < x < 300, f'stays where it was let go, away from the edges ({x:.0f})')
     y = page.locator('#sblink-fab').bounding_box()
     input_top = ev(page, "document.getElementById('form_sheld').getBoundingClientRect().top")
     check(y['y'] + y['height'] <= input_top, 'stays above the input box')
@@ -994,6 +995,7 @@ def button(browser):
     check(b2['y'] + b2['height'] <= input_top + 1, 'cannot go under the input box')
     # reload: same place
     page.goto(f'{BASE}?lang=en'); page.wait_for_function('window.__loaded === true'); page.wait_for_timeout(200)
+    show_everywhere(page)
     b3 = page.locator('#sblink-fab').bounding_box()
     check(abs(b3['y'] - b2['y']) < 3, f'place kept per device ({b2["y"]:.0f} vs {b3["y"]:.0f})')
     # keyboard: a smaller visual viewport moves it up
@@ -1086,6 +1088,91 @@ def fixes051(browser):
     check('\n' in ev(page, "document.querySelector('.sblink-panel textarea[data-pset=\"world\"]')?.placeholder || ''"), 'world examples are several lines')
     check(not errors, f'no script errors ({errors[:2]})')
     page.close()
+
+def drag_to(page, tx, ty):
+    """Drag the floating button so its middle lands at (tx, ty)."""
+    box = page.locator('#sblink-fab').bounding_box()
+    cx, cy = box['x'] + box['width'] / 2, box['y'] + min(box['height'], 46) / 2
+    page.mouse.move(cx, cy); page.mouse.down()
+    page.mouse.move(cx + 3, cy + 3)
+    page.mouse.move(tx, ty, steps=10); page.mouse.up()
+    page.mouse.move(5, 5)  # off the button, so the PC hover peek does not move it
+    page.wait_for_timeout(300)
+
+
+def fab055(browser):
+    print('--- 0.5.5 button (awake chats only, phone size, bookmark)')
+    # phone: hidden until the System wakes in this chat
+    page, errors = open_page(browser, 'fresh&lang=ko&onlyon')
+    check(ev(page, "document.getElementById('sblink-fab').hidden"), 'not awake: no button by default')
+    ev(page, "(async () => { const m = await import('/src/engine.js'); await m.switchOn(); })()"); page.wait_for_timeout(700)
+    close_pops(page, 8)
+    if ev(page, "!!document.getElementById('sblink-win')"):
+        page.click('[data-act="close"]'); page.wait_for_timeout(250)
+    check(not ev(page, "document.getElementById('sblink-fab').hidden"), 'awake: the button shows')
+    w = page.locator('#sblink-fab').bounding_box()['width']
+    check(abs(w - 46) < 1, f'phone starts small ({w:.0f})')
+    # tuck to the right edge
+    drag_to(page, 388, 400)
+    check(ev(page, "document.getElementById('sblink-fab').classList.contains('sblink-fab-tuck')"), 'pushed to the edge: tucked in as a bookmark')
+    b = page.locator('#sblink-fab .sblink-fabtab').bounding_box()
+    check(abs(b['x'] + b['width'] - 390) < 2 and abs(b['width'] - 24) < 1, f'tab against the screen edge ({b})')
+    shot(page, 'fab055_phone_tab')
+    page.click('#sblink-fab'); page.wait_for_timeout(300)
+    check(ev(page, "!!document.getElementById('sblink-win')"), 'tap the bookmark: the window opens')
+    page.click('[data-act="close"]'); page.wait_for_timeout(250)
+    # reload: still tucked
+    page.goto(f'{BASE}?lang=ko'); page.wait_for_function('window.__loaded === true'); page.wait_for_timeout(300)
+    check(ev(page, "document.getElementById('sblink-fab').classList.contains('sblink-fab-tuck')"), 'bookmark kept after reload')
+    # drag inward: the hexagon again
+    drag_to(page, 200, 380)
+    cls = ev(page, "document.getElementById('sblink-fab').className")
+    check('sblink-fab-tuck' not in cls, 'dragged inward: back to the hexagon')
+    # picked size wins
+    ev(page, "(async () => { const m = await import('/src/prefs.js'); await m.setValue('btnSize', 'normal'); })()"); page.wait_for_timeout(300)
+    w = page.locator('#sblink-fab').bounding_box()['width']
+    check(abs(w - 60) < 1, f'size picked by hand is kept ({w:.0f})')
+    # another chat that is not awake: hidden; the setting off: shown
+    ev(page, "(async () => { const m = await import('/src/engine.js'); m.switchOff(); })()"); page.wait_for_timeout(400)
+    check(ev(page, "document.getElementById('sblink-fab').hidden"), 'System off in this chat: button hides')
+    ev(page, "(async () => { const m = await import('/src/prefs.js'); await m.setValue('btnOnlyOn', false); })()"); page.wait_for_timeout(300)
+    check(not ev(page, "document.getElementById('sblink-fab').hidden"), 'setting off: shows in every chat')
+    check(not errors, f'no errors {errors[:3]}')
+    page.close()
+
+    # PC: the bookmark goes beside the chat column, not the far screen edge
+    page, errors = open_page(browser, 'fresh&lang=en', 1400, 860)
+    col = ev(page, "(() => { const r = document.getElementById('sheld').getBoundingClientRect(); return [r.left, r.right]; })()")
+    w = page.locator('#sblink-fab').bounding_box()['width']
+    check(abs(w - 60) < 1, f'PC starts normal size ({w:.0f})')
+    drag_to(page, col[1] + 10, 420)
+    check(ev(page, "document.getElementById('sblink-fab').classList.contains('sblink-fab-tuck')"), 'PC: let go on the chat column side = bookmark')
+    b = page.locator('#sblink-fab .sblink-fabtab').bounding_box()
+    check(abs(b['x'] - col[1]) < 2, f'PC tab sits right outside the column ({b["x"]:.0f} vs {col[1]:.0f})')
+    page.mouse.move(b['x'] + 10, b['y'] + 30); page.wait_for_timeout(300)
+    b2 = page.locator('#sblink-fab .sblink-fabtab').bounding_box()
+    check(b2['x'] > b['x'] + 3, f'PC: peeks out under the mouse ({b["x"]:.0f} → {b2["x"]:.0f})')
+    shot(page, 'fab055_pc_tab')
+    page.mouse.move(10, 10); page.wait_for_timeout(250)
+    # left side of the column too
+    drag_to(page, col[0] - 5, 300)
+    b = page.locator('#sblink-fab .sblink-fabtab').bounding_box()
+    check(b and abs(b['x'] + b['width'] - col[0]) < 2, f'left side: tab right outside the column ({b})')
+    # far out in the empty side area: stays a free hexagon
+    drag_to(page, 120, 300)
+    check(not ev(page, "document.getElementById('sblink-fab').classList.contains('sblink-fab-tuck')"), 'PC: away from the column it stays a hexagon')
+    # the column narrows: the tab follows
+    drag_to(page, col[1] + 10, 420)
+    ev(page, "document.getElementById('sheld').style.width = '40vw'"); page.wait_for_timeout(400)
+    col2 = ev(page, "document.getElementById('sheld').getBoundingClientRect().right")
+    b = page.locator('#sblink-fab .sblink-fabtab').bounding_box()
+    check(abs(b['x'] - col2) < 2, f'tab follows the column width ({b["x"]:.0f} vs {col2:.0f})')
+    # bookmarks off: the hexagon comes back on that side
+    ev(page, "(async () => { const m = await import('/src/prefs.js'); await m.setValue('btnTuck', false); })()"); page.wait_for_timeout(300)
+    check(not ev(page, "document.getElementById('sblink-fab').classList.contains('sblink-fab-tuck')"), 'bookmark setting off: a hexagon again')
+    check(not errors, f'no errors {errors[:3]}')
+    page.close()
+
 
 if __name__ == '__main__':
     main()
