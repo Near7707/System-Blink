@@ -251,7 +251,7 @@ function gearRow(row) {
         return `<div class="sblink-row${d}"><div class="sblink-rowlabel">${esc(label(row))}</div><div class="sblink-selwrap"><select class="sblink-sel" data-sel="${row.k}"${dis ? ' disabled' : ''}>${opts}</select></div>${hintHtml}</div>`;
     }
     if (row.kind === 'button') {
-        return `<div class="sblink-row${d}"><button type="button" class="sblink-btn sblink-btn-wide${row.danger ? ' sblink-btn-danger' : ''}" data-run="${row.k}"${dis ? ' disabled' : ''}><span class="sblink-ell">${esc(label(row))}</span></button>${hintHtml}</div>`;
+        return `<div class="sblink-row${d}"><button type="button" class="sblink-btn sblink-btn-wide${row.danger ? ' sblink-btn-danger' : ''}${row.k === 'allOff' ? ' sblink-btn-off' : ''}" data-run="${row.k}"${dis ? ' disabled' : ''}><span class="sblink-ell">${esc(label(row))}</span></button>${hintHtml}</div>`;
     }
     return '';
 }

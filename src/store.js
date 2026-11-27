@@ -3,7 +3,7 @@
 
 export const MODULE = 'systemBlink';
 export const FORMAT = 2;
-export const VERSION = '0.6.0';
+export const VERSION = '0.6.1';
 export const TONES = ['game', 'star', 'threat'];
 export const DIFFS = ['off', 'easy', 'normal', 'hard', 'hell'];
 

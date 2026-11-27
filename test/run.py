@@ -98,6 +98,7 @@ def main():
             story060(browser, 'ko')
             story060(browser, 'en')
             story060_paras(browser)
+            fixes061(browser)
             browser.close()
     finally:
         srv.terminate()
@@ -1300,6 +1301,27 @@ def story060_paras(browser):
     last = "document.querySelector('#chat .mes:last-child')"
     check(ev(page, f"{last}.querySelectorAll('.sblink-qblock').length") == 1 and ev(page, f"{last}.querySelectorAll('.sblink-qbrow').length") == 2, 'lines in separate paragraphs still share one window')
     check(ev(page, f"{last}.querySelectorAll('.mes_text > p').length") == 2, 'their empty paragraphs are gone')
+    check(not errors, f'no errors {errors[:3]}')
+    page.close()
+
+
+
+def fixes061(browser):
+    print('--- 0.6.1 fixes (turn-off button, selects under a white theme)')
+    page, errors = open_page(browser, 'fresh&lang=ko')
+    page.click('#sblink-fab'); page.click('[data-act="roomOn"]'); page.wait_for_timeout(500)
+    page.click('#sblink-pop [data-pop="second"]'); page.wait_for_timeout(400); close_pops(page)
+    if not ev(page, "!!document.getElementById('sblink-win')"): page.click('#sblink-fab')
+    page.add_style_tag(content="select{background:rgba(255,255,255,.85)!important;box-shadow:none!important;color:#999!important;-webkit-text-fill-color:#999!important}")
+    page.click('[data-act="gear"]'); page.wait_for_timeout(300)
+    page.click('#sblink-win [data-fold="make"]'); page.wait_for_timeout(300)
+    page.click('#sblink-win [data-fold="data"]'); page.wait_for_timeout(300)
+    col = ev(page, "getComputedStyle(document.querySelector('#sblink-win select.sblink-sel')).webkitTextFillColor")
+    check(col != 'rgb(153, 153, 153)', f'white theme: our select keeps light text ({col})')
+    bg = ev(page, "getComputedStyle(document.querySelector('#sblink-win [data-run=\"allOff\"]')).backgroundColor")
+    check(bg == 'rgb(179, 18, 42)', f'game voice: turn-off button is blood-red ({bg})')
+    undo_bg = ev(page, "getComputedStyle(document.querySelector('#sblink-win [data-run=\"export\"]')).backgroundColor")
+    check(undo_bg != 'rgb(179, 18, 42)', 'other buttons unchanged')
     check(not errors, f'no errors {errors[:3]}')
     page.close()
 
