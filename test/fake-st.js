@@ -79,7 +79,7 @@
                 : '{"title":"Make the little tea house my own","total":4,"stage":{"name":"Become a regular at the tea house","conds":[],"reward":100}}';
         }
         if (/daily quests/.test(sys)) {
-            window.__calls.quests++;
+            window.__calls.quests++; window.__questsLast = user;
             if (window.__questFail) return 'sorry';
             // 2-B: Hard / Hell ask for conditions, a debuff asks for a penalty quest
             if (/conditions in "conds"/.test(sys)) {
@@ -145,7 +145,20 @@
             lastPrompt = ['system_blink_rules', 'system_blink'].map(k => extPrompts[k]?.value).filter(Boolean).join('\n\n');
         },
         // like SillyTavern's Generate: a normal reply with nothing typed (it empties the input box, like the real one)
-        generate: async (type = 'normal', opts = {}) => { window.__generateCalls = (window.__generateCalls || []).concat([{ type, opts }]); const ta = document.getElementById('send_textarea'); if (ta) ta.value = ''; return generate(type); },
+        // like 1.19.1: a /command in the box runs (even for an automatic reply) and no reply comes; in a group chat
+        // the members are not told it was automatic, so whatever is in the box goes in as my message
+        generate: async (type = 'normal', opts = {}) => {
+            window.__generateCalls = (window.__generateCalls || []).concat([{ type, opts }]);
+            const ta = document.getElementById('send_textarea');
+            const text = ta?.value || '';
+            if (text.startsWith('/')) { window.__cmdRan = text; return; }
+            if (text && (!opts.automatic_trigger || window.__groupMode)) {
+                chat().push({ is_user: true, is_system: false, name: ctx.name1, mes: text, send_date: stamp() });
+                render();
+            }
+            if (ta) ta.value = '';
+            return generate(type);
+        },
         POPUP_TYPE: { TEXT: 1, CONFIRM: 2 },
         callGenericPopup: async (html) => { window.__lastPopup = html; return window.__confirmAnswer ?? true; },
         ConnectionManagerRequestService: { sendRequest: async (_id, messages) => ({ content: await fakeAI(messages[0].content, messages[1].content) }) },
@@ -205,12 +218,27 @@
         const ch = characters[state.characterId];
         const text = window.__nextReply || `Reply ${++replyNo}.`;
         window.__nextReply = null;
-        if (type === 'swipe') {
+        if (type === 'continue') {
+            // like 1.19.1 saveReply: the same message gets longer and a new send time
+            const i = list.length - 1;
+            list[i] = { ...list[i], mes: list[i].mes + ' ' + text, send_date: stamp() };
+            render();
+            await eventSource.emit(eventTypes.MESSAGE_RECEIVED, i, 'continue');
+            await eventSource.emit(eventTypes.CHARACTER_MESSAGE_RENDERED, i);
+        } else if (type === 'swipe') {
             const i = list.length - 1;
             list[i] = { ...list[i], mes: text, send_date: stamp() };
             render();
             await eventSource.emit(eventTypes.MESSAGE_RECEIVED, i, 'swipe');
             await eventSource.emit(eventTypes.MESSAGE_SWIPED, i);
+        } else if (window.__streaming) {
+            // like streaming in 1.19.1: the text is on screen and "generation ended" comes before MESSAGE_RECEIVED
+            list.push({ is_user: false, is_system: false, name: ch.name, mes: text, send_date: stamp() });
+            render();
+            await eventSource.emit(eventTypes.GENERATION_ENDED, list.length);
+            await eventSource.emit(eventTypes.MESSAGE_RECEIVED, list.length - 1, type);
+            await eventSource.emit(eventTypes.CHARACTER_MESSAGE_RENDERED, list.length - 1);
+            return;
         } else {
             list.push({ is_user: false, is_system: false, name: ch.name, mes: text, send_date: stamp() });
             render();
@@ -234,6 +262,7 @@
         get livePrompt() { return lastPrompt; },
         turn: (text, reply) => { if (reply) window.__nextReply = reply; return send(text); },
         swipe: () => generate('swipe'),
+        cont: (more) => { if (more) window.__nextReply = more; return generate('continue'); },
         regenerate: () => generate('regenerate'),
         async quiet() { await eventSource.emit(eventTypes.GENERATION_STARTED, 'quiet', {}, false); await eventSource.emit(eventTypes.GENERATION_ENDED, 0); },
         async deleteLast() { chat().pop(); render(); await eventSource.emit(eventTypes.MESSAGE_DELETED, chat().length); },

@@ -11,13 +11,42 @@
 
 import { t, lang } from '../i18n.js';
 import { room, conf } from '../store.js';
-import { toneOf, rate, warnFor } from '../engine.js';
+import { toneOf, rate, warnFor, questState, chatView } from '../engine.js';
 import { specNames, starWho } from '../data.js';
 import { esc } from './util.js';
 
 const RE = /\[SYS:(QUEST|NOTICE|CLEAR)\]([^\n[]*)/gi;
-const KINDS = { DAILY: 'daily', SUDDEN: 'sudden', HIDDEN: 'hidden', MAIN: 'goal', GOAL: 'goal', PENALTY: 'penalty' };
-const NOTICES = { AWAKEN: 'awaken', TUTORIAL: 'tutorial', ITEM: 'item', SKILL: 'skill', DAY: 'day' };
+// The kind word after the tag. The AI is asked for the English word, but a translation extension (or the AI itself,
+// writing in another language) may turn it into "일일" and the like: those are known too. (0.7.0)
+const WORDS = {
+    quest: [
+        ['daily', 'daily|일일 ?퀘스트|일일|데일리'],
+        ['sudden', 'sudden|돌발 ?퀘스트|돌발'],
+        ['hidden', 'hidden|히든 ?퀘스트|히든|숨겨진 ?퀘스트|숨겨진|숨은 ?퀘스트|숨은'],
+        ['goal', 'main ?goal|main|goal|메인 ?목표|메인 ?퀘스트|메인|목표'],
+        ['penalty', 'penalty|페널티 ?퀘스트|페널티|패널티|벌칙 ?퀘스트|벌칙'],
+    ],
+    notice: [
+        ['awaken', 'awaken(?:ing)?|각성|깨어남'],
+        ['tutorial', 'tutorial|튜토리얼'],
+        ['item', 'item|아이템|물건'],
+        ['skill', 'skill|스킬'],
+        ['day', 'new ?day|day|새 ?날|하루|날'],
+    ],
+};
+const WORD_RE = Object.fromEntries(Object.entries(WORDS).map(([k, list]) => [k, list.map(([kind, alt]) => [kind, new RegExp(`^\\s*(?:${alt})(?=$|[\\s·•:|\\-–—])`, 'i')])]));
+const STORY_KINDS = new Set(['daily', 'sudden', 'hidden', 'goal', 'penalty']);
+
+/** "DAILY · name" → { kind, name }. A quest line with a word not known → kind 'any' (found by its name). */
+function parseLine(type, rest) {
+    for (const [kind, re] of WORD_RE[type] || []) {
+        const m = re.exec(rest);
+        if (m) return { kind, name: rest.slice(m[0].length).replace(SEP, '').trim() };
+    }
+    if (type !== 'quest') return { kind: '', name: '' };
+    const cut = /[·•|:]/.exec(rest);
+    return { kind: 'any', name: (cut ? rest.slice(cut.index + 1) : rest).trim() };
+}
 const NOTICE_TAB = { awaken: 'status', tutorial: 'quests', item: 'bag', skill: 'status', day: 'status' };
 const CODE = { game: 'SYS.NOTICE', star: 'SYS.STAR', threat: 'SYS.ALERT' };
 const DAILY_TAG = { game: 'DAILY', star: 'SCENARIO', threat: 'WARNING' };
@@ -38,16 +67,6 @@ function byName(list, name) {
     for (let i = list.length - 1; i >= 0; i--) if (norm(list[i].name) === n) return list[i];
     for (let i = list.length - 1; i >= 0; i--) { const m = norm(list[i].name); if (m && (m.includes(n) || n.includes(m))) return list[i]; }
     return null;
-}
-
-/** The quest a line names: same kind and name; else (a translation renamed it) the one sent with this reply, in order. */
-function findQuest(r, kind, name, key, nth = 0) {
-    if (!r?.quests) return null;
-    const list = r.quests.filter(q => q.kind === kind);
-    const q = byName(list, name);
-    if (q || !key) return q;
-    const sent = list.filter(x => (x.toldKeys || []).includes(key));
-    return sent[nth] || (sent.length === 1 ? sent[0] : null);
 }
 
 /**
@@ -87,11 +106,7 @@ function markLines(textEl) {
             const rest = m[2];
             let kind = '', name = '';
             if (type === 'CLEAR') { kind = 'clear'; name = rest.replace(SEP, '').trim(); }
-            else {
-                const k = /^\s*([A-Za-z]+)/.exec(rest);
-                kind = k ? (type === 'QUEST' ? KINDS : NOTICES)[k[1].toUpperCase()] || '' : '';
-                name = k ? rest.slice(k[0].length).replace(SEP, '').trim() : '';
-            }
+            else ({ kind, name } = parseLine(type === 'QUEST' ? 'quest' : 'notice', rest));
             if (m.index > last) frag.appendChild(document.createTextNode(text.slice(last, m.index)));
             const span = document.createElement('span');
             span.className = kind ? 'sblink-qline' : 'sblink-qplain';
@@ -173,18 +188,26 @@ function questHtml(r, kind, quests, items, key) {
 
 /** 0.7.0: a quest cleared in the story — what the extension's own judgment says about it. */
 function clearState(r, q, key) {
-    const e = r.ledger.filter(x => x.questId === q.id && x.key === key && !x.undone);
-    if (e.length) return { st: 'ok', pts: e.reduce((a, x) => a + (Number(x.pts) || 0), 0) };
+    const view = chatView();
+    const mine = r.ledger.filter(x => x.questId === q.id && x.key === key && !x.undone);
+    if (mine.length) {
+        // confirmed only if the quest as a whole was finished with this reply (one of two conditions is not a clear)
+        const all = r.ledger.filter(x => x.questId === q.id && !x.undone && (x.key == null || view.index.has(x.key)));
+        const last = all.reduce((a, x) => ((x.at || 0) >= (a?.at || 0) ? x : a), null);
+        if (questState(r, q, view).status === 'done' && last?.key === key) return { st: 'ok', pts: mine.reduce((a, x) => a + (Number(x.pts) || 0), 0) };
+        if (key && checking() === key) return { st: 'wait' };
+        return { st: 'hold', part: true };
+    }
     return { st: key && checking() === key ? 'wait' : 'hold' };
 }
 function clearHtml(r, q, key) {
     const tone = q.tone || toneOf(r);
-    const { st, pts } = clearState(r, q, key);
+    const { st, pts, part } = clearState(r, q, key);
     const mark = st === 'ok' ? '✓' : st === 'wait' ? '·' : '◇';
     const right = st === 'ok' && pts ? ptsOf(tone, pts) : st === 'wait' ? '· · ·' : '';
-    const meta = st === 'ok' ? t('qb_clear_ok') : st === 'wait' ? t('qb_clear_wait') : t('qb_clear_hold');
+    const meta = st === 'ok' ? t('qb_clear_ok') : st === 'wait' ? t('qb_clear_wait') : part ? t('qb_clear_part') : t('qb_clear_hold');
     return {
-        tone, st, sig: `${st}|${pts || 0}`, cls: `sblink-qb-clear sblink-cl-${st}`, tab: 'quests',
+        tone, st, sig: `${st}|${pts || 0}|${part ? 1 : 0}`, cls: `sblink-qb-clear sblink-cl-${st}`, tab: 'quests',
         html: `${head('CLEAR', `${CODE[tone] || CODE.game} // CLEAR`)}<div class="sblink-qbtitle">${esc(t(`qb_clear_${tone}`))}</div>`
             + `<div class="sblink-qbrow"><span class="sblink-qbdia">${mark}</span><span class="sblink-qbname">${esc(q.name)}</span><b class="sblink-qbpts">${esc(right)}</b></div>`
             + `<div class="sblink-qbmeta">${esc(meta)}</div>`,
@@ -207,8 +230,35 @@ function noticeHtml(r, kind, text) {
 }
 
 /** Lines the extension cannot match stay as plain text. */
-function keepPlain(g) {
-    for (const el of g) { el.className = 'sblink-qplain'; for (const k of ['type', 'kind', 'name', 'raw']) delete el.dataset[k]; }
+function keepPlain(g, later = '') {
+    for (const el of g) {
+        el.className = 'sblink-qplain';
+        for (const k of ['type', 'kind', 'name', 'raw', 'qid']) delete el.dataset[k];
+        if (later) el.dataset.later = later;
+    }
+}
+
+/**
+ * 0.7.0: what a line kept plain may wait for — the quests this reply brought in (known once the reply is in) and
+ * what its check cleared (known a few seconds later). When that changes, the line is looked at again.
+ */
+function laterSig(r, key) {
+    if (!key) return '';
+    const told = r.quests.filter(q => (q.toldKeys || []).includes(key)).length;
+    const done = r.ledger.filter(e => e.key === key && !e.undone).length;
+    return `${r.quests.length}|${told}|${done}`;
+}
+
+/** Lines kept plain for now are put back as text when what they wait for has changed (then drawn again). */
+export function redoLater(textEl, key) {
+    const spans = textEl?.querySelectorAll?.('span.sblink-qplain[data-later]');
+    if (!spans?.length) return;
+    const r = room();
+    if (!r) return;
+    const sig = laterSig(r, key);
+    if ([...spans].every(el => el.dataset.later === sig)) return;
+    for (const el of textEl.querySelectorAll('span.sblink-qplain')) el.replaceWith(document.createTextNode(el.textContent));
+    textEl.normalize();
 }
 
 /** Draw the windows in one AI message (a no-op when it has no System lines). */
@@ -222,23 +272,31 @@ export function drawQuestBlocks(textEl, key) {
     let font = '';
     try { font = getComputedStyle(document.body).fontFamily || ''; } catch { /* keep the chat font */ }
     markLines(textEl);
-    const nth = {};
-    // quest lines are matched first; in genre mode a quest the extension never gave is the AI's own
-    // invention — left as text, and the real ones around it keep their windows
+    // which quest each quest line names. Same name first, then (a translation renamed it) the quests sent with
+    // this reply, in order. A quest is used once: a made-up line ahead of the real ones does not take theirs.
+    const lines = [...textEl.querySelectorAll('span.sblink-qline[data-type="quest"]')];
+    // (lines drawn earlier in this message keep their quests: a line looked at again later must not take them)
+    const taken = new Set([...textEl.querySelectorAll('.sblink-qblock[data-qids]')].flatMap(b => b.dataset.qids.split(',')));
+    const pool = (kind) => r.quests.filter(q => STORY_KINDS.has(q.kind) && (kind === 'any' || q.kind === kind) && !taken.has(q.id));
+    const found = new Map();
+    const take = (el, q) => { if (q) { found.set(el, q); taken.add(q.id); } };
+    for (const el of lines) take(el, byName(pool(el.dataset.kind), el.dataset.name));
+    if (key) for (const el of lines) if (!found.has(el)) take(el, pool(el.dataset.kind).find(q => (q.toldKeys || []).includes(key)));
+    const later = laterSig(r, key);
+    for (const el of lines) {
+        const q = found.get(el);
+        if (q) { el.dataset.kind = q.kind; el.dataset.qid = q.id; continue; }
+        // in genre mode a quest the extension never gave is the AI's own invention — left as text (looked at
+        // again once this reply's quests are known); a line of unknown kind cannot be drawn either
+        if (genre || el.dataset.kind === 'any') keepPlain([el], later);
+    }
     const list = [];
     for (const g of groups(textEl)) {
         if (g[0].dataset.type !== 'quest') { list.push({ g }); continue; }
-        const kind = g[0].dataset.kind;
-        let run = [];
-        for (const el of g) {
-            const i = nth[kind] || 0; nth[kind] = i + 1;
-            const q = findQuest(r, kind, el.dataset.name, key, i);
-            if (!q && genre) { if (run.length) list.push({ g: run.map(x => x.el), quests: run.map(x => x.q) }); run = []; keepPlain([el]); continue; }
-            run.push({ el, q });
-        }
-        if (run.length) list.push({ g: run.map(x => x.el), quests: run.map(x => x.q) });
+        list.push({ g, quests: g.map(el => r.quests.find(q => q.id === el.dataset.qid) || null) });
     }
-    const clears = list.filter(x => x.g[0].dataset.type === 'clear').length;
+    const drawnClears = textEl.querySelectorAll('.sblink-qblock.sblink-qb-clear').length;
+    const clears = list.filter(x => x.g[0].dataset.type === 'clear').length + drawnClears;
     for (const { g, quests } of list) {
         const first = g[0];
         const { type, kind } = first.dataset;
@@ -249,6 +307,7 @@ export function drawQuestBlocks(textEl, key) {
         } else if (type === 'clear') {
             const q = findCleared(r, first.dataset.name, key, clears === 1);
             if (q) { made = clearHtml(r, q, key); made.quest = q.id; }
+            else { keepPlain(g, later); continue; } // its check may still name it
         } else if (type === 'notice') made = noticeHtml(r, kind, first.dataset.name);
         if (!made) { keepPlain(g); continue; }
         const box = document.createElement('div');
@@ -258,6 +317,8 @@ export function drawQuestBlocks(textEl, key) {
         if (font) box.style.setProperty('--sb-qfont', font);
         box.dataset.raw = g.map(el => el.dataset.raw).join('\n');
         if (made.quest) { box.dataset.quest = made.quest; box.dataset.key = key || ''; box.dataset.sig = made.sig; }
+        const qids = type === 'quest' ? (quests || []).filter(Boolean).map(q => q.id) : [];
+        if (qids.length) box.dataset.qids = qids.join(',');
         box.innerHTML = made.html;
         const tab = made.tab;
         box.addEventListener('click', (e) => { e.stopPropagation(); openTab(tab); });

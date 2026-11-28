@@ -5,7 +5,7 @@
 
 import { t, setLanguage, lang } from './src/i18n.js';
 import { ctx, settings, save, uiLang, room, currentChatId, chatName, onChatRenamed, onChatDeleted, onCharRenamed, copyFromParent, settleRoom, VERSION } from './src/store.js';
-import { bus, storeCheck, bindUses, markDelivered, markTold, active, checkRealDay, setLangGetter, skipTutorial, rate, lastReply, chatView, nextStage, tidy, answerSudden, msgKey, penaltyFor, rewardSkill, warnFor, checkBig, spectate, toneOf, wantsWake, declineWake, giveGoal, switchOn, genreOn, veiled } from './src/engine.js';
+import { bus, storeCheck, bindUses, markDelivered, markTold, active, checkRealDay, setLangGetter, skipTutorial, rate, lastReply, chatView, nextStage, tidy, answerSudden, msgKey, penaltyFor, rewardSkill, warnFor, checkBig, spectate, toneOf, wantsWake, declineWake, giveGoal, switchOn, genreOn, veiled, rekeyReply } from './src/engine.js';
 import { runCheck } from './src/ai.js';
 import { buildPrompt } from './src/prompt.js';
 import { panelHtml, panelChange, runButton, setPrefsHooks, setScope } from './src/prefs.js';
@@ -42,6 +42,21 @@ function updatePrompt(genType = 'normal', live = false) {
         ctx().setExtensionPrompt(RULES_KEY, rules, 0, 0, false, 0);
         ctx().setExtensionPrompt(PROMPT_KEY, text, 1, 1, false, 0);
     } catch (e) { console.error('[System Blink] prompt', e); }
+}
+
+// ---------- 0.7.0: Continue ----------
+let contFrom = null; // { chatId, key, n } of the reply being continued (n = messages in the chat)
+const lastKey = () => { const v = chatView(); return v.length ? v.keys[v.length - 1] : null; };
+/** The continued reply got a new key (SillyTavern sets a new send time): its data follows it. */
+function continued() {
+    const c = contFrom;
+    if (!c) return;
+    const now = lastKey();
+    if (currentChatId() !== c.chatId) { contFrom = null; return; }
+    if (!now || now === c.key) return; // not saved yet (or nothing added): keep waiting
+    contFrom = null;
+    if (chatView().length !== c.n) return; // messages were added or deleted meanwhile: not the same reply
+    if (!chatView().index.has(c.key)) rekeyReply(c.key, now, c.chatId);
 }
 
 // ---------- redraw ----------
@@ -200,13 +215,16 @@ function awakenPopup() {
 
 /**
  * 0.7.0 [Begin as a story]: the AI writes the scene where the System appears right away, without a message of
- * mine (like sending an empty message: one story reply). Whatever I had typed stays in the box.
+ * mine (like sending an empty message: one story reply). Whatever I had typed is set aside and put back after.
  */
 async function storyStart(chatId) {
     if (currentChatId() !== chatId || generating || !room(chatId)?.on) return;
     const c = ctx();
     const ta = document.getElementById('send_textarea');
     const keep = ta?.value || '';
+    // the draft leaves the box first: SillyTavern runs a /command in the box even for an automatic reply, and a
+    // group chat sends the box as my message (its members are not told it was automatic — 1.19.1)
+    if (ta && keep) { ta.value = ''; ta.dispatchEvent(new Event('input', { bubbles: true })); }
     try {
         if (typeof c.generate === 'function') await c.generate('normal', { automatic_trigger: true });
         else if (typeof c.executeSlashCommandsWithOptions === 'function') await c.executeSlashCommandsWithOptions('/trigger');
@@ -418,16 +436,20 @@ function registerEvents() {
     on(ev.GENERATION_STARTED, (type, _opts, dryRun) => {
         const kind = String(type || 'normal');
         if (!dryRun && kind !== 'quiet') { generating = true; hold(true); }
+        // 0.7.0: Continue gives the same reply a new key when it is done — remember the old one to move its data
+        if (!dryRun && kind !== 'quiet') contFrom = kind === 'continue' ? { chatId: currentChatId(), key: lastKey(), n: chatView().length } : null;
         updatePrompt(kind, !dryRun && kind !== 'quiet');
     });
     on(ev.MESSAGE_RECEIVED, (mesId) => {
+        continued();
         const view = chatView();
         const m = view.list[Number(mesId)];
         if (m && !m.is_user && sentNoteIds.length) { markDelivered(view.keys[Number(mesId)], sentNoteIds); sentNoteIds = []; }
-        if (m && !m.is_user && sentTellIds.length) { revealed(markTold(view.keys[Number(mesId)], sentTellIds)); sentTellIds = []; }
+        if (m && !m.is_user && sentTellIds.length) { revealed(markTold(view.keys[Number(mesId)], sentTellIds)); sentTellIds = []; redrawSoon(); }
     });
     for (const name of [ev.GENERATION_ENDED, ev.GENERATION_STOPPED]) {
         on(name, () => {
+            continued();
             if (!generating) return;
             generating = false;
             hold(false);

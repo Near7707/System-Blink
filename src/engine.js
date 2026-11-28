@@ -486,14 +486,15 @@ export function storeCheck(chatId, key, res) {
         if (questState(r, q, view).status === 'failed') { q.failAt = Date.now(); out.failed.push(q); }
     }
     // something new
-    if (res.sudden?.name && r.roll?.key === key && r.roll.sudden) {
+    // (one per reply: a reply checked again after Continue does not bring a second one)
+    if (res.sudden?.name && r.roll?.key === key && r.roll.sudden && !r.quests.some(q => q.kind === 'sudden' && q.fromKey === key)) {
         const diff = diffOf(r);
         const q = { id: uid('q'), kind: 'sudden', name: String(res.sudden.name).slice(0, 80), reward: withMul(Math.min(100, Math.max(30, Math.round(Number(res.sudden.reward) || 50))), diff), day: r.day, failed: false, state: 'offered', limit: SUDDEN_LIMITS[diff] || SUDDEN_LIMIT, seen: [], fromKey: key, diff, tone: toneOf(r) };
         r.quests.push(q);
         r.suddenRest = conf(r).suddenRest;
         out.sudden = q;
     }
-    if (res.hidden?.name && r.roll?.key === key && r.roll.hidden) {
+    if (res.hidden?.name && r.roll?.key === key && r.roll.hidden && !r.quests.some(q => q.kind === 'hidden' && q.fromKey === key)) {
         const diff = diffOf(r);
         const q = { id: uid('q'), kind: 'hidden', name: String(res.hidden.name).slice(0, 80), reward: withMul(Math.min(200, Math.max(50, Math.round(Number(res.hidden.reward) || 100))), diff), day: r.day, failed: false, why: String(res.hidden.why || '').slice(0, 120), fromKey: key, diff };
         if (genreOn(r)) q.veil = true;
@@ -513,6 +514,33 @@ export function storeCheck(chatId, key, res) {
     r.lastCheckKey = key;
     save();
     return out;
+}
+
+/**
+ * 0.7.0: Continue makes the same reply longer, and SillyTavern gives it a new send time (1.19.1 saveReply), so its
+ * key changes. Everything tied to the reply moves to the new key: the points it gave, the quests it brought in,
+ * the notes it carried, the dice rolled for it. Its check is marked to run again: what it adds may clear more
+ * (what it cleared already stays; one sudden / hidden quest per reply).
+ */
+export function rekeyReply(from, to, chatId = currentChatId()) {
+    const r = room(chatId);
+    if (!r || !from || !to || from === to) return false;
+    const sw = (k) => (k === from ? to : k);
+    const swAll = (list) => (Array.isArray(list) ? [...new Set(list.map(sw))] : list);
+    r.lastCheckKey = sw(r.lastCheckKey);
+    r.specKey = sw(r.specKey);
+    if (r.roll) r.roll.key = sw(r.roll.key);
+    for (const c of r.checks || []) if (c.key === from) { c.key = to; c.again = true; }
+    for (const list of [r.ledger, r.lifeLog, r.uses, r.cheers]) for (const x of list || []) if (x) x.key = sw(x.key);
+    for (const n of r.notes || []) { n.deliveredKey = sw(n.deliveredKey); n.dk = swAll(n.dk); }
+    for (const k of r.skills || []) if (k?.hidden) k.hidden.key = sw(k.hidden.key);
+    for (const q of r.quests || []) {
+        q.fromKey = sw(q.fromKey); q.acceptKey = sw(q.acceptKey);
+        if (q.toldKeys) q.toldKeys = swAll(q.toldKeys);
+        if (q.seen) q.seen = swAll(q.seen);
+    }
+    save(); changed();
+    return true;
 }
 
 /** Sudden quests whose reply was re-rolled before they were answered go away; old finished ones too. */
@@ -580,7 +608,14 @@ export async function nextDay(days = 1, nextTime = '') {
     const view = chatView();
     const now = Date.now();
     const failed = [];
-    for (const q of todays(r)) if (questState(r, q, view).status === 'active') { q.failed = true; q.failedAt = now; failed.push(q); }
+    for (const q of todays(r)) {
+        if (questState(r, q, view).status !== 'active') continue;
+        q.failed = true;
+        // 0.7.0: a quest the story never brought in (genre mode, still hidden) just ends — no penalty for a quest
+        // that could not be seen (no failedAt = no points off, no warning)
+        if (veiled(r, q, view)) { q.unseen = true; continue; }
+        q.failedAt = now; failed.push(q);
+    }
     // a penalty quest not done just ends with its day (no more penalty)
     for (const q of penaltyQuests(r)) if (questState(r, q, view).status === 'active') q.failed = true;
     // penalties of the quests' own difficulty: Normal = points, Hard = + a debuff, Hell = + an item lost
@@ -855,7 +890,9 @@ export function questsToTell(r = room(), view = chatView(), redoKey = null) {
     }
     // redoKey: the reply being swiped is replaced, so what it showed is shown again
     // each swipe that showed it is kept, so going back to an older swipe does not show it twice
-    return list.filter(q => q.told !== 'old' && !(q.toldKeys || []).some(k => k !== redoKey && view.index.has(k)));
+    // a quest waiting for its scene is told even if marked "old" (0.7.0 first build marked them so when genre mode
+    // was switched off and on again — they would have stayed hidden)
+    return list.filter(q => (q.told !== 'old' || veiled(r, q, view)) && !(q.toldKeys || []).some(k => k !== redoKey && view.index.has(k)));
 }
 
 /**
@@ -879,16 +916,31 @@ export function skipOldTold(chatId = null) {
     const list = chatId ? [all[chatId]] : Object.values(all).filter(r => !r?.own);
     for (const r of list) {
         if (!r?.quests) continue;
-        for (const q of r.quests) if (!q.toldKeys?.length) q.told = 'old';
+        markOld(r);
     }
     save();
+}
+
+/**
+ * Quests already running are not all put in the next reply. 0.7.0: a quest still waiting for its scene (genre mode,
+ * never shown) is not "old" — it has to come in the story, or it would stay hidden for good.
+ */
+function markOld(r) {
+    const genre = !!conf(r).genreMode;
+    for (const q of r.quests) if (!q.toldKeys?.length && !(genre && q.veil)) q.told = 'old';
 }
 
 /** Notes went out with this AI reply (each reply kept, like the quest lines: a swipe sends them again). */
 export function markDelivered(key, sentIds) {
     const r = room();
     if (!r || !key || !sentIds?.length) return;
-    for (const n of r.notes) if (sentIds.includes(n.id)) { n.deliveredKey = key; n.dk = [...(n.dk || []).filter(k => k !== key), key].slice(-20); }
+    for (const n of r.notes) {
+        if (!sentIds.includes(n.id)) continue;
+        // a note from before 0.7.0 has only deliveredKey: keep that reply too (going back to it must not resend)
+        const had = n.dk || (n.deliveredKey ? [n.deliveredKey] : []);
+        n.dk = [...had.filter(k => k !== key), key].slice(-20);
+        n.deliveredKey = key;
+    }
     save();
 }
 
@@ -920,7 +972,7 @@ export function genreSync(r, view = chatView()) {
     const now = conf(r).genreMode ? 'on' : 'off';
     if (r.genreWas === now) return;
     if (r.genreWas === 'off' && now === 'on') {
-        if (!conf(r).storyQuest) for (const q of r.quests) if (!q.toldKeys?.length) q.told = 'old';
+        if (!conf(r).storyQuest) markOld(r);
         r.genreOffAt = -1;
     }
     if (r.genreWas === 'on' && now === 'off') r.genreOffAt = view.length;
@@ -952,9 +1004,15 @@ function tutorialNote(r) {
     n.tut = true;
 }
 
+/** The tutorial is over (skipped or done): its step windows are not sent any more, not even to a re-rolled reply. */
+function dropTutorialNotes(r) {
+    if (r?.notes?.some(n => n.tut)) r.notes = r.notes.filter(n => !n.tut);
+}
+
 function finishTutorial(r) {
     const t = r.tutorial;
     t.state = 'done';
+    dropTutorialNotes(r);
     if (t.rewarded) return;
     t.rewarded = true;
     r.ledger.push({ id: uid('l'), questId: 'tutorial', cond: null, pts: TUTORIAL_REWARD, key: null, reason: '', at: Date.now() });
@@ -971,6 +1029,7 @@ export function skipTutorial() {
     const r = room();
     if (!r) return;
     r.tutorial.state = 'skipped';
+    dropTutorialNotes(r);
     save(); changed();
     goalSoon();
 }
@@ -1008,7 +1067,7 @@ export async function switchOn(tut = '') {
  */
 function awakenNote(r) {
     const who = ownerName(r);
-    addNote(r, `The System has just appeared to ${who} for the first time. Show the moment ${who}'s character first notices it (a sound, a glimpse at the edge of sight, a strange feeling). Keep it short: it is only the first glimpse.`,
+    addNote(r, `The System has just appeared to ${who} for the first time. Show it reaching ${who} — by name, never "someone" — with a short first sign (a sound, words at the edge of ${who}'s sight). Keep it short: it is only the first glimpse. ${who}'s own reaction follows your usual rules for ${who} (if you do not write ${who}'s actions, leave it to ${who}).`,
         { kind: 'AWAKEN', text: t('pop_awaken').replace(/^\[|\]$/g, '') },
         `The System has just awakened for ${who}: this is the first time ${who} sees it. Make it a real moment in the story.`);
     tutorialNote(r);

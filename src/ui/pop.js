@@ -8,7 +8,7 @@ import { specNames, starWho } from '../data.js';
 import { gradeBadge, gradeClass, isTop, tag } from './skills.js';
 import { icon, hexMark } from '../icons.js';
 import { esc, $id, typeIn, motionOn, inputTop, viewport, safeInsets } from './util.js';
-import { drawQuestBlocks, undrawQuestBlocks, setQBlockHooks, hasPlainSys, refreshClears } from './qblock.js';
+import { drawQuestBlocks, undrawQuestBlocks, setQBlockHooks, hasPlainSys, refreshClears, redoLater } from './qblock.js';
 import { panelBarBottom, setPanelDrawn } from './panel.js';
 
 let hooks = { openTab: () => {}, openSkill: () => {}, badge: () => {} };
@@ -382,7 +382,7 @@ export function renderCards() {
         // 0.6.0: [SYS:QUEST] lines in AI replies drawn as small System windows (screen only)
         const mt = mes.querySelector('.mes_text');
         if (mt) {
-            if (blocks && m && isAI(m)) { try { drawQuestBlocks(mt, key); } catch (e) { console.warn('[System Blink] quest lines', e); } } else undrawQuestBlocks(mt);
+            if (blocks && m && isAI(m)) { try { redoLater(mt, key); drawQuestBlocks(mt, key); } catch (e) { console.warn('[System Blink] quest lines', e); } } else undrawQuestBlocks(mt);
         }
         let html = show && m ? cardFor(r, m, key, i, idx, view) : '';
         let tab = '';

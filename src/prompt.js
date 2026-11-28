@@ -48,7 +48,8 @@ function rulesFor(r, s, genre) {
             ? `- People in this world know such Systems exist. Those around ${who} can notice ${who}'s System windows and react to them too.`
             : `- Only ${who} can see and hear the System. Others do not notice it, though they may notice how ${who} reacts.`,
         `- At key moments a System window appears before ${who}. Write a System window only as an exact line the extension gives in its notes (a line starting with [SYS:), on its own line with nothing else on it, or as [SYS:CLEAR] for one of the listed quests that ${who} clearly finishes in the reply. Never invent other System windows, quests, rewards or points.`,
-        `- ${who}'s character sees and hears the windows and reacts in the story; now and then ${who} thinks about the System or puts it to use on their own.`,
+        `- When a window appears, the narration says plainly that it appears before ${who} — by name (or as "you" if the story speaks to ${who} that way), never as "someone" or "one person".`,
+        `- ${who}'s own reactions, words and thoughts follow your usual rules for ${who}: if you do not write ${who}'s actions, leave them to ${who} — show the window reaching ${who} and keep the world and the others moving. Others react only to what they can notice.`,
         '- Points and bag items are managed by the extension. Do not give or take them in the story.',
         `- Never do the System's quests for ${who}'s character. Only open chances; ${who} decides and acts.`,
     ].join('\n');
@@ -146,11 +147,11 @@ export function buildPrompt(genType = 'normal') {
     }
     // 0.6.0: new quests show up in the story as exact lines; the extension draws them as System windows
     if (tell.length) {
-        if (!genre) lines.push(`- New System quests appear before ${who}'s eyes now. Where ${who} would notice them in this reply (near the start is fine), copy each line below exactly, each on its own line with nothing else on it, then let ${who}'s character react naturally.${s.visibility === 'all' ? '' : ' Only ' + who + ' sees them; others do not.'} Do not change the wording, do not add rewards, and never write a quest as cleared.`);
+        if (!genre) lines.push(`- New System quests appear before ${who}'s eyes now. At a fitting spot in this reply (near the start is fine), make clear they appear before ${who} — by name (or as "you" if the story speaks to ${who} that way), never "someone" or "one person" — and copy each line below exactly, each on its own line with nothing else on it, even if the story is in another language.${s.visibility === 'all' ? '' : ' Only ' + who + ' sees them; others do not.'} ${who}'s own reaction follows your usual rules for ${who} (if you do not write ${who}'s actions, leave it to ${who}). Do not change the wording, do not add rewards, and never write a quest as cleared.`);
         for (const q of tell) wins.push(`[SYS:QUEST] ${STORY_KIND[q.kind] || 'DAILY'} · ${oneLine(q.name)}`);
     }
     if (genre && wins.length) {
-        lines.push(`- System windows appear in this reply. Where they fit (near the start is fine), copy each line below exactly, each on its own line with nothing else on it, then let ${who}'s character see them and react. Do not change the wording and do not add rewards.`);
+        lines.push(`- System windows appear before ${who} in this reply. Where they fit (near the start is fine), say they appear before ${who} (by name, never "someone"), and copy each line below exactly, each on its own line with nothing else on it, even if the story is in another language. Do not change the wording and do not add rewards.`);
     }
     lines.push(...(genre || tell.length ? wins : []));
     return { rules: rulesFor(r, s, genre), text: lines.join('\n'), noteIds: notes.map(n => n.id), tellIds: tell.map(q => q.id) };

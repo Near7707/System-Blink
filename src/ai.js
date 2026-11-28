@@ -3,7 +3,7 @@
 
 import { ctx, conf, room, currentChatId } from './store.js';
 import { bus, chatView, lastReply, openQuests, condsOf, lifeNow, ownerName, langOf, rollFor, needsEveryCheck, diffOf, suddenLimitFor, lockedSkills, toneOf } from './engine.js';
-import { questPool, standingDefaults, dailyPool } from './data.js';
+import { questPool, standingDefaults, dailyPool, shuffle } from './data.js';
 import { josa } from './i18n.js';
 import { ITEM_ICONS } from './icons.js';
 
@@ -72,8 +72,15 @@ export function storyOnly(text) {
 
 const LANG_NAME = { en: 'English', ko: 'Korean' };
 
-function line(m) {
-    return `${m.name || (m.is_user ? 'User' : 'Character')}: ${storyOnly(m.mes).slice(0, 1500)}`;
+/** Too long: the start and the end (what a reply ends with matters as much as how it starts). */
+function clip(text, max) {
+    if (text.length <= max) return text;
+    const head = Math.floor(max * 0.4);
+    return `${text.slice(0, head)} … ${text.slice(text.length - (max - head - 3))}`;
+}
+
+function line(m, max = 1500) {
+    return `${m.name || (m.is_user ? 'User' : 'Character')}: ${clip(storyOnly(m.mes), max)}`;
 }
 
 function background() {
@@ -136,7 +143,9 @@ async function makeQuests({ count = 3, avoid = [], diff = 'off', penalty = false
     const parts = [background()];
     if (DIFF_HINT[diff]) parts.push(DIFF_HINT[diff]);
     if (TONE_QUEST[tone]) parts.push(TONE_QUEST[tone]);
-    if (s.useDefaults) parts.push(`You may pick from or adapt these (only ones that fit the world):\n${questPool(lang, s.oddities).map(q => `- ${q.name} (${q.reward})`).join('\n')}`);
+    // 0.7.0: a few at random, as examples of the kind wanted (the whole list in the same order each time made the
+    // AI take the same first ones in every new chat)
+    if (s.useDefaults) parts.push(`Examples of the kind of quest wanted (only a guide — make your own that fit this world and scene; use one as is only if it truly fits):\n${shuffle(questPool(lang, s.oddities)).slice(0, 6).map(q => `- ${q.name} (${q.reward})`).join('\n')}`);
     if (s.oddities) parts.push('One of them may be a little odd or funny, if it fits.');
     if (avoid.length) parts.push(`Do not repeat: ${avoid.join('; ')}`);
     parts.push(`Make exactly ${count}. Write the names in ${LANG_NAME[lang]}.`);
@@ -345,7 +354,8 @@ export async function runCheck({ force = false } = {}) {
     // a sudden quest that may come, or one whose time is running, needs this reply checked
     const must = roll.sudden || roll.hidden || needsEveryCheck(r, view);
     if (!force) {
-        if (tried.has(tag) || r.checks.some(c => c.key === last.key)) return null;
+        // (a reply made longer by Continue is checked again: `again`)
+        if (tried.has(tag) || r.checks.some(c => c.key === last.key && !c.again)) return null;
         if (!must) {
             if (s.judgeEvery === 'manual') return null;
             if (s.judgeEvery === 'three') {
@@ -404,8 +414,10 @@ async function askCheck(open, r, view, last, roll, signal, skills = []) {
         + 'Only when asked, also:\nSUDDEN: <quest> | <reward>\nHIDDEN: <quest> | <reward> | <why it was found>   or   HIDDEN: -\n'
         + 'SKILL1: YES - "<short quote>"  or  SKILL1: NO   (one line per skill)';
     const parts = [];
-    if (from > 0) parts.push(`Earlier (context):\n${recent.slice(0, from).map(line).join('\n')}`);
-    parts.push(`NEW:\n${recent.slice(from).map(line).join('\n')}`);
+    // 0.7.0: the new part is judged as a whole (was cut after 1,500 letters, so what happened late in a long reply
+    // was never seen); earlier lines are only context and kept shorter
+    if (from > 0) parts.push(`Earlier (context):\n${recent.slice(0, from).map(m => line(m, 800)).join('\n')}`);
+    parts.push(`NEW:\n${recent.slice(from).map(m => line(m, 4500)).join('\n')}`);
     parts.push(`Known before: time ${life.time || '?'}, weather ${life.weather || '?'}, place ${life.place || '?'}, date ${life.date || '?'}.`);
     const lines = checkLines(open);
     if (lines.length) parts.push(`Quests of ${who} — did ${who} do this in the NEW part?\n${lines.map((x, n) => `Q${n + 1}: ${x.text}`).join('\n')}`);

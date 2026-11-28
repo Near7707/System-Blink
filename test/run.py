@@ -125,6 +125,8 @@ def main():
             v0611c(browser)
             v070(browser, 'ko')
             v070(browser, 'en')
+            v070b(browser, 'ko')
+            v070b(browser, 'en')
             browser.close()
     finally:
         srv.terminate()
@@ -2370,6 +2372,179 @@ def v070(browser, lang):
     turn(page, 'Ok.', 'Fine.')
     check('Genre mode is off now' in sent(), 'switched off: the AI is told not to write System windows')
     check('This is a System story' not in rules(), 'the genre rules are gone')
+    check(not errors, f'no errors {errors[:3]}')
+    page.close()
+
+
+def v070b(browser, lang):
+    """0.7.0 review fixes: [Begin as a story] and the input box, genre off→on, unseen quests and the day's penalty,
+    Continue, the goal page, CLEAR of one condition, translated / Korean kind words, lines looked at again,
+    a made-up line ahead of real ones, the tutorial skipped, old notes, the prompt wording, long replies, quest examples."""
+    print(f'--- 0.7.0 review fixes ({lang})')
+    ko = lang == 'ko'
+    S = 'SillyTavern.getContext().extensionSettings.systemBlink'
+    page, errors = open_page(browser, f'fresh&lang={lang}')
+    setv = lambda k, v: ev(page, f"(async () => {{ const m = await import('/src/prefs.js'); await m.setValue({k!r}, {v}); }})()")
+    live = lambda: ev(page, 'window.__fakeST.livePrompt')
+    rules = lambda: ev(page, "window.__extPrompts.system_blink_rules?.value || ''")
+    E = lambda expr: ev(page, "(async () => { const e = await import('/src/engine.js'); const s = await import('/src/store.js'); const r = s.room(); return " + expr + "; })()")
+    last = "document.querySelector('#chat .mes:last-child')"
+    def close_win():
+        if ev(page, "!!document.getElementById('sblink-win')"):
+            page.click('#sblink-win [data-act="close"]'); page.wait_for_timeout(200)
+    def next_day():
+        close_pops(page); close_win()
+        page.click('#sblink-fab'); page.click('#sblink-win [data-tab="status"]'); page.click('[data-act="nextDay"]'); page.click('[data-modal="yes"]'); page.wait_for_timeout(1000)
+        close_pops(page); close_win()
+    today = lambda: E("r.quests.filter(q => q.kind === 'daily' && q.day === r.day).map(q => q.name)")
+
+    # --- quiet room first: the awakening line names the owner; quest examples are a few, shuffled
+    page.click('#sblink-fab'); page.click('[data-act="roomOn"]'); page.wait_for_timeout(700)
+    page.click('#sblink-pop [data-pop="second"]'); page.wait_for_timeout(700)  # skip the tutorial
+    close_pops(page); close_win()
+    check('never "someone"' in live() and 'by name' in live(), 'awakening line: by name, never "someone"')
+    check('usual rules for' in live(), 'awakening line: the owner\'s own reaction is left to the preset\'s rules')
+    ql = ev(page, 'window.__questsLast || ""')
+    check('Examples of the kind of quest wanted' in ql and ql.count('\n- ') <= 7, f'daily quests: only a few examples ({ql.count(chr(10) + "- ")})')
+    # quiet room with quest lines in the story
+    setv('storyQuest', 'true'); page.wait_for_timeout(200)
+    next_day()
+    lp = live()
+    check('[SYS:QUEST] DAILY' in lp and 'never "someone"' in lp and 'even if the story is in another language' in lp, 'quiet room: quest lines asked for, before whom, kept as written')
+    check('let ' not in lp.split('[SYS:QUEST]')[0][-400:] or 'react naturally' not in lp, 'quiet room: no "let the character react" any more')
+    names = today()
+    # a translation turned DAILY into 일일 / 일상: still drawn (the name finds the quest)
+    turn(page, 'Morning.', '<p>Hm.<br>' + '<br>'.join(f'[SYS:QUEST] 일일 · {n}' for n in names[:2]) + f'<br>[SYS:QUEST] Quotidienne · {names[2]}</p>')
+    check(ev(page, f"{last}.querySelectorAll('.sblink-qb-daily .sblink-qbrow').length") == 3, 'kind word "일일" (and an unknown word) still drawn as quest windows')
+    check(ev(page, f"{last}.querySelectorAll('.sblink-qplain').length") == 0, 'no plain line left')
+    setv('storyQuest', 'false')
+
+    # --- the check sees the end of a long reply
+    long = 'The road goes on. ' * 220 + 'At the very end she lights the lantern.'
+    turn(page, 'Walk.', long)
+    check('lights the lantern' in (ev(page, 'window.__checkLast') or ''), 'a long reply: its end is judged too')
+
+    # --- Continue: the reply's data follows it, and what it adds is judged
+    ev(page, f"window.__yes([])")
+    turn(page, 'Try.', 'She hesitates.')
+    p0 = epoints(page)
+    k0 = E("e.lastReply().key")
+    ev(page, f"window.__yes([{names[0]!r}])")
+    ev(page, "window.__fakeST.cont('Then she does it.')"); page.wait_for_timeout(1500)
+    k1 = E("e.lastReply().key")
+    check(k0 != k1, 'Continue gave the reply a new key (like 1.19.1)')
+    check(E(f"r.ledger.some(e => e.key === {k1!r} && !e.undone)") and epoints(page) > p0, f'Continue: checked again, the new part cleared a quest ({p0} → {epoints(page)})')
+    check(not E(f"JSON.stringify(r).includes({k0!r})"), 'nothing left on the old key')
+    # a reply that cleared something, then continued: the points stay
+    p1 = epoints(page)
+    ev(page, "window.__yes([])")
+    ev(page, "window.__fakeST.cont('And she rests.')"); page.wait_for_timeout(1500)
+    check(epoints(page) == p1, f'Continue again: the points it gave stay ({p1} → {epoints(page)})')
+
+    # --- genre mode
+    ev(page, 'window.__confirmAnswer = true'); setv('genreMode', 'true'); page.wait_for_timeout(300)
+    check('never as "someone"' in rules() and 'usual rules for' in rules(), 'genre rules: by name, reactions left to the preset\'s rules')
+    check('reacts in the story' not in rules(), 'genre rules: no "the character reacts" any more')
+
+    # off → on while quests wait for their scene: they still come
+    next_day()
+    names = today()
+    check(E("r.quests.filter(q => q.kind === 'daily' && q.day === r.day).every(q => e.veiled(r, q))"), 'new quests wait for their scene')
+    setv('genreMode', 'false'); page.wait_for_timeout(200)
+    turn(page, 'Hm.', 'Nothing.')
+    ev(page, 'window.__confirmAnswer = true'); setv('genreMode', 'true'); page.wait_for_timeout(300)
+    turn(page, 'Hm?', 'Still nothing.')
+    lp = live()
+    check(E("r.quests.filter(q => q.kind === 'daily' && q.day === r.day).every(q => !e.veiled(r, q))") or all(f'· {n}' in ev(page, 'window.__fakeST.prompt') for n in names),
+          'genre off → on: the waiting quests are still brought in (not stuck hidden)')
+    check(E("r.quests.filter(q => q.kind === 'daily' && q.day === r.day).every(q => !e.veiled(r, q))"), 'and open with the next reply')
+
+    # a made-up quest line ahead of the real ones; a quest drawn once only
+    next_day()
+    names = today()
+    lines = ['[SYS:QUEST] DAILY · ' + ('확장이 주지 않은 퀘스트' if ko else 'A quest nobody gave')] + [f'[SYS:QUEST] DAILY · {n}' for n in names]
+    turn(page, 'Morning.', '<p>' + '<br>'.join(lines) + '</p>')
+    rows = ev(page, f"[...{last}.querySelectorAll('.sblink-qb-daily .sblink-qbname')].map(x => x.textContent)")
+    check(sorted(rows) == sorted(names), f'a made-up line ahead does not take a real quest ({rows})')
+    check(ev(page, f"{last}.querySelectorAll('.sblink-qplain').length") == 1, 'it stays plain text')
+
+    # CLEAR with a translated name: plain at first, a window once the check names the quest
+    ev(page, f"window.__yes([{names[0]!r}])")
+    turn(page, 'Do it.', '<p>Done.<br>[SYS:CLEAR] ' + ('번역된 이름' if not ko else 'A translated name') + '</p>')
+    page.wait_for_timeout(800)
+    check(ev(page, f"!!{last}.querySelector('.sblink-qb-clear.sblink-cl-ok')"), 'a translated CLEAR line becomes a window after the check')
+    check(ev(page, f"{last}.querySelectorAll('.sblink-qb-clear').length") == 1, 'one window only')
+
+    # CLEAR of a quest with two conditions, only one done: not "confirmed"
+    E("(r.quests.push({ id: 'q2c', kind: 'daily', name: 'Two things', conds: ['alpha step', 'beta step'], reward: 20, day: r.day, failed: false }), s.save(), true)")
+    ev(page, "window.__yes(['alpha step'])")
+    turn(page, 'Half.', '<p>Half done.<br>[SYS:CLEAR] Two things</p>')
+    page.wait_for_timeout(800)
+    check(not ev(page, f"!!{last}.querySelector('.sblink-qb-clear.sblink-cl-ok')") and ev(page, f"!!{last}.querySelector('.sblink-qb-clear')"), 'one of two conditions: the CLEAR window is not "confirmed"')
+    check(('일부만' if ko else 'Only part') in ev(page, f"{last}.querySelector('.sblink-qb-clear')?.textContent || ''"), 'it says only part is done')
+
+    # streaming: the text is drawn before the quests are marked sent; translated lines come back as windows
+    ev(page, 'window.__streaming = true')
+    next_day()
+    names = today()
+    turn(page, 'Morning.', '<p>' + '<br>'.join(f'[SYS:QUEST] 일일 · ({i}) ' + ('번역됨' if not ko else 'translated') for i, _ in enumerate(names)) + '</p>')
+    page.wait_for_timeout(500)
+    check(ev(page, f"{last}.querySelectorAll('.sblink-qb-daily .sblink-qbrow').length") == len(names), f'streaming + translated names: drawn once the reply is in ({ev(page, last + ".innerHTML")[:120]})')
+    ev(page, 'window.__streaming = false')
+
+    # unseen quests and the next day: no penalty, nothing lost
+    E("(r.difficulty = 'hell', s.save(), true)")
+    next_day()
+    E("(r.bag.push({ id: 'ib', name: 'Keepsake', desc: '', rarity: 'common', icon: 'box', kind: 'item', count: 1 }), s.save(), true)")
+    unseen = E("r.quests.filter(q => q.kind === 'daily' && q.day === r.day).map(q => q.id)")
+    check(E("r.quests.filter(q => q.kind === 'daily' && q.day === r.day).every(q => e.veiled(r, q))"), 'Hell: new quests wait for their scene')
+    deb0 = E("r.debuffs.length")
+    p2 = epoints(page)
+    next_day()
+    check(E(f"r.quests.filter(q => {unseen!r}.includes(q.id)).every(q => q.failed && !q.failedAt && q.unseen)"), 'quests never seen: ended, not failed with a penalty')
+    check(E("r.bag.some(b => b.id === 'ib' && b.count === 1)") and E("r.debuffs.length") == deb0 and epoints(page) == p2, 'nothing lost, no debuff, no points off')
+    E("(r.difficulty = 'off', s.save(), true)")
+
+    # the goal page: a stage waiting for its scene shows nothing of itself
+    E("(e.setGoal({ title: 'Goal T', total: 3, stage: { name: 'Stage one visible', conds: [], reward: 100 } }), true)")
+    close_win(); page.click('#sblink-fab'); page.click('#sblink-win [data-tab="quests"]'); page.wait_for_timeout(200)
+    page.click('#sblink-win [data-act="goalOpen"]'); page.wait_for_timeout(200)
+    check(ev(page, "document.querySelector('#sblink-win').textContent.includes('Stage one visible')"), 'goal page shows a stage in the story')
+    E("(e.setGoal({ title: 'Goal T', total: 3, stage: { name: 'Secret stage', conds: [], reward: 100 } }, undefined, true), true)")
+    page.wait_for_timeout(300)
+    check(not ev(page, "document.querySelector('#sblink-win').textContent.includes('Secret stage')") and not ev(page, "!!document.querySelector('#sblink-win [data-clear]')"), 'goal page: a waiting stage is hidden, no "clear by hand"')
+    close_win()
+
+    # an old note (before 0.7.0: one reply key only) keeps that key when sent again
+    k = E("e.lastReply().key")
+    E(f"(r.notes.push({{ id: 'nold', text: 'An old note', at: 1, deliveredKey: {k!r} }}), s.save(), true)")
+    ev(page, 'window.__fakeST.regenerate()'); page.wait_for_timeout(1300)
+    check('An old note' in ev(page, 'window.__fakeST.prompt'), 'regenerate: the old note goes again')
+    check(E(f"(r.notes.find(n => n.id === 'nold')?.dk || []).includes({k!r})"), 'and keeps the reply it went with first')
+
+    # the tutorial skipped: its step windows are not sent
+    ev(page, "window.__fakeST.openChat('Tut chat')"); page.wait_for_timeout(1200)
+    page.click('#sblink-pop [data-pop="ok"]'); page.wait_for_timeout(900)  # the wake question: [Start] (tutorial)
+    close_pops(page); close_win()
+    check(E("r.notes.some(n => n.tut)"), 'waking in genre mode: the first tutorial step waits for the story')
+    E("(e.skipTutorial(), true)"); page.wait_for_timeout(200)
+    check(not E("r.notes.some(n => n.tut)") and '[SYS:NOTICE] TUTORIAL' not in live(), 'tutorial skipped: no tutorial window asked for')
+
+    # [Begin as a story]: a /command or a draft in the box is set aside (single and group chats)
+    for group in (False, True):
+        ev(page, f'window.__groupMode = {"true" if group else "false"}; window.__generateCalls = []; window.__cmdRan = null')
+        draft = '/echo not yet' if not group else 'my unsent draft'
+        ev(page, f"document.getElementById('send_textarea').value = {draft!r}")
+        ev(page, f"window.__fakeST.openChat('Fresh {int(group)}')"); page.wait_for_timeout(1300)
+        if not ev(page, "!!document.querySelector('#sblink-pop [data-pop=\"top\"]')"):
+            close_pops(page)
+        page.click('#sblink-pop [data-pop="top"]'); page.wait_for_timeout(2000)
+        chat = ev(page, 'SillyTavern.getContext().chat.map(m => m.is_user ? "U:" + m.mes : "A")')
+        check(not ev(page, 'window.__cmdRan') and not any(c.startswith('U:') for c in chat), f'{"group" if group else "single"}: the draft was not sent or run ({chat})')
+        check(chat[-1] == 'A' and len(chat) >= 2, 'the scene came')
+        check(ev(page, "document.getElementById('send_textarea').value") == draft, 'the draft is back in the box')
+        close_pops(page); close_win()
+    ev(page, 'window.__groupMode = false')
     check(not errors, f'no errors {errors[:3]}')
     page.close()
 

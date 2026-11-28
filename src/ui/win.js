@@ -596,10 +596,14 @@ function goalPage() {
     for (let i = 0; i < g.total; i++) {
         const q = g.list[i];
         const st = q ? questState(r, q, view) : null;
-        const locked = !q || (i > g.done);
-        const isNow = q && q === g.current;
+        // 0.7.0 genre mode: a stage still waiting for its scene shows only "something is arriving"
+        const coming = !!(q && st.status !== 'done' && veiled(r, q, view));
+        const locked = !q || (i > g.done) || coming;
+        const isNow = q && q === g.current && !coming;
         let inner;
-        if (locked && !isNow) {
+        if (coming) {
+            inner = `<div class="sblink-stagename">???</div><div class="sblink-qmeta">${esc(t('panel_incoming'))}</div>`;
+        } else if (locked && !isNow) {
             inner = `<div class="sblink-stagename">${esc(i === g.total - 1 ? t('stage_last_locked') : '???')}</div><div class="sblink-qmeta">${esc(!q && i === g.list.length && g.pending ? ((ui.makingStage || isMakingStage()) ? t('stage_making') : t('stage_failed')) : t('stage_locked'))}</div>`;
         } else {
             inner = `<div class="sblink-stagename">${esc(q.name)}</div>`;
@@ -612,7 +616,7 @@ function goalPage() {
         }
         const cls = st?.status === 'done' ? ' sblink-stage-done' : isNow ? ' sblink-stage-now' : ' sblink-stage-locked';
         rows += `<div class="sblink-stage${cls}"${q && !locked ? ` data-quest="${esc(q.id)}" role="button" tabindex="0"` : ''}>
-          <span class="sblink-stagenum">${i + 1}</span><div class="sblink-stagebody">${inner}</div><b class="sblink-pts">${q ? `+${rate(q.reward)}P` : '+?P'}</b></div>`;
+          <span class="sblink-stagenum">${i + 1}</span><div class="sblink-stagebody">${inner}</div><b class="sblink-pts">${q && !coming ? `+${rate(q.reward)}P` : '+?P'}</b></div>`;
     }
     const retry = g.pending && !ui.makingStage && !isMakingStage() ? `<button type="button" class="sblink-btn sblink-btn-sm" data-act="stageRetry"><span class="sblink-ell">${esc(t('stage_retry'))}</span></button>` : '';
     const body = `<div class="sblink-code">SYS.GOAL // MAIN</div>

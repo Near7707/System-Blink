@@ -225,7 +225,7 @@ const EN = {
     toast_hidden: 'Hidden quest · {name}', toast_skill: 'Skill gained · {name}', toast_tut_done: 'Tutorial complete',
     incoming: '[Something is arriving…]', panel_incoming: 'Incoming',
     qb_clear_game: '[Quest complete]', qb_clear_star: '[Scenario cleared]', qb_clear_threat: '[Task accomplished]',
-    qb_clear_wait: 'Checking…', qb_clear_ok: 'Confirmed', qb_clear_hold: 'Not confirmed · clear it by hand in the Quests tab',
+    qb_clear_wait: 'Checking…', qb_clear_ok: 'Confirmed', qb_clear_hold: 'Not confirmed · clear it by hand in the Quests tab', qb_clear_part: 'Only part of it confirmed · the rest is still to do',
     qb_n_awaken: '[The System has awakened]', qb_n_tutorial: '[Tutorial]', qb_n_item: '[Item used]', qb_n_skill: '[Skill activated]', qb_n_day: '[A new day begins]',
     qb_day_line: 'Day {n}',
 };
@@ -445,7 +445,7 @@ const KO = {
     toast_hidden: '히든 퀘스트 · {name}', toast_skill: '스킬 획득 · {name}', toast_tut_done: '튜토리얼 완료',
     incoming: '[무언가 도착하고 있습니다…]', panel_incoming: '수신 중',
     qb_clear_game: '[퀘스트를 완료했습니다]', qb_clear_star: '[시나리오를 클리어했습니다]', qb_clear_threat: '[과제를 완수했습니다]',
-    qb_clear_wait: '판정 중…', qb_clear_ok: '확인됨', qb_clear_hold: '판정 보류 · 직접 완료는 퀘스트 탭에서',
+    qb_clear_wait: '판정 중…', qb_clear_ok: '확인됨', qb_clear_hold: '판정 보류 · 직접 완료는 퀘스트 탭에서', qb_clear_part: '일부만 확인됨 · 남은 조건이 있어요',
     qb_n_awaken: '[시스템이 깨어났습니다]', qb_n_tutorial: '[튜토리얼]', qb_n_item: '[아이템을 사용했습니다]', qb_n_skill: '[스킬이 발동되었습니다]', qb_n_day: '[새로운 하루가 시작되었습니다]',
     qb_day_line: '{n}일차',
 };
