@@ -3,7 +3,7 @@
 
 export const MODULE = 'systemBlink';
 export const FORMAT = 2;
-export const VERSION = '0.7.0';
+export const VERSION = '0.7.1';
 export const TONES = ['game', 'star', 'threat'];
 export const DIFFS = ['off', 'easy', 'normal', 'hard', 'hell'];
 
@@ -183,6 +183,7 @@ export function newRoom() {
         notes: [],              // one-time notes for the AI: { id, text, at, deliveredKey, dk: [AI replies it went with] }
                                 // 0.7.0: + gtext / line — the genre-mode wording and the exact System window line
         lifeLog: [],            // every daily-life change, kept for good: { key, t, life, lifeFrom }
+        dayLog: [],             // 0.7.1: day changes found: { key, prev, days, reason, next, t, done, off } (kept until moved on)
         checks: [],             // { key, t, quests: [{ questId, reason }], life: {}, days, dayReason, nextTime, dismissed }
         shop: { standing: [], dailyDay: 0, daily: [] },
         debuffs: [],            // { id, kind: 'pricey', day (the day it lasts), questId (its penalty quest) | null, at }
@@ -215,6 +216,11 @@ function fixRoom(r) {
         r.lifeLog = (Array.isArray(r.checks) ? r.checks : []).filter(c => c && c.life && Object.keys(c.life).length)
             .map(c => ({ key: c.key, t: c.t, life: { ...c.life }, lifeFrom: { ...(c.lifeFrom || {}) } }));
     }
+    // 0.7.1: a day change still waiting (from the checks) stays waiting (its place in the chat is not known: prev null)
+    if (!Array.isArray(r.dayLog)) {
+        r.dayLog = (Array.isArray(r.checks) ? r.checks : []).filter(c => c && c.key && c.days > 0 && !c.dismissed)
+            .map(c => ({ key: c.key, prev: null, days: Math.min(30, Math.round(c.days)), reason: c.dayReason || '', next: c.nextTime || '', t: c.t || 0, done: false, off: false }));
+    }
     for (const [k, v] of Object.entries(base)) if (r[k] === undefined || typeof r[k] !== typeof v || Array.isArray(v) !== Array.isArray(r[k])) r[k] = v;
     if (!Array.isArray(r.tutorial.done) || r.tutorial.done.length !== 4) r.tutorial.done = [false, false, false, false];
     if (!r.shop || typeof r.shop !== 'object') r.shop = base.shop;
@@ -222,6 +228,7 @@ function fixRoom(r) {
     r.day = Math.max(1, Math.round(Number(r.day) || 1));
     if (r.goal !== null && (typeof r.goal !== 'object' || Array.isArray(r.goal))) r.goal = null;
     r.quests = r.quests.filter(q => q && typeof q === 'object');
+    r.dayLog = r.dayLog.filter(d => d && typeof d === 'object' && typeof d.key === 'string' && d.key);
     for (const q of r.quests) if (!['daily', 'sudden', 'hidden', 'goal', 'penalty'].includes(q.kind)) q.kind = 'daily';
     if (!DIFFS.includes(r.difficulty)) r.difficulty = 'off';
     if (!TONES.includes(r.tone)) r.tone = 'game';
@@ -335,6 +342,7 @@ function keysOf(r) {
     for (const c of r.checks || []) out.push(c?.key);
     for (const l of r.ledger || []) out.push(l?.key);
     for (const l of r.lifeLog || []) out.push(l?.key);
+    for (const d of r.dayLog || []) out.push(d?.key);
     for (const u of r.uses || []) out.push(u?.key);
     for (const n of r.notes || []) out.push(n?.deliveredKey);
     for (const c of r.cheers || []) out.push(c?.key);

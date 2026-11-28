@@ -3,7 +3,7 @@
 
 import { t, lang } from '../i18n.js';
 import { settings, room } from '../store.js';
-import { active, chatView, suggestion, nextDay, dismissSuggestion, isAI, todays, questState, condsOf, penaltyFor, hiddenOpen, toneOf, warnFor, warnCount, WARN_MAX } from '../engine.js';
+import { active, chatView, suggestion, nextDay, dropDayChange, isAI, todays, questState, condsOf, penaltyFor, hiddenOpen, toneOf, warnFor, warnCount, WARN_MAX } from '../engine.js';
 import { specNames, starWho } from '../data.js';
 import { gradeBadge, gradeClass, isTop, tag } from './skills.js';
 import { icon, hexMark } from '../icons.js';
@@ -239,18 +239,35 @@ export function renderStrip() {
     const one = sug.days === 1;
     const timeBit = (v) => (v ? ` · ${esc(v)}` : '');
     const open = sug.open || [];
+    const span = `${esc(t('day_n', { n: sug.fromDay }))} ▸ ${esc(t('day_n', { n: sug.toDay }))}`;
+    // 0.7.1: folded, it stays as one line above the input until I move on
+    if (stripFolded && !stripOpen) {
+        el.innerHTML = `
+      <div class="sblink-striphead">
+        <span class="sblink-dia">◆</span><span class="sblink-code">DAY</span>
+        <span class="sblink-stripwait sblink-ell">${esc(t('sug_wait'))} · ${span}</span>
+        <button type="button" class="sblink-btn sblink-btn-sm sblink-stripunfold" data-strip="unfold"><span class="sblink-ell">${esc(t('sug_unfold'))}</span></button>
+      </div>`;
+        placeStrip();
+        hooks.badge();
+        return;
+    }
+    const rows = sug.rows || [];
+    const left = open.length ? `<div class="sblink-stripleft">◇ ${esc(t('sug_left', { n: open.length }))}</div>` : '';
     el.innerHTML = `
       <div class="sblink-striphead">
         <span class="sblink-dia">◆</span><span class="sblink-code">SYS.SUGGEST // DAY</span>
         <span class="sblink-sp"></span>
-        <button type="button" class="sblink-link" data-strip="more">${stripOpen ? esc(t('fold')) + ' ▴' : esc(t('details')) + ' ▾'}</button>
-        <button type="button" class="sblink-x" data-strip="x" aria-label="${esc(t('close'))}">${icon('close')}</button>
+        <button type="button" class="sblink-link" data-strip="more">${stripOpen ? esc(t('sug_less')) + ' ▴' : esc(t('details')) + ' ▾'}</button>
+        <button type="button" class="sblink-btn sblink-btn-sm sblink-stripfold" data-strip="fold"><span class="sblink-ell">${esc(t('fold'))} ▾</span></button>
       </div>
       <div class="sblink-striptitle">${esc(one ? t('sug_one') : t('sug_many'))}</div>
       ${stripOpen ? `
       <div class="sblink-stripbody">
         <div class="sblink-nowbox"><span class="sblink-code">NOW</span> ${esc(t('day_n', { n: sug.fromDay }))}${timeBit(sug.fromTime)} <span class="sblink-arrow">▸</span> <span class="sblink-code">NEXT</span> ${esc(t('day_n', { n: sug.toDay }))}${timeBit(sug.nextTime)}</div>
-        ${sug.reason ? `<div class="sblink-why"><span class="sblink-code">${esc(t('evidence'))}</span> “${esc(sug.reason)}”</div>` : ''}
+        <div class="sblink-code sblink-dimcode">${esc(t('sug_rows', { n: rows.length }))}</div>
+        ${rows.map(x => `<div class="sblink-dayrow"><span class="sblink-code">#${x.n}</span><span class="sblink-code sblink-goldtxt">${esc(t('sug_plus', { n: x.days }))}</span><span class="sblink-dayq sblink-ell">${x.reason ? `“${esc(x.reason)}”` : ''}</span><button type="button" class="sblink-x" data-strip="drop" data-key="${esc(x.key)}" aria-label="${esc(t('sug_drop'))}">${icon('close')}</button></div>`).join('')}
+        <div class="sblink-hint">${esc(t('sug_drop_hint'))}</div>
         <div class="sblink-settle"><div class="sblink-code">${esc(t('settle_once'))}</div>
           ${open.length ? `<div>◇ ${esc(t('settle_failed', { list: open.map(q => `「${q.name}」`).join(' ') }))}</div>` : ''}
           ${open.some(q => penaltyFor(q)) ? `<div class="sblink-neg">◇ ${esc(t('settle_penalty'))}</div>` : ''}
@@ -259,7 +276,7 @@ export function renderStrip() {
           <div>◇ ${esc(t('settle_shop'))}</div>
           <div>◇ ${esc(t(one ? 'settle_ai_one' : 'settle_ai_many'))}</div>
         </div>
-      </div>` : `<div class="sblink-stripline">${esc(t('day_n', { n: sug.fromDay }))} ▸ ${esc(t('day_n', { n: sug.toDay }))} · ${esc(t('settle_once_short'))}</div>`}
+      </div>` : `<div class="sblink-stripline">${span} · ${esc(t('settle_once_short'))}</div>${left}`}
       <div class="sblink-stripbtns">
         <button type="button" class="sblink-btn" data-strip="later"><span class="sblink-ell">${esc(t('later'))}</span></button>
         <button type="button" class="sblink-btn sblink-btn-main" data-strip="go"><span class="sblink-ell">${esc(t('next_day'))}</span></button>
@@ -274,8 +291,11 @@ function onStripClick(e) {
     const sug = suggestion();
     const act = b.dataset.strip;
     if (act === 'more') { stripOpen = !stripOpen; stripFolded = false; renderStrip(); return; }
+    // 0.7.1: [Later] only folds it (it stays until I move on); ✕ on a reply = that reply did not change the day
+    if (act === 'later' || act === 'fold') { stripFolded = true; stripOpen = false; renderStrip(); return; }
+    if (act === 'unfold') { stripFolded = false; renderStrip(); return; }
     if (!sug) return renderStrip();
-    if (act === 'x' || act === 'later') { dismissSuggestion(sug.key); renderStrip(); return; }
+    if (act === 'drop') { dropDayChange(b.dataset.key); renderStrip(); return; }
     if (act === 'go') { nextDay(sug.days, sug.nextTime); renderStrip(); }
 }
 

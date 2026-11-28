@@ -515,6 +515,7 @@ export function storeCheck(chatId, key, res) {
         sk.hidden.key = key; sk.hidden.reason = String(reason || '').slice(0, 120); sk.hidden.at = Date.now();
         out.unlocked.push(sk);
     }
+    storeDay(r, key, res, view);
     trimQuests(r);
     r.checks.push(check);
     if (r.checks.length > KEEP_CHECKS) r.checks.splice(0, r.checks.length - KEEP_CHECKS);
@@ -539,6 +540,7 @@ export function rekeyReply(from, to, chatId = currentChatId()) {
     if (r.roll) r.roll.key = sw(r.roll.key);
     for (const c of r.checks || []) if (c.key === from) { c.key = to; c.again = true; }
     for (const list of [r.ledger, r.lifeLog, r.uses, r.cheers]) for (const x of list || []) if (x) x.key = sw(x.key);
+    for (const d of r.dayLog || []) { d.key = sw(d.key); d.prev = sw(d.prev); }
     for (const n of r.notes || []) { n.deliveredKey = sw(n.deliveredKey); n.dk = swAll(n.dk); }
     for (const k of r.skills || []) if (k?.hidden) k.hidden.key = sw(k.hidden.key);
     for (const q of r.quests || []) {
@@ -587,19 +589,66 @@ export function setLife(fields) {
     save(); changed();
 }
 
-/** "A day (or more) seems to have passed" — only for the newest AI reply, only with story days. */
-export function suggestion(r = room(), view = chatView()) {
-    if (!active(r) || conf(r).dayBasis !== 'story') return null;
-    const c = [...r.checks].reverse().find(x => x.days > 0 && !x.dismissed && view.index.has(x.key));
-    if (!c) return null;
-    const life = lifeNow(r, view);
-    const days = Math.min(30, c.days);
-    return { key: c.key, days, reason: c.dayReason, fromDay: r.day, toDay: r.day + days, fromTime: life.time, nextTime: c.nextTime, open: todays(r).filter(q => questState(r, q, view).status === 'active') };
+// ---------- 0.7.1: day changes the story check found, kept until I move on ----------
+// (was: only the newest check, which went away after 12 checks or with [Later], and came back after a swipe)
+// { key: AI reply, prev: the message before it, days, reason, next, t, done: moved on already, off: "this reply did not change the day" }
+const DAY_DONE_KEEP = 30;
+
+/** The place of a reply in the chat: the message before it (a swipe or a regenerate keeps it). */
+function prevKey(view, key) {
+    const i = view.index.get(key);
+    return i > 0 ? view.keys[i - 1] || '' : '';
 }
 
-export function dismissSuggestion(key) {
-    const c = checkFor(room(), key);
-    if (c) { c.dismissed = true; save(); changed(); }
+function trimDayLog(r) {
+    const done = r.dayLog.filter(d => d.done);
+    if (done.length <= DAY_DONE_KEEP) return;
+    const cut = new Set(done.slice(0, done.length - DAY_DONE_KEEP));
+    r.dayLog = r.dayLog.filter(d => !cut.has(d));
+}
+
+function storeDay(r, key, res, view) {
+    const days = Math.min(30, Math.max(0, Math.round(Number(res.days) || 0)));
+    const was = r.dayLog.find(d => d.key === key);
+    if (!days) {
+        // checked again and no new day: forget it — unless I already moved on from it (its place is remembered)
+        if (was && !was.done) r.dayLog = r.dayLog.filter(d => d !== was);
+        return;
+    }
+    const bits = { days, reason: String(res.dayReason || '').slice(0, 120), next: String(res.nextTime || '').slice(0, 40), t: Date.now() };
+    if (was) { Object.assign(was, bits); return; } // (Continue, [Check the story now]: same reply, "moved on" / "not a day" stay)
+    const prev = prevKey(view, key);
+    // the same place as a reply I already moved on from (a swipe, a regenerate, the reply deleted and written again)
+    const done = !!prev && r.dayLog.some(d => d.done && d.prev === prev);
+    r.dayLog.push({ key, prev, ...bits, done, off: false });
+    trimDayLog(r);
+}
+
+/** Day changes not moved on from yet, in chat order (replies that are gone, or marked "not a day", left out). */
+export function dayChanges(r = room(), view = chatView()) {
+    return (r?.dayLog || []).filter(d => !d.done && !d.off && view.index.has(d.key)).sort((a, b) => view.index.get(a.key) - view.index.get(b.key));
+}
+
+/** "A day (or more) seems to have passed" — until I move on (or say it was not one); only with story days. */
+export function suggestion(r = room(), view = chatView()) {
+    if (!active(r) || conf(r).dayBasis !== 'story') return null;
+    const list = dayChanges(r, view);
+    if (!list.length) return null;
+    const last = list[list.length - 1];
+    const life = lifeNow(r, view);
+    const days = Math.min(30, list.reduce((a, d) => a + d.days, 0));
+    // (a quest still waiting for its scene in genre mode is not named)
+    const open = todays(r).filter(q => questState(r, q, view).status === 'active' && !veiled(r, q, view));
+    return {
+        key: last.key, days, reason: last.reason, fromDay: r.day, toDay: r.day + days, fromTime: life.time, nextTime: last.next, open,
+        rows: list.map(d => ({ key: d.key, n: view.index.get(d.key), days: d.days, reason: d.reason })),
+    };
+}
+
+/** ✕ on one reply: it did not change the day (only that one is left out). */
+export function dropDayChange(key) {
+    const d = room()?.dayLog.find(x => x.key === key);
+    if (d) { d.off = true; save(); changed(); }
 }
 
 // ---------- days ----------
@@ -629,6 +678,9 @@ export async function nextDay(days = 1, nextTime = '') {
     const pen = failed.map(q => ({ q, pts: penaltyFor(q), warn: warnFor(q) })).filter(x => x.pts || x.warn);
     const worst = failed.reduce((a, q) => (DIFFS.indexOf(q.diff) > DIFFS.indexOf(a) ? q.diff : a), 'off');
     for (const c of r.checks) c.dismissed = true;
+    // 0.7.1: every day change so far is moved on from (asked once: a swipe of that reply does not ask again)
+    for (const d of r.dayLog) d.done = true;
+    trimDayLog(r);
     r.day += days;
     let debuff = null, lost = null;
     if (diffAtLeast(worst, 'hard')) {

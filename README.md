@@ -6,7 +6,7 @@ A game-like **System** for SillyTavern roleplay, in the style of Korean system n
 In the middle of the story, a translucent System window pops up — *"[Daily quests have arrived]"* —
 you clear quests in the story, earn points, and spend them in your own **personal shop**.
 
-This version (0.7.0): the System window, the tutorial, daily quests, the shop, the bag and daily-life mode,
+This version (0.7.1): the System window, the tutorial, daily quests, the shop, the bag and daily-life mode,
 sudden quests, hidden quests, a main goal, quests with several conditions, **difficulty with penalties**,
 **skills and gacha**, **three System voices** with **spectators** who react and sponsor — and, if you like, **new quests shown in the story**
 or a whole **genre mode** where the System becomes the heart of the story.
@@ -95,7 +95,8 @@ https://github.com/Near7707/System-Blink
   send a skill (F–C). They never appear in the story.
 - **Daily life**: date, time of day, weather, place and today's plan. The AI check notices changes;
   you can also edit them. When the story moves to another day, a strip above the input box asks
-  *"Move to the next day?"* — settling happens once, however many days passed.
+  *"Move to the next day?"* — it stays (folded if you like) until you move on, adds up days that pass
+  in the meantime and settles once. If the check misread a reply, ✕ leaves just that reply out.
 - **Log cards**: a small card under a message shows a quest clear (or a sudden quest that ran out), a daily-life change, an opened hidden effect, a sponsorship, or an item / skill use. Screen only.
   Every record is kept, so old messages keep their cards too.
 - **Chat with the System log**: *Data → Chat with the System log* downloads the whole chat in order, with what the

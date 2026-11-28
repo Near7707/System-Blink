@@ -338,6 +338,13 @@
 .sblink-stripbtns { display: flex; gap: 8px; margin-top: 8px; }
 .sblink-stripbtns .sblink-btn { flex: 1 1 0; min-width: 0; height: 36px; }
 .sblink-strip-folded .sblink-stripline, .sblink-strip-folded .sblink-stripbtns { display: none; }
+.sblink-strip-folded { padding: 6px 12px; }
+.sblink-stripwait { flex: 1 1 auto; min-width: 0; font-size: 13px; }
+.sblink-stripunfold, .sblink-stripfold { flex: none; height: 28px; min-width: 0; font-size: 12px; }
+.sblink-stripleft { font-size: 12px; color: var(--sb-gold); margin-top: 3px; }
+.sblink-dimcode { color: var(--sb-dim); }
+.sblink-dayrow { display: flex; align-items: center; gap: 8px; padding: 0 0 0 8px; background: rgba(var(--sb-acc-rgb), 0.06); border: 1px solid rgba(var(--sb-acc-rgb), 0.18); }
+.sblink-dayq { flex: 1 1 auto; min-width: 0; font-size: 12px; }
 .sblink-stripbody { font-size: 13px; display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
 .sblink-nowbox { padding: 6px 8px; border: 1px solid rgba(var(--sb-acc-rgb), 0.25); background: var(--sb-cell); }
 .sblink-arrow { color: var(--sb-acc); }

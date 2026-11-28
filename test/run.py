@@ -129,6 +129,8 @@ def main():
             v070b(browser, 'en')
             v070c(browser, 'ko')
             v070c(browser, 'en')
+            v071(browser, 'ko')
+            v071(browser, 'en')
             browser.close()
     finally:
         srv.terminate()
@@ -2672,6 +2674,92 @@ def v070c(browser, lang):
     check("Other characters do not do a quest's action" in ev(page, "window.__fakeST.livePrompt || ''"), 'genre room: the no-swap line is in the rules')
     check(ev(page, f"{last}.querySelectorAll('.sblink-qbrow').length") == 2, 'both real quests drawn')
     check(not errors, f'no errors ({errors[:2]})')
+    page.close()
+
+
+def v071(browser, lang):
+    """0.7.1: the next-day strip stays until I move on, adds days up, a reply moved on from does not ask again."""
+    print(f'--- 0.7.1 next-day strip ({lang})')
+    ko = lang == 'ko'
+    R = "SillyTavern.getContext().extensionSettings.systemBlink.chats[__sbKey()]"
+    day = lambda n, q='the next morning': f'Q1: NO\nQ2: NO\nQ3: NO\nTIME: morning\nWEATHER: -\nPLACE: -\nDATE: -\nDAYS: {n} - "{q}"\nNEXT: morning'
+    NO = 'Q1: NO\nQ2: NO\nQ3: NO\nTIME: -\nWEATHER: -\nPLACE: -\nDATE: -\nDAYS: 0\nNEXT: -'
+    strip = lambda: ev(page, "!!document.getElementById('sblink-strip')")
+    sug = lambda: ev(page, "(async () => { const s = (await import('/src/engine.js')).suggestion(); return s ? { days: s.days, rows: s.rows.length, open: s.open.length } : null; })()")
+    page, errors = open_page(browser, f'fresh&lang={lang}')
+    ev(page, "(async () => { await (await import('/src/engine.js')).switchOn('skip'); })()"); page.wait_for_timeout(900); close_pops(page)
+
+    # A. it stays: [Later] folds it, and it is still there after many replies
+    turn(page, 'I sleep.', 'The next morning comes.', day(1)); close_pops(page)
+    check(strip(), 'A strip shows')
+    left = ev(page, "document.querySelector('#sblink-strip .sblink-stripleft')?.textContent || ''")
+    check(('3개 남음' if ko else '3 quest') in left, f'A quests-left line ({left})')
+    page.click('[data-strip="later"]'); page.wait_for_timeout(150)
+    check(strip() and ev(page, "document.getElementById('sblink-strip').classList.contains('sblink-strip-folded')"), 'A [Later] folds it, does not remove it')
+    for i in range(14):
+        turn(page, f'talk {i}', f'reply {i}', NO)
+    close_pops(page)
+    check(strip(), 'A still there after 14 more replies (was gone after 12)')
+    txt = ev(page, "document.getElementById('sblink-strip').innerText")
+    check(('넘기기 대기' if ko else 'Waiting to move on') in txt, f'A folded line ({txt.strip()[:60]})')
+    page.click('[data-strip="unfold"]'); page.wait_for_timeout(150)
+    check(ev(page, "!!document.querySelector('#sblink-strip [data-strip=\"go\"]')"), 'A unfold shows the buttons again')
+
+    # B. a second day change adds up; ✕ on one reply leaves only that one out
+    turn(page, 'Two days later…', 'Two days later, the festival began.', day(2, 'Two days later')); close_pops(page)
+    s = sug()
+    check(s and s['days'] == 3 and s['rows'] == 2, f'B adds up: 1 + 2 days ({s})')
+    page.click('[data-strip="more"]'); page.wait_for_timeout(150)
+    check(ev(page, "document.querySelectorAll('#sblink-strip .sblink-dayrow').length") == 2, 'B two evidence rows')
+    page.locator('#sblink-strip .sblink-dayrow [data-strip="drop"]').nth(1).click(); page.wait_for_timeout(150)
+    s = sug()
+    check(s and s['days'] == 1 and s['rows'] == 1, f'B ✕ leaves only that reply out ({s})')
+    turn(page, 'Later again', 'Two days later, rain.', day(2, 'Two days later')); close_pops(page)
+    check(sug()['days'] == 3, 'B a new day change after the ✕ counts')
+
+    # C. move on: settled once, all the days
+    page.click('[data-strip="go"]'); page.wait_for_timeout(1000); close_pops(page)
+    check(ev(page, f"{R}.day") == 4, f'C moved 3 days on (day {ev(page, R + ".day")})')
+    check(not strip(), 'C strip gone')
+    # 2: a swipe of the reply moved on from does not ask again
+    ev(page, f'window.__checkAnswer = {day(2, "Two days later")!r}'); ev(page, 'window.__fakeST.swipe()'); page.wait_for_timeout(1500); close_pops(page)
+    check(not strip() and ev(page, f"{R}.day") == 4, 'C swipe of that reply: no strip again')
+    ev(page, f'window.__checkAnswer = {day(1)!r}'); ev(page, 'window.__fakeST.regenerate()'); page.wait_for_timeout(1500); close_pops(page)
+    check(not strip(), 'C regenerate: no strip again')
+    ev(page, f'window.__checkAnswer = {day(1)!r}'); ev(page, "window.__fakeST.cont(' And more.')"); page.wait_for_timeout(1500); close_pops(page)
+    check(not strip(), 'C continue: no strip again')
+    ev(page, f'window.__checkAnswer = {day(1)!r}'); ev(page, "(async () => (await import('/src/engine.js')).bus.emit('checkNow'))()"); page.wait_for_timeout(1500); close_pops(page)
+    check(not strip(), 'C [Check the story now]: no strip again')
+    ev(page, "window.__fakeST.deleteLast()"); page.wait_for_timeout(300)
+    ev(page, f'window.__checkAnswer = {day(1)!r}'); ev(page, "window.__fakeST.generate('normal')"); page.wait_for_timeout(1500); close_pops(page)
+    check(not strip(), 'C reply deleted and written again in the same place: no strip again')
+    # a new reply further on asks again
+    turn(page, 'Sleep', 'The next morning comes.', day(1)); close_pops(page)
+    check(strip() and sug()['days'] == 1, 'C a later reply changing the day asks again')
+
+    # D. the [Next day] button in the Status tab settles waiting changes too
+    ev(page, "(async () => { await (await import('/src/engine.js')).nextDay(1); })()"); page.wait_for_timeout(900); close_pops(page)
+    check(not strip(), 'D status-tab [Next day] settles the waiting change')
+    ev(page, f'window.__checkAnswer = {day(1)!r}'); ev(page, 'window.__fakeST.swipe()'); page.wait_for_timeout(1500); close_pops(page)
+    check(not strip(), 'D then a swipe of that reply does not ask')
+
+    # E. genre mode: a quest still waiting for its scene is not named in the strip
+    ev(page, "SillyTavern.getContext().extensionSettings.systemBlink.genreMode = true")
+    turn(page, 'Sleep', 'The next morning comes.', day(1)); close_pops(page)
+    ev(page, f"(() => {{ const r = {R}; for (const q of r.quests) if (q.kind === 'daily' && q.day === r.day) {{ q.veil = true; q.toldKeys = []; }} }})()")
+    s = sug()
+    check(s and s['open'] == 0, f'E veiled quests are not counted or named ({s})')
+    ev(page, "SillyTavern.getContext().extensionSettings.systemBlink.genreMode = false")
+    page.close()
+
+    # F. an old room (before 0.7.1): a waiting check still shows
+    page, errors = open_page(browser, f'fresh&lang={lang}')
+    ev(page, "(async () => { await (await import('/src/engine.js')).switchOn('skip'); })()"); page.wait_for_timeout(900); close_pops(page)
+    turn(page, 'I sleep.', 'The next morning comes.', day(1)); close_pops(page)
+    ev(page, f"(async () => {{ const s = SillyTavern.getContext().extensionSettings.systemBlink; delete {R}.dayLog; const st = await import('/src/store.js'); st.migrate ? st.migrate(s) : null; }})()")
+    s = sug()
+    check(s and s['days'] == 1, f'F old waiting check carried over ({s})')
+    check(not errors, f'no page errors ({errors[:2]})')
     page.close()
 
 
