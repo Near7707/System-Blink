@@ -2614,6 +2614,34 @@ def v070c(browser, lang):
     ev(page, "window.__streaming = false")
     close_pops(page)
 
+    # --- 3rd review: SillyTavern tidies the whole text on Continue (regex at the start, collapsed newlines): still moves
+    for streaming in ('false', 'true'):
+        names = today()
+        ev(page, f"window.__yes([{names[2]!r}])")
+        turn(page, 'Look.', 'Moonlight falls.\n\n\nShe does the task.')
+        close_pops(page)
+        pT = epoints(page); kT = E("e.lastReply().key")
+        ev(page, f"window.__yes([]); window.__streaming = {streaming}")
+        ev(page, "(() => { window.__contTidy = t => t.replace(/^Moon/, 'Sun').replace(/\\n{3,}/g, '\\n\\n'); })()")
+        ev(page, "window.__fakeST.cont('She smiles.')"); page.wait_for_timeout(1600)
+        ev(page, "window.__contTidy = null; window.__streaming = false")
+        kT2 = E("e.lastReply().key")
+        check(kT != kT2 and epoints(page) == pT and not E(f"JSON.stringify(r).includes({kT!r})"), f'Continue with the start tidied (streaming {streaming}): points follow ({pT} → {epoints(page)})')
+        close_pops(page)
+
+    # --- 3rd review: a re-check does not bring back what I set by hand after it
+    B1 = "TIME: evening\nWEATHER: -\nPLACE: cafe\nDATE: -\nDAYS: 0\nNEXT: -"
+    B2 = "TIME: -\nWEATHER: -\nPLACE: -\nDATE: -\nDAYS: 0\nNEXT: -"
+    turn(page, 'In.', 'In the evening she walks into the cafe.', answer=B1)
+    E("e.setLife({ time: 'morning', place: 'park' })")
+    check(E("e.lifeNow().place") == 'park', 'set by hand: park')
+    ev(page, f"window.__checkAnswer = {B2!r}")
+    ev(page, "window.__fakeST.cont('She rests in the park.')"); page.wait_for_timeout(1500)
+    lf = E("e.lifeNow()")
+    check(lf['place'] == 'park' and lf['time'] == 'morning', f'Continue + "-" after setting by hand: morning and park stay ({lf["time"]}, {lf["place"]})')
+    ev(page, "window.__checkAnswer = null")
+    close_pops(page)
+
     # --- a re-check after Continue keeps what the reply found when the answer is "-"
     A1 = "TIME: evening\nWEATHER: -\nPLACE: cafe\nDATE: -\nDAYS: 0\nNEXT: -"
     A2 = "TIME: -\nWEATHER: -\nPLACE: -\nDATE: -\nDAYS: 0\nNEXT: -"

@@ -27,6 +27,8 @@
     const chats = {};
     const metas = {};
     const stamp = () => new Date(state.clock += 60_000).toISOString();
+    // a Continue saves with the real time, like 1.19.1 (getMessageTimeStamp = Date.now()), never before the last one
+    const nowStamp = () => new Date(state.clock = Math.max(state.clock + 60_000, Date.now())).toISOString();
     // chats are kept per character (the first character keeps bare names, as before)
     const ck = (cid = state.characterId, name = state.chatName) => (cid === 0 || cid === undefined ? name : `${cid}|${name}`);
     function chat() {
@@ -218,12 +220,14 @@
         const ch = characters[state.characterId];
         const text = window.__nextReply || `Reply ${++replyNo}.`;
         window.__nextReply = null;
+        // like 1.19.1 cleanUpMessage on Continue: the whole text (old + new) is tidied again (regex, collapsed newlines)
+        const tidy = (t) => (typeof window.__contTidy === 'function' ? window.__contTidy(t) : t);
         if (type === 'continue' && window.__streaming) {
             // like streaming in 1.19.1: saveReply runs at the start (new send time at once), the text grows,
             // then "generation ended", then MESSAGE_RECEIVED
             const i = list.length - 1;
-            list[i] = { ...list[i], send_date: stamp() };
-            list[i] = { ...list[i], mes: list[i].mes + ' ' + text };
+            list[i] = { ...list[i], send_date: nowStamp() };
+            list[i] = { ...list[i], mes: tidy(list[i].mes + ' ' + text) };
             render();
             await eventSource.emit(eventTypes.GENERATION_ENDED, list.length);
             await eventSource.emit(eventTypes.MESSAGE_RECEIVED, i, 'continue');
@@ -232,7 +236,7 @@
         } else if (type === 'continue') {
             // like 1.19.1 saveReply: the same message gets longer and a new send time
             const i = list.length - 1;
-            list[i] = { ...list[i], mes: list[i].mes + ' ' + text, send_date: stamp() };
+            list[i] = { ...list[i], mes: tidy(list[i].mes + ' ' + text), send_date: nowStamp() };
             render();
             await eventSource.emit(eventTypes.MESSAGE_RECEIVED, i, 'continue');
             await eventSource.emit(eventTypes.CHARACTER_MESSAGE_RENDERED, i);

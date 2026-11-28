@@ -454,7 +454,9 @@ export function storeCheck(chatId, key, res) {
     const prev = lifeNow(r, view, key); // what was known before this reply (its own earlier result left out)
     // 0.7.0: a reply checked again (Continue, [check now]) was asked with its own earlier result as "known before",
     // so "-" (no change) keeps what it found; only a new value replaces it
-    const had = (r.lifeLog || []).find(x => x.key === key)?.life || {};
+    // (3rd review: only while it still counts — what I set by hand after it is newer, the same rule as lifeNow)
+    const was = (r.lifeLog || []).find(x => x.key === key);
+    const had = was && was.t > (r.lifeBase?.at || 0) ? was.life || {} : {};
     const got = { ...had };
     for (const [k, v] of Object.entries(res.life || {})) if (v) got[k] = v;
     const life = {}, lifeFrom = {};

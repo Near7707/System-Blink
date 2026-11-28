@@ -45,16 +45,16 @@ function updatePrompt(genType = 'normal', live = false) {
 }
 
 // ---------- 0.7.0: Continue ----------
-let contFrom = null; // { chatId, key, n, sw, head } of the reply being continued (n = messages in the chat)
+let contFrom = null; // { chatId, key, n, sw, head, at } of the reply being continued (n = messages in the chat)
 const lastKey = () => { const v = chatView(); return v.length ? v.keys[v.length - 1] : null; };
 const lastMes = () => { const v = chatView(); return v.length ? v.list[v.length - 1] : null; };
 function contStart() {
     const m = lastMes();
-    contFrom = m ? { chatId: currentChatId(), key: lastKey(), n: chatView().length, sw: Number(m.swipe_id) || 0, head: String(m.mes ?? '').trim().slice(0, 200) } : null;
+    contFrom = m ? { chatId: currentChatId(), key: lastKey(), n: chatView().length, sw: Number(m.swipe_id) || 0, head: String(m.mes ?? '').trim().slice(0, 200), at: Date.now() } : null;
 }
 /**
  * The continued reply got a new key (SillyTavern sets a new send time): its data follows it. Only the same reply,
- * made longer: the same chat, the same number of messages, the same swipe, its old text's start at the start. A Continue
+ * made longer: the same chat, the same number of messages, the same swipe, saved with a time from after the Continue started. A Continue
  * stopped before anything came keeps its key; what happens after it (another swipe shown, a quiet request of
  * another extension ending) is not taken for it.
  */
@@ -67,8 +67,13 @@ function continued() {
     contFrom = null;
     if (chatView().length !== c.n) return; // messages were added or deleted meanwhile: not the same reply
     const m = lastMes();
-    // (only its start is compared: something tidying the end, like trimmed spaces, must not lose a real Continue)
-    if ((Number(m?.swipe_id) || 0) !== c.sw || !String(m?.mes ?? '').trim().startsWith(c.head)) return; // another swipe
+    if ((Number(m?.swipe_id) || 0) !== c.sw) return; // another swipe
+    // 3rd review: SillyTavern tidies the whole text again on Continue (regex, collapsed newlines, trailing spaces),
+    // so its start can change. The send time decides: a Continue saves the reply with a time from after it started;
+    // an older swipe or reply put in its place has an older one. (Only a time that cannot be read falls back to the text.)
+    const t = Date.parse(String(m?.send_date ?? ''));
+    if (Number.isFinite(t)) { if (t < c.at - 2000) return; }
+    else if (!String(m?.mes ?? '').trim().startsWith(c.head)) return;
     if (!chatView().index.has(c.key)) rekeyReply(c.key, now, c.chatId);
 }
 
