@@ -64,6 +64,12 @@ export function systemEvents(r = room(), view = chatView()) {
     for (const c of r.cheers || []) add(c.key, { type: 'cheer', name: c.name, text: c.text, pts: c.pts || 0, gift: c.gift || '', star: c.tone === 'star', at: c.at });
     for (const b of r.bigs || []) loose.push({ type: 'big', day: b.day, at: b.at });
     for (const e of r.erases || []) loose.push({ type: 'erase', at: e.at });
+    // 0.8.0 regression: a lost life under its reply; the end of each earlier life under its last message
+    const c = r.cycle;
+    if (c) {
+        for (const d of c.deaths || []) add(d.key, { type: 'death', why: d.why, at: d.at });
+        if (c.hide?.key) add(c.hide.key, { type: 'cycle', n: c.hide.n || c.n, at: 0 });
+    }
     loose.sort((a, b) => (a.at || 0) - (b.at || 0));
     return { byKey, loose };
 }
@@ -94,6 +100,8 @@ function line(ev) {
         case 'restock': return `${t('restocked')} −${ev.pts}P`;
         case 'tutorial': return `${t('pop_tut_done')} +${ev.pts}P`;
         case 'boost': return `${t('toast_tut_boost')} +${ev.pts}P`;
+        case 'death': return `${t('log_death')}${ev.why ? ` · "${ev.why}"` : ''}`;
+        case 'cycle': return t('log_cycle', { n: ev.n });
         default: return '';
     }
 }

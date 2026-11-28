@@ -1068,7 +1068,7 @@
 .sblink-dthrow:last-child { border-bottom: 0; }
 .sblink-dthrow .sblink-dia { color: var(--sb-acc); font-size: 10px; }
 .sblink-dthkey { flex: none; }
-.sblink-dthrow b { margin-left: auto; font-family: inherit; font-weight: 400; color: var(--sb-text); font-size: 13px; text-align: right; max-width: 70%; }
+.sblink-dthrow b { margin-left: auto; font-family: -apple-system, system-ui, sans-serif; font-weight: 400; color: var(--sb-text); font-size: 13px; text-align: right; max-width: 70%; }
 .sblink-dthrow b .sblink-acc { color: var(--sb-acc); }
 .sblink-dthrow b .sblink-dim { color: var(--sb-dim); font-size: 11px; }
 .sblink-dthq { font-size: 17px; font-weight: 800; margin: 14px 0 4px; text-align: center; }

@@ -379,7 +379,8 @@ function setupPage() {
     const r = room();
     const c = r?.cycle;
     if (!c) return { body: '', foot: '' };
-    const d = ui.setupDraft ||= { again: c.set ? true : null, n: Math.max(2, c.n), truth: c.truth, memo: c.memo, back: c.back, events: eventsOf(r).map(eventLine).join('\n'), knowers: c.knowers.join(', '), filling: false };
+    if (ui.setupDraft && ui.setupDraft.chat !== currentChatId()) ui.setupDraft = null; // another chat now: start fresh
+    const d = ui.setupDraft ||= { chat: currentChatId(), again: c.set ? true : null, n: Math.max(2, c.n), truth: c.truth, memo: c.memo, back: c.back, events: eventsOf(r).map(eventLine).join('\n'), knowers: c.knowers.join(', '), filling: false };
     const who = ownerName(r);
     let body = '';
     if (!c.set) {
@@ -418,7 +419,8 @@ function goPage() {
     const c = r?.cycle;
     if (!c) return { body: '', foot: '' };
     const view = chatView();
-    const d = ui.cycleDraft ||= { mode: c.mode, keepItem: '', keepSkills: false, off: {}, extra: '', back: '', backText: '', tried: false };
+    if (ui.cycleDraft && ui.cycleDraft.chat !== currentChatId()) ui.cycleDraft = null; // another chat now: start fresh
+    const d = ui.cycleDraft ||= { chat: currentChatId(), mode: c.mode, keepItem: '', keepSkills: false, off: {}, extra: '', back: '', backText: '', tried: false };
     const lines = journalNow(r, view);
     const known = knownLines(r, view);
     // nothing on record yet: the AI puts it down from the story, once (the page can be used meanwhile)
@@ -478,7 +480,7 @@ async function doRegress() {
     readGo();
     const r = room();
     const d = ui.cycleDraft;
-    if (!r?.cycle || !d || isSorting()) return;
+    if (!r?.cycle || !d || isSorting() || d.chat !== currentChatId()) return;
     const view = chatView();
     const pick = [...journalNow(r, view).map(j => ({ id: j.id, day: j.day, text: j.text })), ...knownLines(r, view)].filter(x => !d.off[x.id]);
     const lines = [...pick.map(x => `${x.day || ''} | ${x.text}`), ...String(d.extra || '').split('\n')].map(x => x.trim()).filter(x => x && x !== '|');
@@ -1065,7 +1067,7 @@ async function onClick(e) {
             readSetup();
             const sd = ui.setupDraft;
             const r = room();
-            if (!r?.cycle || sd.again === null) return;
+            if (!r?.cycle || sd.again === null || sd.chat !== currentChatId()) return;
             const knowers = String(sd.knowers || '').split(/[,，、]/).map(x => x.trim()).filter(Boolean).slice(0, 12);
             if (!r.cycle.set) setupCycle(currentChatId(), sd.again ? { again: true, n: sd.n, truth: sd.truth, memo: sd.memo, events: sd.events, back: sd.back } : {});
             else {

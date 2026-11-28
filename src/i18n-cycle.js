@@ -53,7 +53,7 @@ export const CYCLE_EN = {
     cyc_set_first: 'Answer "Where do we start?" first.',
     // the record page
     sub_cycle: 'Life record', jn_empty: 'No lines yet. After each reply the AI notes what may matter; when a day ends they are put down to a few.',
-    jn_add: '+ Write a line', jn_add_ph: 'e.g. 3 · library · Noa · the fire starts', jn_past: 'Earlier lives', jn_past_line: 'Life {n} · {days} days · {pts}P',
+    jn_add: '+ Write a line', jn_add_ph: 'e.g. Day 3 · library · the fire starts', jn_past: 'Earlier lives', jn_past_line: 'Life {n} · {days} days · {pts}P',
     jn_this: 'This life (life {n})',
     // "where do we start?"
     sub_cycleSetup: 'Where do we start?', setup_q: '[Where do we start?]',
@@ -145,7 +145,7 @@ export const CYCLE_KO = {
     cyc_journal: '회차 일지 보기 ›', cyc_next: '[다음 회차]', cyc_edit: '고치기', cyc_knowers: '같이 기억하는 사람: {list}',
     cyc_set_first: '먼저 "어디서부터 시작할까요?"에 답해 주세요.',
     sub_cycle: '회차 일지', jn_empty: '아직 기록이 없어요. 답장마다 AI가 남길 만한 일을 후보로 적고, 하루가 넘어갈 때 몇 줄로 추려요.',
-    jn_add: '+ 한 줄 직접 쓰기', jn_add_ph: '예: 3일째 · 도서관 · 노아 · 불이 난다', jn_past: '지난 회차', jn_past_line: '{n}회차 · {days}일 · {pts}P',
+    jn_add: '+ 한 줄 직접 쓰기', jn_add_ph: '예: 3일째 · 도서관 · 불이 난다', jn_past: '지난 회차', jn_past_line: '{n}회차 · {days}일 · {pts}P',
     jn_this: '이번 생 ({n}회차)',
     sub_cycleSetup: '어디서부터 시작할까요?', setup_q: '[어디서부터 시작할까요?]',
     setup_first: '1회차부터', setup_first_d: '지금이 첫 번째 삶이에요. 이야기를 따라 기록이 쌓여요.',

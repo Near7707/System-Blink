@@ -133,6 +133,8 @@ def main():
             v071(browser, 'en')
             v072(browser, 'ko')
             v072(browser, 'en')
+            v080(browser, 'ko')
+            v080(browser, 'en')
             browser.close()
     finally:
         srv.terminate()
@@ -164,6 +166,8 @@ def flow(browser, lang):
     shot(page, L('05_status'))
 
     # an AI judgment clears a quest; a re-roll takes it back
+    # (0.7.2's starter points in the tutorial's shop step are checked in v072; left out here)
+    ev(page, "SillyTavern.getContext().extensionSettings.systemBlink.chats[__sbKey()].tutorial.boosted = true")
     page.click('[data-act="close"]')
     turn(page, 'I buy Mira a coffee.', 'Mira smiles as Ari pays for her latte.', 'Q1: YES - "Ari pays for her latte"\nQ2: NO\nQ3: NO\nTIME: morning\nWEATHER: cloudy\nPLACE: café\nDATE: -\nDAYS: 0\nNEXT: -')
     check(points(page) == 10, f'AI clear gives points ({points(page)})')
@@ -1060,9 +1064,9 @@ def fixes053(browser):
     check(z[0] > 3005 and z[1] > 3005 and z[1] < 4000, f'window above the SillyTavern menus ({z})')
     # the world note sits in "this chat", right under telling the AI the daily-life fields (0.6.9; "this chat only" is above everything)
     page.click('[data-act="gear"]'); page.wait_for_timeout(200)
-    order = ev(page, "[...document.querySelectorAll('#sblink-win [data-set], #sblink-win [data-text]')].map(e => e.dataset.set || e.dataset.text).slice(0, 5)")
+    order = ev(page, "[...document.querySelectorAll('#sblink-win [data-set], #sblink-win [data-text]')].map(e => e.dataset.set || e.dataset.text).slice(0, 6)")
     check(order[0] == 'roomOwn' and 'world' in order and order.index('world') == order.index('lifeToAI') + 1, f'world note right under telling the AI the daily-life fields {order}')
-    pw = ev(page, "[...document.querySelectorAll('#sblink_settings [data-pset]')].map(e => e.dataset.pset).filter(k => k !== 'autoWake').slice(0, 4)")
+    pw = ev(page, "[...document.querySelectorAll('#sblink_settings [data-pset]')].map(e => e.dataset.pset).filter(k => k !== 'autoWake' && k !== 'cycleOn').slice(0, 4)")
     check(pw == ['roomOwn', 'roomOn', 'lifeToAI', 'world'], f'the panel too {pw}')
     # a theme that paints every select white
     ev(page, "(() => { const st = document.createElement('style'); st.textContent = 'select { background-color: #fff !important; color: #ccc; }'; document.head.appendChild(st); })()")
@@ -1576,7 +1580,7 @@ def v065(browser, lang):
     # 0.6.6: card 2 = the world note, "you don't have to write anything"; opens the "this chat" part
     page.click('#sblink-pop [data-pop="ok"]'); page.wait_for_timeout(900)
     check(('세계관 지시' if ko else 'World note') in txt() and ('꼭 적지 않아도' if ko else "don't have to") in txt(), f'card 2: world note, optional ({txt()[:60]})')
-    check(('02 / 06') in txt(), 'six cards now (0.7.0: genre mode)')
+    check(('02 / 07') in txt(), 'seven cards now (0.7.0: genre mode, 0.8.0: regression)')
     shot(page, f'{lang}_066_world_card')
     page.click('#sblink-pop [data-pop="link"]'); page.wait_for_timeout(500)
     top = ev(page, "(() => { const b = document.querySelector('#sblink-win .sblink-body'); const g = b.querySelector('[data-group=\"room\"]'); return Math.round(g.getBoundingClientRect().top - b.getBoundingClientRect().top); })()")
@@ -1584,10 +1588,12 @@ def v065(browser, lang):
     page.click('#sblink-win [data-act="close"]'); page.wait_for_timeout(900)
     check(('세계관 지시' if ko else 'World note') in txt(), 'closing brings card 2 back')
     page.click('#sblink-pop [data-pop="ok"]'); page.wait_for_timeout(900)
-    check(('장르 모드' if ko else 'Genre mode') in txt() and ('03 / 06') in txt(), f'card 3: genre mode ({txt()[:40]})')
+    check(('장르 모드' if ko else 'Genre mode') in txt() and ('03 / 07') in txt(), f'card 3: genre mode ({txt()[:40]})')
     for i in range(3):
         page.click('#sblink-pop [data-pop="ok"]'); page.wait_for_timeout(900)
-    check(('AI 호출' if ko else 'AI calls') in txt(), 'card 6 (last)')
+    check(('AI 호출' if ko else 'AI calls') in txt(), 'card 6')
+    page.click('#sblink-pop [data-pop="ok"]'); page.wait_for_timeout(900)
+    check(('회귀 모드' if ko else 'Regression mode') in txt() and ('07 / 07') in txt(), 'card 7 (last, 0.8.0): regression')
     check(not ev(page, "!!document.querySelector('#sblink-pop [data-pop=\"second\"]')"), 'last card: no [Stop here]')
     page.click('#sblink-pop [data-pop="ok"]'); page.wait_for_timeout(900)
     check(ev(page, "!!document.querySelector('#sblink-pop .sblink-hexspin')"), 'then the awakening popup')

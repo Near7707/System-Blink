@@ -6,12 +6,13 @@ A game-like **System** for SillyTavern roleplay, in the style of Korean system n
 In the middle of the story, a translucent System window pops up — *"[Daily quests have arrived]"* —
 you clear quests in the story, earn points, and spend them in your own **personal shop**.
 
-This version (0.7.2): the System window, the tutorial, daily quests, the shop, the bag and daily-life mode,
+This version (0.8.0): the System window, the tutorial, daily quests, the shop, the bag and daily-life mode,
 sudden quests, hidden quests, a main goal, quests with several conditions, **difficulty with penalties**,
 **skills and gacha**, **three System voices** with **spectators** who react and sponsor — and, if you like, **new quests shown in the story**
 or a whole **genre mode** where the System becomes the heart of the story.
 A **quest HUD** keeps the quests in progress in sight while you chat (beside the chat on a PC, one line on a phone that you can drag up or down),
 and a short **settings guide** greets you the first time you wake the System.
+New in 0.8.0: **regression (Next Cycle)** — go back in time and live the story again with your memories.
 
 ## Install
 
@@ -97,6 +98,22 @@ https://github.com/Near7707/System-Blink
   you can also edit them. When the story moves to another day, a strip above the input box asks
   *"Move to the next day?"* — it stays (folded if you like) until you move on, adds up days that pass
   in the meantime and settles once. If the check misread a reply, ✕ leaves just that reply out.
+- **Regression (Next Cycle)**, per chat (off by default): switched on, the Status tab gets a regression part and
+  **[Next life]**. Going back keeps your memory and the main goal (its stages start over); points, the bag and the quests
+  in progress start over — or take one thing along, or keep everything. The earlier life stays in the chat but is no
+  longer sent to the AI (a generate interceptor; the chat file is not changed), and *undo* works until your next message.
+  - **This life's record**: after each reply the story check notes what may matter (one line); when a day ends it is put
+    down to a few lines together with the next day's quests (no extra call). Tap ☆ on a log card to keep a scene for sure.
+    Lines you pick on the confirm page become the next life's **fated events**: when the story reaches that day, the AI is
+    told it is due (it happens unless you changed things); a small **omen** comes the day before; one the story skipped
+    past arrives as news.
+  - **Who remembers**: only you (default), you and characters you name, or others with a faint déjà vu. The world's
+    *truth* is sent to the AI as something the characters do not know; your own memory note is not sent.
+    A **leaked-memory alert** tells you when another character seems to remember (a re-roll may help).
+  - **Start as one who has already gone back**: write the life count, the truth, memories and the events ahead —
+    or let the AI fill them in from the character card.
+  - **Losing your life**: the story check also looks for your character's death (no extra call; unsure cases are not
+    asked). A big popup asks whether to start over — even in a chat with regression off (once per chat, can be turned off).
 - **Log cards**: a small card under a message shows a quest clear (or a sudden quest that ran out), a daily-life change, an opened hidden effect, a sponsorship, or an item / skill use. Screen only.
   Every record is kept, so old messages keep their cards too.
 - **Chat with the System log**: *Data → Chat with the System log* downloads the whole chat in order, with what the
@@ -130,7 +147,7 @@ A *This chat* / *Shared* tab then shows at the top of the settings; screen, butt
 
 ## Coming later
 
-More world modes (regression, possession, hunter, martial arts, sentinel,
+More world modes (possession, hunter, martial arts, sentinel,
 apocalypse, survival/competition, magic, streamer).
 
 ## Test page
