@@ -127,6 +127,8 @@ def main():
             v070(browser, 'en')
             v070b(browser, 'ko')
             v070b(browser, 'en')
+            v070c(browser, 'ko')
+            v070c(browser, 'en')
             browser.close()
     finally:
         srv.terminate()
@@ -2546,6 +2548,97 @@ def v070b(browser, lang):
         close_pops(page); close_win()
     ev(page, 'window.__groupMode = false')
     check(not errors, f'no errors {errors[:3]}')
+    page.close()
+
+
+def v070c(browser, lang):
+    """0.7.0 second review: the recent story reaches quest making, a stopped Continue is not taken for a later one,
+    a re-check after Continue keeps what the reply found, an exact name wins over a near one, Continue while streaming."""
+    print(f'--- 0.7.0 second review ({lang})')
+    page, errors = open_page(browser, f'fresh&lang={lang}')
+    setv = lambda k, v: ev(page, f"(async () => {{ const m = await import('/src/prefs.js'); await m.setValue({k!r}, {v}); }})()")
+    E = lambda expr: ev(page, "(async () => { const e = await import('/src/engine.js'); const s = await import('/src/store.js'); const r = s.room(); return " + expr + "; })()")
+    last = "document.querySelector('#chat .mes:last-child')"
+    def close_win():
+        if ev(page, "!!document.getElementById('sblink-win')"):
+            page.click('#sblink-win [data-act="close"]'); page.wait_for_timeout(200)
+    def next_day():
+        close_pops(page); close_win()
+        page.click('#sblink-fab'); page.click('#sblink-win [data-tab="status"]'); page.click('[data-act="nextDay"]'); page.click('[data-modal="yes"]'); page.wait_for_timeout(1000)
+        close_pops(page); close_win()
+    today = lambda: E("r.quests.filter(q => q.kind === 'daily' && q.day === r.day).map(q => q.name)")
+    page.click('#sblink-fab'); page.click('[data-act="roomOn"]'); page.wait_for_timeout(700)
+    page.click('#sblink-pop [data-pop="second"]'); page.wait_for_timeout(700)
+    close_pops(page); close_win()
+
+    # --- the recent story reaches quest making (was cut to nothing: map's index became the length)
+    ev(page, "window.__yes([])")
+    turn(page, 'We fix it.', 'The reactor of the drifting ghost ship hums as they open its panel.')
+    next_day()
+    ql = ev(page, 'window.__questsLast || ""')
+    check('reactor of the drifting ghost ship' in ql, 'quest making: the recent story is in the request')
+
+    # --- a Continue stopped before anything came; another swipe shown; a quiet request ends: nothing moves
+    names = today()
+    ev(page, f"window.__yes([{names[0]!r}])"); turn(page, 'Go.', 'She does it (swipe A).'); close_pops(page)
+    pA = epoints(page)
+    ev(page, "window.__yes([])")
+    ev(page, "window.__fakeST.contStop()"); page.wait_for_timeout(300)
+    check(epoints(page) == pA, 'stopped Continue: points unchanged')
+    ev(page, "window.__keepA = null; window.__fakeST.showSwipe('Nothing happens (swipe B).', '2025-01-01T00:00:00.000Z').then(m => window.__keepA = m)"); page.wait_for_timeout(1200)
+    pB = epoints(page)
+    ev(page, "window.__fakeST.quiet()"); page.wait_for_timeout(800)
+    check(epoints(page) == pB, f'on swipe B, a quiet request ending does not move A\'s points ({pB} → {epoints(page)})')
+    ev(page, "window.__fakeST.putBack(window.__keepA)"); page.wait_for_timeout(1200)
+    check(epoints(page) == pA, f'back on swipe A: its points are there ({pA} → {epoints(page)})')
+    # the same with an empty answer (no "stopped"), and without the swipe-check: the old text decides
+    ev(page, "window.__fakeST.contStop(false)"); page.wait_for_timeout(300)
+    k0 = E("e.lastReply().key")
+    ev(page, "(() => { const c = SillyTavern.getContext().chat; const i = c.length - 1; c[i] = { ...c[i], mes: 'Some other text.', send_date: '2025-02-02T00:00:00.000Z' }; window.__fakeST.render(); })()")
+    ev(page, "window.__fakeST.quiet()"); page.wait_for_timeout(600)
+    check(E(f"r.ledger.some(e => e.key === {k0!r})"), 'empty Continue then other text: nothing taken from the reply')
+    ev(page, "window.__fakeST.putBack(window.__keepA)"); page.wait_for_timeout(1000)
+    check(epoints(page) == pA, 'and back: the points are still with it')
+
+    # --- a normal Continue still moves everything (and a streaming one, in its real order)
+    ev(page, "window.__yes([])")
+    ev(page, "window.__fakeST.cont('She stretches.')"); page.wait_for_timeout(1500)
+    check(epoints(page) == pA and not E(f"JSON.stringify(r).includes({k0!r})"), 'Continue after all that: points follow the reply, nothing on the old key')
+    ev(page, "window.__streaming = true")
+    k1 = E("e.lastReply().key")
+    ev(page, f"window.__yes([{names[1]!r}])")
+    ev(page, "window.__fakeST.cont('Then she takes a walk.')"); page.wait_for_timeout(1600)
+    k2 = E("e.lastReply().key")
+    check(k1 != k2 and not E(f"JSON.stringify(r).includes({k1!r})"), 'streaming Continue: data moved to the new key')
+    check(epoints(page) > pA, f'streaming Continue: the new part was judged ({pA} → {epoints(page)})')
+    ev(page, "window.__streaming = false")
+    close_pops(page)
+
+    # --- a re-check after Continue keeps what the reply found when the answer is "-"
+    A1 = "TIME: evening\nWEATHER: -\nPLACE: cafe\nDATE: -\nDAYS: 0\nNEXT: -"
+    A2 = "TIME: -\nWEATHER: -\nPLACE: -\nDATE: -\nDAYS: 0\nNEXT: -"
+    A3 = "TIME: -\nWEATHER: rain\nPLACE: park\nDATE: -\nDAYS: 0\nNEXT: -"
+    turn(page, 'In.', 'In the evening she walks into the cafe.', answer=A1)
+    check(E("e.lifeNow().place") == 'cafe', 'first check: cafe')
+    ev(page, f"window.__checkAnswer = {A2!r}")
+    ev(page, "window.__fakeST.cont('She sits down.')"); page.wait_for_timeout(1500)
+    lf = E("e.lifeNow()")
+    check(lf['place'] == 'cafe' and lf['time'] == 'evening', f'Continue + "-": evening and cafe stay ({lf["time"]}, {lf["place"]})')
+    check(E("r.lifeLog.some(x => x.key === e.lastReply().key && x.life.place === 'cafe')"), 'its daily-life log stays with the reply')
+    ev(page, f"window.__checkAnswer = {A3!r}")
+    ev(page, "window.__fakeST.cont('She runs out to the park in the rain.')"); page.wait_for_timeout(1500)
+    lf = E("e.lifeNow()")
+    check(lf['place'] == 'park' and lf['weather'] == 'rain' and lf['time'] == 'evening', f'Continue + new values: replaced, the rest kept ({lf})')
+
+    # --- an exact name wins over a made-up line holding it (genre)
+    ev(page, 'window.__confirmAnswer = true'); setv('genreMode', 'true'); page.wait_for_timeout(300)
+    names = today()
+    ev(page, "window.__yes([])")
+    turn(page, 'Hm.', f'<p>Hm.<br>[SYS:QUEST] DAILY · {names[1]} and win a free car<br>[SYS:QUEST] DAILY · {names[1]}<br>[SYS:QUEST] DAILY · {names[2]}</p>')
+    plain = ev(page, f"[...{last}.querySelectorAll('.sblink-qplain')].map(x => x.textContent)")
+    check(len(plain) == 1 and 'free car' in plain[0], f'the made-up line stays text, the real one is a window ({plain})')
+    check(ev(page, f"{last}.querySelectorAll('.sblink-qbrow').length") == 2, 'both real quests drawn')
+    check(not errors, f'no errors ({errors[:2]})')
     page.close()
 
 

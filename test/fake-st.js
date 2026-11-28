@@ -218,7 +218,18 @@
         const ch = characters[state.characterId];
         const text = window.__nextReply || `Reply ${++replyNo}.`;
         window.__nextReply = null;
-        if (type === 'continue') {
+        if (type === 'continue' && window.__streaming) {
+            // like streaming in 1.19.1: saveReply runs at the start (new send time at once), the text grows,
+            // then "generation ended", then MESSAGE_RECEIVED
+            const i = list.length - 1;
+            list[i] = { ...list[i], send_date: stamp() };
+            list[i] = { ...list[i], mes: list[i].mes + ' ' + text };
+            render();
+            await eventSource.emit(eventTypes.GENERATION_ENDED, list.length);
+            await eventSource.emit(eventTypes.MESSAGE_RECEIVED, i, 'continue');
+            await eventSource.emit(eventTypes.CHARACTER_MESSAGE_RENDERED, i);
+            return;
+        } else if (type === 'continue') {
             // like 1.19.1 saveReply: the same message gets longer and a new send time
             const i = list.length - 1;
             list[i] = { ...list[i], mes: list[i].mes + ' ' + text, send_date: stamp() };
@@ -263,6 +274,22 @@
         turn: (text, reply) => { if (reply) window.__nextReply = reply; return send(text); },
         swipe: () => generate('swipe'),
         cont: (more) => { if (more) window.__nextReply = more; return generate('continue'); },
+        // a Continue stopped before anything came (or an empty answer): nothing saved, the key stays
+        async contStop(stopped = true) {
+            await eventSource.emit(eventTypes.GENERATION_STARTED, 'continue', {}, false);
+            if (stopped) await eventSource.emit(eventTypes.GENERATION_STOPPED);
+            await eventSource.emit(eventTypes.GENERATION_ENDED, chat().length);
+        },
+        // show another swipe that already exists (like syncSwipeToMes: its own text and send time)
+        async showSwipe(mes, sendDate) {
+            const list = chat(), i = list.length - 1;
+            const keep = { ...list[i] };
+            list[i] = { ...list[i], mes, send_date: sendDate, swipe_id: (Number(list[i].swipe_id) || 0) + 1 };
+            render();
+            await eventSource.emit(eventTypes.MESSAGE_SWIPED, i);
+            return keep;
+        },
+        async putBack(m) { const list = chat(); list[list.length - 1] = m; render(); await eventSource.emit(eventTypes.MESSAGE_SWIPED, list.length - 1); },
         regenerate: () => generate('regenerate'),
         async quiet() { await eventSource.emit(eventTypes.GENERATION_STARTED, 'quiet', {}, false); await eventSource.emit(eventTypes.GENERATION_ENDED, 0); },
         async deleteLast() { chat().pop(); render(); await eventSource.emit(eventTypes.MESSAGE_DELETED, chat().length); },

@@ -45,9 +45,19 @@ function updatePrompt(genType = 'normal', live = false) {
 }
 
 // ---------- 0.7.0: Continue ----------
-let contFrom = null; // { chatId, key, n } of the reply being continued (n = messages in the chat)
+let contFrom = null; // { chatId, key, n, sw, head } of the reply being continued (n = messages in the chat)
 const lastKey = () => { const v = chatView(); return v.length ? v.keys[v.length - 1] : null; };
-/** The continued reply got a new key (SillyTavern sets a new send time): its data follows it. */
+const lastMes = () => { const v = chatView(); return v.length ? v.list[v.length - 1] : null; };
+function contStart() {
+    const m = lastMes();
+    contFrom = m ? { chatId: currentChatId(), key: lastKey(), n: chatView().length, sw: Number(m.swipe_id) || 0, head: String(m.mes ?? '').trim().slice(0, 200) } : null;
+}
+/**
+ * The continued reply got a new key (SillyTavern sets a new send time): its data follows it. Only the same reply,
+ * made longer: the same chat, the same number of messages, the same swipe, its old text's start at the start. A Continue
+ * stopped before anything came keeps its key; what happens after it (another swipe shown, a quiet request of
+ * another extension ending) is not taken for it.
+ */
 function continued() {
     const c = contFrom;
     if (!c) return;
@@ -56,6 +66,9 @@ function continued() {
     if (!now || now === c.key) return; // not saved yet (or nothing added): keep waiting
     contFrom = null;
     if (chatView().length !== c.n) return; // messages were added or deleted meanwhile: not the same reply
+    const m = lastMes();
+    // (only its start is compared: something tidying the end, like trimmed spaces, must not lose a real Continue)
+    if ((Number(m?.swipe_id) || 0) !== c.sw || !String(m?.mes ?? '').trim().startsWith(c.head)) return; // another swipe
     if (!chatView().index.has(c.key)) rekeyReply(c.key, now, c.chatId);
 }
 
@@ -432,12 +445,14 @@ function registerEvents() {
         ev.USER_MESSAGE_RENDERED, ev.CHARACTER_MESSAGE_RENDERED, ev.MORE_MESSAGES_LOADED, ev.CHAT_LOADED]) {
         on(name, () => { renderCardsSoon(); redrawSoon(); });
     }
+    // 0.7.0: a swipe shown or a message deleted after a Continue that ended without saving: that Continue is over
+    for (const name of [ev.MESSAGE_SWIPED, ev.MESSAGE_DELETED]) on(name, () => { if (!generating) contFrom = null; });
     on(ev.MESSAGE_SENT, () => { bindUses(); foldStrip(); foldPanel(); redrawSoon(); });
     on(ev.GENERATION_STARTED, (type, _opts, dryRun) => {
         const kind = String(type || 'normal');
         if (!dryRun && kind !== 'quiet') { generating = true; hold(true); }
         // 0.7.0: Continue gives the same reply a new key when it is done — remember the old one to move its data
-        if (!dryRun && kind !== 'quiet') contFrom = kind === 'continue' ? { chatId: currentChatId(), key: lastKey(), n: chatView().length } : null;
+        if (!dryRun && kind !== 'quiet') { if (kind === 'continue') contStart(); else contFrom = null; }
         updatePrompt(kind, !dryRun && kind !== 'quiet');
     });
     on(ev.MESSAGE_RECEIVED, (mesId) => {

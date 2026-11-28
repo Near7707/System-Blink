@@ -61,10 +61,11 @@ const hash = (s) => { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 
 const SEP = /^\s*[·•:|\-–—]?\s*/;
 
 /** Same name, or one inside the other; the newest wins. */
-function byName(list, name) {
+function byName(list, name, exact = false) {
     const n = norm(name);
     if (!n) return null;
     for (let i = list.length - 1; i >= 0; i--) if (norm(list[i].name) === n) return list[i];
+    if (exact) return null;
     for (let i = list.length - 1; i >= 0; i--) { const m = norm(list[i].name); if (m && (m.includes(n) || n.includes(m))) return list[i]; }
     return null;
 }
@@ -272,7 +273,7 @@ export function drawQuestBlocks(textEl, key) {
     let font = '';
     try { font = getComputedStyle(document.body).fontFamily || ''; } catch { /* keep the chat font */ }
     markLines(textEl);
-    // which quest each quest line names. Same name first, then (a translation renamed it) the quests sent with
+    // which quest each quest line names. The same name first (all lines), then a near one, then (a translation renamed it) the quests sent with
     // this reply, in order. A quest is used once: a made-up line ahead of the real ones does not take theirs.
     const lines = [...textEl.querySelectorAll('span.sblink-qline[data-type="quest"]')];
     // (lines drawn earlier in this message keep their quests: a line looked at again later must not take them)
@@ -280,8 +281,14 @@ export function drawQuestBlocks(textEl, key) {
     const pool = (kind) => r.quests.filter(q => STORY_KINDS.has(q.kind) && (kind === 'any' || q.kind === kind) && !taken.has(q.id));
     const found = new Map();
     const take = (el, q) => { if (q) { found.set(el, q); taken.add(q.id); } };
-    for (const el of lines) take(el, byName(pool(el.dataset.kind), el.dataset.name));
-    if (key) for (const el of lines) if (!found.has(el)) take(el, pool(el.dataset.kind).find(q => (q.toldKeys || []).includes(key)));
+    // (every line's exact name first: a made-up line that only contains a real name must not take it from the real line)
+    for (const el of lines) take(el, byName(pool(el.dataset.kind), el.dataset.name, true));
+    // (a line near a name another line already took is a made-up copy — not that quest again, not an older one of
+    // the same name, not a translation)
+    const near = (a, b) => { const x = norm(a), y = norm(b); return !!x && !!y && (x.includes(y) || y.includes(x)); };
+    const copyOfTaken = (el) => r.quests.some(q => taken.has(q.id) && near(q.name, el.dataset.name));
+    for (const el of lines) if (!found.has(el) && !copyOfTaken(el)) take(el, byName(pool(el.dataset.kind), el.dataset.name));
+    if (key) for (const el of lines) if (!found.has(el) && !copyOfTaken(el)) take(el, pool(el.dataset.kind).find(q => (q.toldKeys || []).includes(key)));
     const later = laterSig(r, key);
     for (const el of lines) {
         const q = found.get(el);

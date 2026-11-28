@@ -94,7 +94,7 @@ function background() {
     } catch { /* ignore */ }
     parts.push(`The System's user: ${ownerName(r)}`);
     if (r?.world) parts.push(`WORLD NOTE (must follow): ${r.world.slice(0, 800)}`);
-    const recent = (chatView().list || []).filter(m => m && !m.is_system).slice(-6).map(line);
+    const recent = (chatView().list || []).filter(m => m && !m.is_system).slice(-6).map(m => line(m)); // (not .map(line): map's index would become the length)
     if (recent.length) parts.push(`Recent story:\n${recent.join('\n')}`);
     return parts.join('\n\n');
 }

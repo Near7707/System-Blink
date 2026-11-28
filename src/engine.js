@@ -452,8 +452,13 @@ export function storeCheck(chatId, key, res) {
     const view = chatView();
     r.checks = r.checks.filter(c => c.key !== key);
     const prev = lifeNow(r, view, key); // what was known before this reply (its own earlier result left out)
+    // 0.7.0: a reply checked again (Continue, [check now]) was asked with its own earlier result as "known before",
+    // so "-" (no change) keeps what it found; only a new value replaces it
+    const had = (r.lifeLog || []).find(x => x.key === key)?.life || {};
+    const got = { ...had };
+    for (const [k, v] of Object.entries(res.life || {})) if (v) got[k] = v;
     const life = {}, lifeFrom = {};
-    if (r.lifeMode) for (const [k, v] of Object.entries(res.life || {})) if (v && v !== prev[k]) { life[k] = v; lifeFrom[k] = prev[k] || ''; }
+    if (r.lifeMode) for (const [k, v] of Object.entries(got)) if (v && v !== prev[k]) { life[k] = v; lifeFrom[k] = prev[k] || ''; }
     const check = { key, t: Date.now(), quests: [], life, lifeFrom, days: res.days || 0, dayReason: res.dayReason || '', nextTime: res.nextTime || '', dismissed: false };
     for (const { questId, cond = null, reason } of res.quests || []) {
         const q = r.quests.find(x => x.id === questId);
