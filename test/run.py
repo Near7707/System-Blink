@@ -2137,8 +2137,45 @@ def v0611(browser, lang):
     open_chat(0, 'Mira - 2026-01-01')
     check(ev(page, "__sbKey()") == 'c:mira2.png/Mira - 2026-01-01' and epoints(page) >= 0 and ev(page, f"!!{S}.chats[__sbKey()].on"), 'the chat opens with its data')
     ev(page, "window.__fakeST.renameChar(0, 'mira.png')"); page.wait_for_timeout(300)
+    check(ev(page, "window.__chatListBody?.simple === true"), 'delete check asks for file names only (simple)')
+    v0611b(page, S, M, J, wake, open_chat, give, legacy)
     check(not errors, f'no errors ({errors[:3]})')
     page.close()
+
+
+def v0611b(page, S, M, J, wake, open_chat, give, legacy):
+    """0.6.11 review fixes: rename in SillyTavern's real order, cleaned names, old backup, character rename refs."""
+    has = lambda key, gid: ev(page, f"!!{S}.chats[{key!r}]?.ledger.some(l => l.id === {gid!r})")
+    # J. renaming a branch: the branch's own data follows (not a fresh copy of its parent made on reopening)
+    ev(page, "window.__fakeST.chats['Root'] = [{ is_user: false, name: 'Mira', mes: 'Root.', send_date: 'ro1' }]")
+    open_chat(0, 'Root'); wake(); give(M + 'Root', 10)
+    ev(page, 'window.__fakeST.branch()'); page.wait_for_timeout(600); close_pops(page)
+    bname = ev(page, 'window.__fakeST.state.chatName')
+    give(M + bname, 90)
+    ev(page, "window.__fakeST.rename('Root Twig')"); page.wait_for_timeout(500); close_pops(page)
+    got = [has(M + 'Root Twig', 'gift90'), ev(page, f"!!{S}.chats[{(M + bname)!r}]"), has(M + 'Root', 'gift90'), ev(page, f"{S}.branchDone['{M}Root Twig']")]
+    check(got == [True, False, False, M + 'Root'], f'branch renamed: its own data follows ({got})')
+    check(ev(page, "!document.querySelector('.toast-warning')"), 'no "name taken" warning')
+    # K. a name the server cleans up ("?" dropped): the data follows to the real name
+    ev(page, "window.__fakeST.rename('Twig?')"); page.wait_for_timeout(500)
+    got = [ev(page, '__sbKey()'), has(M + 'Twig', 'gift90'), ev(page, f"!!{S}.chats['{M}Twig?']")]
+    check(got == [M + 'Twig', True, False], f'cleaned name: data under the real name ({got})')
+    # L. an old backup (bare names) imported while its chat is open: found at once, waking makes nothing new
+    backup = ev(page, f"""(async () => {{ const st = await import('/src/store.js'); const b = st.exportData(); const s = b.settings;
+        s.chats = {{ 'Twig': s.chats['{M}Twig'] }}; s.claimed = {{}}; s.branchDone = {{}}; return JSON.stringify(b); }})()""")
+    with page.expect_file_chooser() as fc:  # through the settings' import button, as a user would
+        ev(page, "import('/src/prefs.js').then(m => { m.runButton('import'); })")
+    fc.value.set_files(files=[{'name': 'backup.json', 'mimeType': 'application/json', 'buffer': backup.encode()}])
+    page.wait_for_timeout(600)
+    check(has(M + 'Twig', 'gift90') and not ev(page, f"!!{S}.chats['Twig']"), 'old backup: taken by the open chat right away')
+    # M. character renamed while one of its chats clashes: references only follow chats that really moved
+    ev(page, f"""(() => {{ const s = {S}; s.chats['c:old.png/main'] = {{ ledger: [] }}; s.chats['c:new.png/main'] = {{ ledger: [] }};
+        s.chats['c:old.png/two'] = {{ ledger: [] }}; s.claimed.mainx = 'c:old.png/main'; s.branchDone['c:old.png/two'] = 'c:old.png/main';
+        s.autoWake['c:lone.png'] = false; }})()""")
+    ev(page, "(async () => { const st = await import('/src/store.js'); st.onCharRenamed('old.png', 'new.png'); st.onCharRenamed('lone.png', 'lone2.png'); })()")
+    got = ev(page, f"[{S}.claimed.mainx, {S}.branchDone['c:new.png/two'], !!{S}.chats['c:new.png/two'], {S}.autoWake['c:lone2.png'], 'c:lone.png' in {S}.autoWake]")
+    check(got == ['c:old.png/main', 'c:old.png/main', True, False, False], f'character rename: refs only for moved chats, wake setting always ({got})')
+    ev(page, f"(() => {{ const s = {S}; for (const k of ['c:old.png/main', 'c:new.png/main', 'c:new.png/two']) delete s.chats[k]; delete s.claimed.mainx; delete s.branchDone['c:new.png/two']; delete s.autoWake['c:lone2.png']; }})()")
 
 
 if __name__ == '__main__':

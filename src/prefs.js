@@ -2,8 +2,8 @@
 // both drawn from it and share the same saved values.
 
 import { t, setLanguage, lang } from './i18n.js';
-import { settings, conf, save, room, currentChatId, device, saveDevice, exportData, importData, oldBackup, VERSION, TONES, ROOM_KEYS, setRoomOwn, setRoomSetting } from './store.js';
-import { switchOn, switchOff, bus, skipOldTold, charKey, giveGoal } from './engine.js';
+import { settings, conf, save, room, currentChatId, device, saveDevice, exportData, importData, settleRoom, oldBackup, VERSION, TONES, ROOM_KEYS, setRoomOwn, setRoomSetting } from './store.js';
+import { switchOn, switchOff, bus, skipOldTold, charKey, giveGoal, msgKey } from './engine.js';
 import { getProfiles, sentLog } from './ai.js';
 import { buildLog, logFileName } from './export.js';
 import { esc } from './ui/util.js';
@@ -241,6 +241,7 @@ function doImport() {
             const ok = await confirmBox(t('import_confirm'));
             if (!ok) return;
             importData(obj);
+            settleRoom(msgKey); // 0.6.11: an old backup's data for the open chat finds its owner now, before anything new is made
             setLanguage(settings().langChosen ? settings().lang : hooks.langNow());
             bus.emit('change'); hooks.redrawAll();
             globalThis.toastr?.success?.(t('import_done'), t('ext_name'));

@@ -4,7 +4,7 @@
 // extension settings (and the floating button's place in this device's localStorage).
 
 import { t, setLanguage, lang } from './src/i18n.js';
-import { ctx, settings, save, uiLang, room, currentChatId, onChatRenamed, onChatDeleted, onCharRenamed, copyFromParent, settleRoom, VERSION } from './src/store.js';
+import { ctx, settings, save, uiLang, room, currentChatId, chatName, onChatRenamed, onChatDeleted, onCharRenamed, copyFromParent, settleRoom, VERSION } from './src/store.js';
 import { bus, storeCheck, bindUses, markDelivered, markTold, active, checkRealDay, setLangGetter, skipTutorial, rate, lastReply, chatView, nextStage, tidy, answerSudden, msgKey, penaltyFor, rewardSkill, warnFor, checkBig, spectate, toneOf, wantsWake, declineWake, giveGoal, switchOn } from './src/engine.js';
 import { runCheck } from './src/ai.js';
 import { buildPrompt } from './src/prompt.js';
@@ -318,6 +318,7 @@ function mountWand() {
 // A brand-new chat with a character woken before wakes by itself; a chat without a main goal gets one.
 // Waits a moment so the chat (and its greeting) is loaded before it is looked at.
 let enterTimer = 0;
+let openKey = null, prevOpen = null; // 0.6.11: the open chat, and the one before (to tell a rename of the open chat)
 function enteredSoon() {
     clearTimeout(enterTimer);
     const chatId = currentChatId();
@@ -337,7 +338,7 @@ function registerEvents() {
     // while switched off nothing runs, except keeping saved data with renamed / deleted chats
     const on = (name, fn, always = false) => { if (name) eventSource.on(name, (...a) => { try { if (always || settings().enabled) return fn(...a); } catch (e) { console.error('[System Blink]', e); } }); };
 
-    on(ev.CHAT_CHANGED, () => { const id = currentChatId(); dropPopups(p => p.wakeFor && p.wakeFor !== id); settleRoom(msgKey); copyFromParent(msgKey); mountPanel(); if (!settings().enabled) return; generating = false; hold(false); checkRealDay(); redrawSoon(); enteredSoon(); }, true);
+    on(ev.CHAT_CHANGED, () => { const id = currentChatId(); prevOpen = openKey; openKey = id; dropPopups(p => p.wakeFor && p.wakeFor !== id); settleRoom(msgKey); copyFromParent(msgKey); mountPanel(); if (!settings().enabled) return; generating = false; hold(false); checkRealDay(); redrawSoon(); enteredSoon(); }, true);
     for (const name of [ev.MESSAGE_DELETED, ev.MESSAGE_SWIPED, ev.MESSAGE_EDITED, ev.MESSAGE_UPDATED,
         ev.USER_MESSAGE_RENDERED, ev.CHARACTER_MESSAGE_RENDERED, ev.MORE_MESSAGES_LOADED, ev.CHAT_LOADED]) {
         on(name, () => { renderCardsSoon(); redrawSoon(); });
@@ -366,7 +367,11 @@ function registerEvents() {
     on(ev.CHAT_RENAMED, (data) => {
         // 0.6.11: whose chat it is comes with the event (card file or group); never moved over other data
         const owner = data?.groupId ? `g:${data.groupId}` : data?.avatarId ? `c:${data.avatarId}` : undefined;
-        if (onChatRenamed(data?.oldFileName, data?.newFileName, owner) === 'blocked') globalThis.toastr?.warning?.(t('rename_blocked'), 'System Blink');
+        // SillyTavern has already opened the renamed chat (if it was the open one) under its real new name
+        const was = owner ? `${owner}/${String(data?.oldFileName || '').replace(/\.jsonl$/i, '')}` : '';
+        const open = currentChatId();
+        const openName = was && prevOpen === was && open?.startsWith(`${owner}/`) ? chatName() : null;
+        if (onChatRenamed(data?.oldFileName, data?.newFileName, owner, openName) === 'blocked') globalThis.toastr?.warning?.(t('rename_blocked'), 'System Blink');
         settleRoom(msgKey);
         redrawSoon();
     }, true);
@@ -384,7 +389,8 @@ async function charStillHas(owner, name) {
     const res = await fetch('/api/characters/chats', {
         method: 'POST',
         headers: c.getRequestHeaders?.() || { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ avatar_url: owner.slice(2) }),
+        // simple: file names only (a chat that fails to read is not left out of the list)
+        body: JSON.stringify({ avatar_url: owner.slice(2), simple: true }),
     });
     if (!res.ok) return null;
     const list = Object.values((await res.json()) || {});

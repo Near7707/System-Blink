@@ -151,7 +151,9 @@
     window.fetch = async (url, opts) => {
         if (url === '/api/characters/chats') {
             if (window.__chatListFail) return new Response('', { status: 500 });
-            const avatar = JSON.parse(opts.body).avatar_url;
+            const body = JSON.parse(opts.body);
+            window.__chatListBody = body;
+            const avatar = body.avatar_url;
             const cid = characters.findIndex(c => c.avatar === avatar);
             return new Response(JSON.stringify(window.__fakeST.chatNames(cid).map(n => ({ file_name: `${n}.jsonl` }))), { status: 200 });
         }
@@ -229,9 +231,15 @@
         },
         async rename(to) {
             const from = state.chatName;
-            chats[ck(state.characterId, to)] = chats[ck()]; delete chats[ck()]; state.chatName = to;
-            // like SillyTavern: avatarId = the character's card file
-            await eventSource.emit(eventTypes.CHAT_RENAMED, { avatarId: characters[state.characterId]?.avatar, groupId: null, oldFileName: `${from}.jsonl`, newFileName: `${to}.jsonl` });
+            // like SillyTavern 1.19: the server cleans up the name, the chat is opened again under it (CHAT_CHANGED),
+            // then CHAT_RENAMED comes with the name asked for; avatarId = the character's card file
+            const real = to.trim().replace(/[\/?<>\\:*|"]/g, '');
+            chats[ck(state.characterId, real)] = chats[ck()]; delete chats[ck()];
+            if (metas[from]) { metas[real] = metas[from]; delete metas[from]; }
+            state.chatName = real;
+            render();
+            await eventSource.emit(eventTypes.CHAT_CHANGED, real);
+            await eventSource.emit(eventTypes.CHAT_RENAMED, { avatarId: characters[state.characterId]?.avatar, groupId: null, oldFileName: `${from}.jsonl`, newFileName: `${to.trim()}.jsonl` });
             await eventSource.emit(eventTypes.CHAT_CHANGED, to);
         },
         // another character's chat (a new name = a brand-new chat with only the greeting)

@@ -286,6 +286,12 @@ export function chatName() {
 }
 
 export const roomKey = (owner, name) => `${owner}/${name}`;
+// 0.6.11: a copy made by itself just now, on opening a chat (a branch's parent, a shared chat). When SillyTavern renames
+// a chat it opens it under the new name first (copying may happen there), then says it was renamed — the renamed
+// chat's own data may then go there in place of that copy.
+let madeNow = '';
+// like SillyTavern's server, which drops these from a new chat name (sanitize-filename)
+const cleanName = (n) => String(n).replace(/[\/?<>\\:*|"]/g, '').replace(/[\x00-\x1f\x80-\x9f]/g, '');
 const nameOf = (key) => String(key).slice(String(key).indexOf('/') + 1);
 
 /** The open chat's key (owner/name), or null. */
@@ -325,6 +331,7 @@ function partOfOpenChat(r, msgKeyOf) {
  * Anything else stays where it is. Run when a chat is opened (after it is loaded). Returns true if it changed.
  */
 export function settleRoom(msgKeyOf) {
+    madeNow = '';
     const s = settings();
     const key = currentChatId();
     if (!key || s.chats[key]) return false;
@@ -346,6 +353,7 @@ export function settleRoom(msgKeyOf) {
     const other = took && took !== key ? s.chats[took] : null;
     if (other && partOfOpenChat(other, msgKeyOf) === true) {
         s.chats[key] = fixRoom(structuredClone(other));
+        madeNow = key;
         save();
         return true;
     }
@@ -366,20 +374,29 @@ export function room(chatId = currentChatId(), create = false) {
 const stripExt = (n) => String(n || '').replace(/\.jsonl$/i, '');
 
 /**
- * A chat was renamed. Its data follows it — never over data already under the new name (both are kept).
- * `owner` from the event (the character card / group); data from before 0.6.11 (bare name) follows by name.
+ * A chat was renamed. Its data follows it — never over data already under the new name (both are kept), except a
+ * copy made by itself a moment ago when SillyTavern opened the renamed chat (see `madeNow`).
+ * `owner` from the event (the character card / group). `openName`: the renamed chat's real new name when it is the
+ * open chat (SillyTavern's server may have cleaned up the name asked for); otherwise cleaned up here the same way.
+ * Data from before 0.6.11 (bare name) of a chat not opened since follows by name.
  * Returns 'moved', 'blocked' (something already there; nothing changed) or ''.
  */
-export function onChatRenamed(oldName, newName, owner = ownerKey()) {
+export function onChatRenamed(oldName, newName, owner = ownerKey(), openName = null) {
     const s = settings();
-    const a = stripExt(oldName), b = stripExt(newName);
+    const a = stripExt(oldName), b = openName || cleanName(stripExt(newName).trim());
     if (!a || !b || a === b) return '';
     let from = owner ? roomKey(owner, a) : '', to = owner ? roomKey(owner, b) : '';
     if (!from || !s.chats[from]) {
-        if (!s.chats[a]) return '';
+        // the open chat had no data of its own: the bare name's data is someone else's
+        if (openName || !s.chats[a]) return '';
         from = a; to = b; // not opened since 0.6.11: stays under the bare name
     }
-    if (s.chats[to]) return 'blocked';
+    if (s.chats[to]) {
+        if (madeNow !== to) return 'blocked';
+        delete s.chats[to]; // only the copy made on opening it under the new name
+        delete s.branchDone[to];
+    }
+    madeNow = '';
     s.chats[to] = s.chats[from];
     delete s.chats[from];
     for (const [k, v] of Object.entries(s.branchDone)) if (v === from) s.branchDone[k] = to;
@@ -397,25 +414,28 @@ export function onCharRenamed(oldAvatar, newAvatar) {
     const s = settings();
     if (!oldAvatar || !newAvatar || oldAvatar === newAvatar) return 0;
     const from = `c:${oldAvatar}/`, to = `c:${newAvatar}/`;
-    const swap = (k) => (typeof k === 'string' && k.startsWith(from) ? to + k.slice(from.length) : k);
-    let n = 0;
+    const moved = {}; // old key -> new key, only for chats really moved
     for (const key of Object.keys(s.chats)) {
         if (!key.startsWith(from)) continue;
-        const nk = swap(key);
+        const nk = to + key.slice(from.length);
         if (s.chats[nk]) continue;
         s.chats[nk] = s.chats[key];
         delete s.chats[key];
-        n++;
+        moved[key] = nk;
     }
-    if (!n) return 0;
-    for (const k of Object.keys(s.branchDone)) {
-        const v = swap(s.branchDone[k]), nk = swap(k);
-        if (nk !== k && s.chats[nk] && !s.branchDone[nk]) { s.branchDone[nk] = v; delete s.branchDone[k]; } else s.branchDone[k] = v;
+    const n = Object.keys(moved).length;
+    const swap = (k) => moved[k] || k;
+    if (n) {
+        const bd = {};
+        for (const [k, v] of Object.entries(s.branchDone)) bd[swap(k)] = swap(v);
+        s.branchDone = bd;
+        for (const k of Object.keys(s.claimed)) s.claimed[k] = swap(s.claimed[k]);
     }
-    for (const k of Object.keys(s.claimed)) s.claimed[k] = swap(s.claimed[k]);
+    // "wake new chats" belongs to the character, whether or not any chat moved
     const ok = `c:${oldAvatar}`, nk = `c:${newAvatar}`;
-    if (s.autoWake[ok] !== undefined && s.autoWake[nk] === undefined) { s.autoWake[nk] = s.autoWake[ok]; delete s.autoWake[ok]; }
-    save();
+    let woke = false;
+    if (s.autoWake[ok] !== undefined) { if (s.autoWake[nk] === undefined) s.autoWake[nk] = s.autoWake[ok]; delete s.autoWake[ok]; woke = true; }
+    if (n || woke) save();
     return n;
 }
 
@@ -460,6 +480,7 @@ export function copyFromParent(msgKeyOf) {
     }
     s.chats[id] = fixRoom(structuredClone(s.chats[from]));
     s.branchDone[id] = from;
+    madeNow = id;
     save();
     return true;
 }
