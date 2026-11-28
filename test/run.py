@@ -2658,6 +2658,10 @@ def v070c(browser, lang):
     lf = E("e.lifeNow()")
     check(lf['place'] == 'park' and lf['weather'] == 'rain' and lf['time'] == 'evening', f'Continue + new values: replaced, the rest kept ({lf})')
 
+    # --- other characters do not do the quest's action (not even asked back at the owner)
+    ev(page, "window.__fakeST.turn('Hi.')"); page.wait_for_timeout(1200)
+    check("Other characters do not do a quest's action" in ev(page, "window.__fakeST.prompt || ''"), 'quiet room: the no-swap line is sent')
+
     # --- an exact name wins over a made-up line holding it (genre)
     ev(page, 'window.__confirmAnswer = true'); setv('genreMode', 'true'); page.wait_for_timeout(300)
     names = today()
@@ -2665,6 +2669,7 @@ def v070c(browser, lang):
     turn(page, 'Hm.', f'<p>Hm.<br>[SYS:QUEST] DAILY · {names[1]} and win a free car<br>[SYS:QUEST] DAILY · {names[1]}<br>[SYS:QUEST] DAILY · {names[2]}</p>')
     plain = ev(page, f"[...{last}.querySelectorAll('.sblink-qplain')].map(x => x.textContent)")
     check(len(plain) == 1 and 'free car' in plain[0], f'the made-up line stays text, the real one is a window ({plain})')
+    check("Other characters do not do a quest's action" in ev(page, "window.__fakeST.livePrompt || ''"), 'genre room: the no-swap line is in the rules')
     check(ev(page, f"{last}.querySelectorAll('.sblink-qbrow').length") == 2, 'both real quests drawn')
     check(not errors, f'no errors ({errors[:2]})')
     page.close()

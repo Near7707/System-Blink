@@ -28,6 +28,9 @@ function condsLeft(r, q, view) {
 
 const oneLine = (s) => String(s).replace(/[\r\n]+/g, ' ');
 
+/** A quest is for the owner to do: no one else does it, not even turned around toward the owner. */
+const noSwap = (who) => `- Other characters do not do a quest's action either, not even turned toward ${who} (if the quest is to ask someone something, no one asks ${who} that). Open a situation where ${who} could do it.`;
+
 /** The lines that do not change from reply to reply (they only change with the chat's settings). */
 function rulesFor(r, s, genre) {
     const who = ownerName(r);
@@ -39,6 +42,7 @@ function rulesFor(r, s, genre) {
                 : `- ${who} has a game-like "System" (quests, points, a personal shop) that only ${who} can see and hear. Others do not notice it.`,
             '- Points and bag items are managed by the extension. Do not give or take them in the story.',
             `- Never do the System's quests for ${who}'s character. Only open chances; ${who} decides and acts.`,
+            noSwap(who),
         ].join('\n');
     }
     return [
@@ -52,6 +56,7 @@ function rulesFor(r, s, genre) {
         `- ${who}'s own reactions, words and thoughts follow your usual rules for ${who}: if you do not write ${who}'s actions, leave them to ${who} — show the window reaching ${who} and keep the world and the others moving. Others react only to what they can notice.`,
         '- Points and bag items are managed by the extension. Do not give or take them in the story.',
         `- Never do the System's quests for ${who}'s character. Only open chances; ${who} decides and acts.`,
+        noSwap(who),
     ].join('\n');
 }
 
@@ -105,6 +110,7 @@ export function buildPrompt(genType = 'normal') {
     if (anyQuest) {
         lines.push(`- ${CHANCE[s.questChance] || CHANCE.some}`);
         lines.push(`- Never do the quests for ${who}'s character. Only open chances; ${who} decides and acts.`);
+        lines.push(noSwap(who));
     }
     // 0.7.0 genre mode: a quest cleared in the reply gets its window right there (the extension still judges it)
     if (genre && clearable.length) {
