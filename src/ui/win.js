@@ -102,7 +102,7 @@ export function openWindow(tab, opts = {}) {
 
 export function closeWindow() {
     keepScroll();
-    if (ui.view === 'cycleGo') { stopTemp(); ui.cycleDraft = null; } // closed without going back: as if never begun
+    if (ui.view === 'cycleGo') { stopTemp(ui.cycleDraft?.chat || currentChatId()); ui.cycleDraft = null; } // closed without going back: as if never begun
     if (ui.view === 'goalEdit') stashDraft();
     $id('sblink-win')?.remove();
     $id('sblink-shade')?.remove();
@@ -389,8 +389,10 @@ function setupPage() {
             <i class="sblink-radiodot"></i><span class="sblink-radiotext"><b class="sblink-radioname">${esc(t(`setup_${k}`))}</b><span class="sblink-radiodesc">${esc(t(`setup_${k}_d`))}</span></span></button>`).join('')}</div>`;
     }
     if (d.again) {
+        // (locked while the AI fills them in: what is typed meanwhile would be written over)
+        const lock = d.filling ? ' readonly aria-busy="true"' : '';
         const f = (k, label, hint, tag = 'input', extra = '') => `<label class="sblink-field"><span class="sblink-code">${esc(label)}</span>
-            ${tag === 'input' ? `<input class="sblink-input" data-sd="${k}" value="${esc(d[k] ?? '')}"${extra}>` : `<textarea class="sblink-ta sblink-ta-s" data-sd="${k}"${extra}>${esc(d[k] ?? '')}</textarea>`}</label>${hint ? `<div class="sblink-hint">${esc(hint)}</div>` : ''}`;
+            ${tag === 'input' ? `<input class="sblink-input" data-sd="${k}" value="${esc(d[k] ?? '')}"${extra}${lock}>` : `<textarea class="sblink-ta sblink-ta-s" data-sd="${k}"${extra}${lock}>${esc(d[k] ?? '')}</textarea>`}</label>${hint ? `<div class="sblink-hint">${esc(hint)}</div>` : ''}`;
         if (!c.set) body += `<div class="sblink-cycbtns"><button type="button" class="sblink-btn" data-act="setupFill"${d.filling ? ' disabled' : ''}><span class="sblink-ell">${esc(d.filling ? t('setup_filling') : t('setup_ai'))}</span></button>
             <button type="button" class="sblink-btn" data-act="setupRandom"${d.filling ? ' disabled' : ''}><span class="sblink-ell">${esc(t('setup_random'))}</span></button></div>`;
         body += f('n', t('setup_n'), '', 'input', ' inputmode="numeric" maxlength="3"')
@@ -403,7 +405,7 @@ function setupPage() {
     return {
         body,
         foot: `<button type="button" class="sblink-btn" data-act="back"><span class="sblink-ell">${esc(t('cancel'))}</span></button>
-          <button type="button" class="sblink-btn sblink-btn-main" data-act="setupSave"${d.again === null ? ' disabled' : ''}><span class="sblink-ell">${esc(t('save'))}</span></button>`,
+          <button type="button" class="sblink-btn sblink-btn-main" data-act="setupSave"${d.again === null || d.filling ? ' disabled' : ''}><span class="sblink-ell">${esc(t('save'))}</span></button>`,
     };
 }
 
@@ -419,7 +421,7 @@ function goPage() {
     const c = r?.cycle;
     if (!c) return { body: '', foot: '' };
     const view = chatView();
-    if (ui.cycleDraft && ui.cycleDraft.chat !== currentChatId()) ui.cycleDraft = null; // another chat now: start fresh
+    if (ui.cycleDraft && ui.cycleDraft.chat !== currentChatId()) { stopTemp(ui.cycleDraft.chat); ui.cycleDraft = null; } // another chat now: start fresh
     const d = ui.cycleDraft ||= { chat: currentChatId(), mode: c.mode, keepItem: '', keepSkills: false, off: {}, extra: '', back: '', backText: '', tried: false };
     const lines = journalNow(r, view);
     const known = knownLines(r, view);
@@ -1008,7 +1010,7 @@ async function onClick(e) {
         case 'gear': ui.back = TABS.includes(ui.view) ? ui.view : 'status'; ui.view = 'gear'; return render();
         case 'back':
             if (ui.view === 'goalEdit') stashDraft();
-            if (ui.view === 'cycleGo') { stopTemp(); ui.cycleDraft = null; }
+            if (ui.view === 'cycleGo') { stopTemp(ui.cycleDraft?.chat || currentChatId()); ui.cycleDraft = null; }
             ui.view = ui.view === 'text' ? 'gear' : ui.view === 'goalEdit' && room()?.goal ? 'goal' : (ui.back || 'status'); ui.goalDraft = null; return render();
         case 'goalCancel':
             if (ui.goalMode === 'new') dropDraft();
@@ -1051,13 +1053,14 @@ async function onClick(e) {
         case 'jAdd': { const inp = $id('sblink-win').querySelector('[data-jadd]'); if (inp?.value.trim()) addLine(inp.value); return render(); }
         case 'goSkills': ui.cycleDraft.keepSkills = !ui.cycleDraft.keepSkills; return render();
         case 'goSort': readGo(); return runSort();
-        case 'goStop': stopTemp(); ui.cycleDraft = null; ui.view = 'status'; return render();
+        case 'goStop': stopTemp(ui.cycleDraft?.chat || currentChatId()); ui.cycleDraft = null; ui.view = 'status'; return render();
         case 'goGo': return doRegress();
         case 'setupFill': case 'setupRandom': {
             readSetup();
             const sd = ui.setupDraft; sd.filling = true; render();
-            const got = await fillCycle(currentChatId(), d.act === 'setupRandom');
+            const got = await fillCycle(sd.chat, d.act === 'setupRandom');
             sd.filling = false;
+            if (ui.setupDraft !== sd || ui.view !== 'cycleSetup') return; // left the page meanwhile: dropped
             if (got) ui.freshSetup = true;
             if (got) Object.assign(sd, { n: got.n, truth: got.truth, memo: got.memory, back: got.back, events: got.events.map(e => `${e.day || ''} | ${e.what}`).join('\n') });
             else notice(t('setup_fail'), 'warn');

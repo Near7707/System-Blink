@@ -398,6 +398,7 @@ function keysOf(r) {
     const c = r.cycle;
     if (c && typeof c === 'object') {
         out.push(c.hide?.key);
+        for (const ev of c.events || []) out.push(ev?.stateKey, ...(ev?.results || []).map(x => x?.key));
         for (const x of [...(c.journal || []), ...(c.deaths || []), ...(c.leaks || [])]) out.push(x?.key);
     }
     return out.filter(k => typeof k === 'string' && k);
@@ -553,6 +554,38 @@ export async function onChatDeleted(name, stillThere) {
 }
 
 /** A new branch chat starts with a copy of its parent's system (points, bag, quests, tutorial). */
+// ---------- 0.8.0: where the earlier cycles end ----------
+/** When a message was sent (its key `d:<send_date>`), or NaN. */
+export function keyTime(k) {
+    if (typeof k !== 'string' || !k.startsWith('d:')) return NaN;
+    const s = k.slice(2);
+    const n = /^\d{10,}$/.test(s) ? Number(s) : Date.parse(s);
+    return Number.isFinite(n) ? n : NaN;
+}
+/**
+ * The last message of the earlier cycles in `keys` (an index), or -1. By its key; if it was deleted, by the messages
+ * just before it; if those are gone too, by its time (the last message sent no later than it).
+ */
+export function hideIndexIn(h, keys) {
+    if (!h?.key || !Array.isArray(keys)) return -1;
+    let i = keys.indexOf(h.key);
+    if (i >= 0) return i;
+    for (const k of [...(h.keys || [])].reverse()) { i = keys.indexOf(k); if (i >= 0) return i; }
+    if (Number.isFinite(h.t)) {
+        let at = -1;
+        for (let j = 0; j < keys.length; j++) { const tj = keyTime(keys[j]); if (Number.isFinite(tj) && tj <= h.t) at = j; }
+        return at;
+    }
+    return -1; // nothing to tell by: nothing is hidden (better shown than a new cycle cut off)
+}
+/** A branch keeps the hidden part only if the new cycle is in it (the boundary itself, or a message after it). */
+export function hideFitsBranch(h, keys) {
+    if (!h?.key) return true;
+    if (keys.includes(h.key)) return true;
+    const i = hideIndexIn(h, keys);
+    return i >= 0 && i < keys.length - 1;
+}
+
 export function copyFromParent(msgKeyOf) {
     const s = settings();
     const id = currentChatId();
@@ -567,6 +600,13 @@ export function copyFromParent(msgKeyOf) {
         else return false;
     }
     s.chats[id] = fixRoom(structuredClone(s.chats[from]));
+    // 0.8.0: branched from a scene before the regression: nothing of this branch is an earlier cycle
+    const c = s.chats[id].cycle;
+    if (c?.hide && msgKeyOf) {
+        let keys = [];
+        try { keys = (ctx().chat || []).map(msgKeyOf); } catch { /* ignore */ }
+        if (!hideFitsBranch(c.hide, keys)) { c.hide = null; c.undo = null; }
+    }
     s.branchDone[id] = from;
     madeNow = id;
     save();

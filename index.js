@@ -19,7 +19,7 @@ import {
 import { esc, isPhone } from './src/ui/util.js';
 import { hasPlainSys } from './src/ui/qblock.js';
 import { renderPanel, placePanel, setPanelHidden, setPanelHooks, foldPanel, unmountPanel, endPanelDrag } from './src/ui/panel.js';
-import { interceptor, storeCycleCheck, markCycleSent, answerDeath, noAskHere, knowsNow, cycleOn, startTemp, toggleStar, undoRegress, dropUndo, deathsOf } from './src/cycle.js';
+import { interceptor, clearTemps, storeCycleCheck, markCycleSent, answerDeath, noAskHere, knowsNow, cycleOn, startTemp, toggleStar, undoRegress, dropUndo, deathsOf } from './src/cycle.js';
 import { deathPopup, procPopup, startPopup, cycleHint, setNowHook } from './src/ui/cycle-pop.js';
 
 // 0.8.0: earlier lives (regression) are taken out of what the AI is sent — SillyTavern calls this before each request
@@ -526,7 +526,7 @@ function registerEvents() {
     // while switched off nothing runs, except keeping saved data with renamed / deleted chats
     const on = (name, fn, always = false) => { if (name) eventSource.on(name, (...a) => { try { if (always || settings().enabled) return fn(...a); } catch (e) { console.error('[System Blink]', e); } }); };
 
-    on(ev.CHAT_CHANGED, () => { const id = currentChatId(); prevOpen = openKey; openKey = id; dropPopups(p => p.wakeFor && p.wakeFor !== id); settleRoom(msgKey); copyFromParent(msgKey); mountPanel(); if (!settings().enabled) return; generating = false; hold(false); checkRealDay(); redrawSoon(); enteredSoon(); }, true);
+    on(ev.CHAT_CHANGED, () => { const id = currentChatId(); prevOpen = openKey; openKey = id; dropPopups(p => p.wakeFor && p.wakeFor !== id); settleRoom(msgKey); copyFromParent(msgKey); clearTemps(id); mountPanel(); if (!settings().enabled) return; generating = false; hold(false); checkRealDay(); redrawSoon(); enteredSoon(); }, true);
     for (const name of [ev.MESSAGE_DELETED, ev.MESSAGE_SWIPED, ev.MESSAGE_EDITED, ev.MESSAGE_UPDATED,
         ev.USER_MESSAGE_RENDERED, ev.CHARACTER_MESSAGE_RENDERED, ev.MORE_MESSAGES_LOADED, ev.CHAT_LOADED]) {
         on(name, () => { renderCardsSoon(); redrawSoon(); });
@@ -678,6 +678,7 @@ function watchScreen() {
 async function init() {
     settings();
     settleRoom(msgKey); // 0.6.11: a chat already open when the extension starts
+    clearTemps(); // 0.8.0: switched on for a confirm page left open before a reload
     setLanguage(uiLang());
     setLangGetter(lang);
     wireBus();

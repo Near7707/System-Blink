@@ -437,7 +437,8 @@ export async function runCheck({ force = false } = {}) {
         if (e?.name !== 'AbortError') { console.warn('[System Blink] check', e); bus.emit('checkFailed', e); }
     } finally { busy = null; }
     // the chat changed or the reply was re-rolled while waiting: drop it
-    if (!result || currentChatId() !== chatId || lastReply()?.key !== last.key) { bus.emit('change'); return null; }
+    // (0.8.0: or the room's data was replaced — gone back to another life, undone, a backup brought in)
+    if (!result || currentChatId() !== chatId || room(chatId) !== r || lastReply()?.key !== last.key) { bus.emit('change'); return null; }
     return result;
 }
 

@@ -2,7 +2,7 @@
 // counts while that AI reply is still there, so re-rolling or deleting the reply takes it back.
 // Purchases, manual clears and the tutorial reward always count.
 
-import { ctx, settings, conf, save, uid, room, currentChatId, ownerKey, DIFFS, TONES } from './store.js';
+import { ctx, settings, conf, save, uid, room, currentChatId, ownerKey, DIFFS, TONES, keyTime } from './store.js';
 import { t } from './i18n.js';
 import { dayCandidates, applyLog } from './cycle.js';
 import { standingDefaults, dailyPool, questPool, penaltyPool, parseCustomShop, shuffle, TUTORIAL_REWARD, GRADES, LOW_GRADES, skillPool, gachaOddPool, eraserItem, specLine, specNames } from './data.js';
@@ -562,8 +562,15 @@ export function rekeyReply(from, to, chatId = currentChatId()) {
     const c = r.cycle;
     if (c) {
         for (const list of [c.journal, c.deaths, c.leaks]) for (const x of list || []) if (x) x.key = sw(x.key);
-        for (const ev of c.events || []) { ev.stateKey = sw(ev.stateKey); for (const k of ['dueKeys', 'omenKeys', 'newsKeys']) ev[k] = swAll(ev[k] || []); }
-        if (c.hide) c.hide.key = sw(c.hide.key);
+        for (const ev of c.events || []) {
+            ev.stateKey = sw(ev.stateKey);
+            for (const k of ['dueKeys', 'omenKeys', 'newsKeys']) ev[k] = swAll(ev[k] || []);
+            for (const x of ev.results || []) x.key = sw(x.key);
+        }
+        if (c.hide) {
+            if (c.hide.key === from) { c.hide.key = to; const tt = keyTime(to); if (Number.isFinite(tt)) c.hide.t = tt; }
+            c.hide.keys = swAll(c.hide.keys || []);
+        }
     }
     save(); changed();
     return true;

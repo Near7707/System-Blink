@@ -2,7 +2,7 @@
 // Everything here lives in the chat's own `cycle` (store.js newCycle). Nothing in the chat file changes:
 // older cycles stay in the chat, they are only left out of what the AI is sent (the generate interceptor).
 
-import { settings, save, uid, room, currentChatId } from './store.js';
+import { settings, save, uid, room, currentChatId, hideIndexIn, keyTime } from './store.js';
 import { t } from './i18n.js';
 import {
     bus, chatView, active, ownerName, lastMine, msgKey, dayChanges, points, questState, goalStages, genreOn, addNote, newQuests, toneOf,
@@ -17,15 +17,6 @@ export const cycleOf = (r = room()) => r?.cycle || null;
 export const cycleOn = (r = room()) => !!(active(r) && r?.cycle?.on);
 
 // ---------- the earlier cycles, out of the AI's sight ----------
-/** The last message of the earlier cycles in `list` (an index), or -1. Found by its key, else by the messages just before it. */
-function hideIndexIn(h, keys) {
-    if (!h?.key) return -1;
-    let i = keys.indexOf(h.key);
-    if (i >= 0) return i;
-    // the boundary message was deleted: the nearest one before it that is still there
-    for (const k of [...(h.keys || [])].reverse()) { i = keys.indexOf(k); if (i >= 0) return i; }
-    return -1; // nothing to tell by: nothing is hidden (better shown than a new cycle cut off)
-}
 export function hideThrough(r = room(), view = chatView()) { return hideIndexIn(r?.cycle?.hide, view.keys); }
 /** Where this cycle's story starts in the chat (the greeting before it still counts). */
 export const cycleStart = (r = room(), view = chatView()) => hideThrough(r, view) + 1;
@@ -66,8 +57,20 @@ export function cycleDay(r = room(), view = chatView()) {
 /** An event's result counts while the reply that showed it is there (or it was set by hand). */
 export function evState(r, ev, view = chatView(), skip = null) {
     if (ev.byHand) return ev.state || 'ahead';
-    if (ev.state && ev.state !== 'ahead' && ev.stateKey && ev.stateKey !== skip && view.index.has(ev.stateKey)) return ev.state;
+    // one result per reply (swipes of the same message each keep theirs); the newest one still there counts
+    const list = resultsOf(ev);
+    for (let i = list.length - 1; i >= 0; i--) {
+        const x = list[i];
+        if (x.key && x.key !== skip && x.state && x.state !== 'ahead' && view.index.has(x.key)) return x.state;
+    }
     return 'ahead';
+}
+const resultsOf = (ev) => ev.results || (ev.stateKey && ev.state ? [{ key: ev.stateKey, state: ev.state }] : []);
+function putResult(ev, key, state, quote = '') {
+    const list = resultsOf(ev).filter(x => x.key !== key);
+    list.push({ key, state, quote: String(quote || '').slice(0, 120) });
+    ev.results = list.slice(-KEEP_KEYS);
+    ev.state = ''; ev.stateKey = null;
 }
 const aliveIn = (list, view, redo) => (list || []).some(k => k !== redo && view.index.has(k));
 
@@ -82,7 +85,7 @@ export function parseEventLine(line) {
     return what ? { day: n ? Math.max(1, Number(n[1])) : null, when: when.slice(0, 24), what } : null;
 }
 export const eventLine = (ev) => `${ev.day ? ev.day : ev.when || '?'} | ${ev.what}`;
-const newEvent = (x, src = 'hand') => ({ id: uid('v'), day: x.day ?? null, when: x.when || '', what: x.what, state: 'ahead', stateKey: null, byHand: false, src, dueKeys: [], omenKeys: [], newsKeys: [] });
+const newEvent = (x, src = 'hand') => ({ id: uid('v'), day: x.day ?? null, when: x.when || '', what: x.what, state: 'ahead', stateKey: null, results: [], byHand: false, src, dueKeys: [], omenKeys: [], newsKeys: [] });
 
 /** Events in day order (no day last). */
 export const eventsOf = (r = room()) => [...(r?.cycle?.events || [])].sort((a, b) => (a.day ?? 999) - (b.day ?? 999));
@@ -150,7 +153,7 @@ export function markCycleSent(key, sent, chatId = currentChatId()) {
         const k = `${kind}Keys`;
         ev[k] = [...(ev[k] || []).filter(x => x !== key), key].slice(-KEEP_KEYS);
         // news of a skipped event: it happened (with this reply — a swipe takes it back)
-        if (kind === 'news' && !ev.byHand) { ev.state = 'happened'; ev.stateKey = key; }
+        if (kind === 'news' && !ev.byHand) putResult(ev, key, 'happened');
     }
     save();
 }
@@ -160,8 +163,8 @@ export function setEvent(id, state) {
     const r = room();
     const ev = r?.cycle?.events.find(x => x.id === id);
     if (!ev) return;
-    if (state === 'now') { ev.day = cycleDay(r); ev.byHand = false; ev.state = 'ahead'; ev.stateKey = null; ev.dueKeys = []; }
-    else if (!state) { ev.byHand = false; ev.state = 'ahead'; ev.stateKey = null; }
+    if (state === 'now') { ev.day = cycleDay(r); ev.byHand = false; ev.state = 'ahead'; ev.stateKey = null; ev.results = []; ev.dueKeys = []; }
+    else if (!state) { ev.byHand = false; ev.state = 'ahead'; ev.stateKey = null; ev.results = []; }
     else { ev.byHand = true; ev.state = state; ev.stateKey = null; }
     save(); changed();
 }
@@ -173,8 +176,9 @@ export function cycleAsk(r, view, key) {
     if (!c || !active(r)) return null;
     const s = settings();
     const ask = { death: '', events: [], leak: false, log: false };
-    if (c.on && c.death) ask.death = 'on';
-    else if (!c.on && s.cycleAskOff && !c.noAsk && r.tutorial?.state !== 'active') ask.death = 'off';
+    const tut = r.tutorial?.state === 'active';
+    if (c.on && c.death) ask.death = tut ? '' : 'on';
+    else if (!c.on && s.cycleAskOff && !c.noAsk && !tut) ask.death = 'off';
     if (c.on) {
         ask.events = eventsOf(r).filter(ev => (ev.dueKeys || []).includes(key) && evState(r, ev, view) === 'ahead');
         ask.leak = c.n > 1 && c.leak;
@@ -198,7 +202,7 @@ export function storeCycleCheck(chatId, key, res) {
     for (const e of got.events || []) {
         const ev = c.events.find(x => x.id === e.id);
         if (!ev || ev.byHand || !['happened', 'blocked', 'changed'].includes(e.state)) continue;
-        ev.state = e.state; ev.stateKey = key; ev.quote = String(e.quote || '').slice(0, 120);
+        putResult(ev, key, e.state, e.quote);
     }
     // a line for this life's record (checked again after Continue: the newer line replaces it)
     c.journal = c.journal.filter(j => !(j.cand && j.key === key));
@@ -393,7 +397,7 @@ export async function regress(chatId, d = {}) {
     });
     if (c.past.length > 30) c.past.splice(0, c.past.length - 30);
     // the world goes back: fated events wait again; what this life recorded will happen again
-    for (const ev of c.events) Object.assign(ev, { state: 'ahead', stateKey: null, byHand: false, dueKeys: [], omenKeys: [], newsKeys: [] });
+    for (const ev of c.events) Object.assign(ev, { state: 'ahead', stateKey: null, results: [], byHand: false, dueKeys: [], omenKeys: [], newsKeys: [] });
     const have = new Set(c.events.map(ev => ev.what));
     for (const ln of lines) {
         const p = parseEventLine(ln);
@@ -430,16 +434,22 @@ export async function regress(chatId, d = {}) {
     c.n += 1; c.dayStart = 1; c.on = true; c.temp = false; c.set = true; c.mode = mode;
     c.back = String(d.back || '').slice(0, 120);
     // the story so far stays in the chat; the AI no longer sees it
-    if (view.length) c.hide = { key: view.keys[view.length - 1], keys: view.keys.slice(Math.max(0, view.length - 4), view.length - 1), idx: view.length - 1, n: c.n };
+    if (view.length) {
+        const key = view.keys[view.length - 1];
+        c.hide = { key, keys: view.keys.slice(Math.max(0, view.length - 21), view.length - 1), idx: view.length - 1, n: c.n, t: keyTime(key) };
+    }
     c.undo = { snap, mine: lastMine(view)?.key || null, at: Date.now() };
     const who = ownerName(r);
     const where = c.back ? `at this point: ${oneLine(c.back)}` : 'back at the story\'s first scene';
     addNote(r, `${who} has just gone back in time (cycle ${c.n} begins). ${who} wakes ${where}, with every memory of the earlier life. To everyone else nothing has happened yet. Show ${who} coming to, briefly.`,
         { kind: 'CYCLE', text: t('qb_cycle_line', { n: c.n }) },
         `The System has sent ${who} back in time: cycle ${c.n} begins. ${who} wakes ${where}, remembering the earlier life. Make it a real moment in the story.`);
+    // a new object for the room: an answer still on its way for the life before (a story check, quests, the record)
+    // is for data that is no longer there and is dropped (engine sameRoom)
+    const fresh = swapRoom(chatId, r);
     save(); changed();
     // the new life's first daily quests come right after (their popup after the "life N has begun" one)
-    setTimeout(() => { if (room(chatId) === r && currentChatId() === chatId) newQuests(chatId).catch(e => console.warn('[System Blink] quests', e)); }, 0);
+    setTimeout(() => { if (room(chatId) === fresh && currentChatId() === chatId) newQuests(chatId).catch(e => console.warn('[System Blink] quests', e)); }, 0);
     return { n: c.n };
 }
 
@@ -448,12 +458,12 @@ export function undoRegress(chatId = currentChatId()) {
     const r = room(chatId);
     const u = r?.cycle?.undo;
     if (!u?.snap) return false;
-    const snap = structuredClone(u.snap);
-    for (const k of Object.keys(r)) delete r[k];
-    Object.assign(r, snap);
-    r.cycle.undo = null;
-    // regression had been switched on only for this (from a chat where it was off): off again
-    if (r.cycle.temp) { r.cycle.on = false; r.cycle.temp = false; }
+    // (a new object, as in regress: what was on its way for the new life is dropped)
+    const back = structuredClone(u.snap);
+    back.cycle.undo = null;
+    settings().chats[chatId] = back;
+    // regression had been switched on only for this (from a chat where it was off): off again, its record lines too
+    if (back.cycle.temp) offTemp(back.cycle);
     save(); changed();
     return true;
 }
@@ -468,9 +478,30 @@ export function dropUndo(chatId = currentChatId()) {
 export function stopTemp(chatId = currentChatId()) {
     const c = room(chatId)?.cycle;
     if (!c?.temp) return;
+    offTemp(c);
+    if (sorting === chatId) { sorting = ''; sortGen++; } // the record being put down: dropped when it comes
+    save(); changed();
+}
+function offTemp(c) {
     c.on = false; c.temp = false;
     c.journal = c.journal.filter(j => j.cycle !== c.n || j.src === 'star' || j.src === 'hand');
-    save(); changed();
+}
+/** Switched on just for a confirm page that is not open any more (another chat now, a reload): off again. */
+export function clearTemps(keep = '') {
+    const s = settings();
+    let any = false;
+    for (const [id, r] of Object.entries(s.chats || {})) {
+        if (id === keep || !r?.cycle?.temp) continue;
+        offTemp(r.cycle); any = true;
+        if (sorting === id) { sorting = ''; sortGen++; }
+    }
+    if (any) { save(); changed(); }
+}
+/** The room's data as a new object (same content). */
+function swapRoom(chatId, r) {
+    const fresh = structuredClone(r);
+    settings().chats[chatId] = fresh;
+    return fresh;
 }
 /** Begin the regression from a chat where it is off (② [Continue]): on, for now. */
 export function startTemp(chatId = currentChatId()) {
@@ -484,21 +515,27 @@ export const cycleToneClass = (r = room()) => `sblink-tn-${active(r) ? toneOf(r)
 
 // ---------- asking the AI (the open chat only; the answer is dropped if the chat's data changed meanwhile) ----------
 let sorting = '';
+let sortGen = 0;
 export const isSorting = (chatId = currentChatId()) => !!chatId && sorting === chatId;
 /** Put this life's record down from the story (confirm page). Returns true / false (failed) / null (not asked). */
 export async function sortLog(chatId = currentChatId()) {
     const r = room(chatId);
     if (!r?.cycle || sorting || chatId !== currentChatId()) return null;
     sorting = chatId; changed();
+    const gen = ++sortGen;
     let made = null;
     try { made = await bus.ask('cycleLog', { cands: journalNow(r).filter(j => j.cand).map(j => j.text) }); } catch (e) { console.warn('[System Blink] cycle log', e); }
+    if (gen !== sortGen) return null; // stopped meanwhile
     sorting = '';
-    if (room(chatId) !== r || currentChatId() !== chatId) { changed(); return null; }
+    if (room(chatId) !== r || currentChatId() !== chatId || !r.cycle.on) { changed(); return null; }
     if (!Array.isArray(made)) { changed(); return false; }
     return replaceLog(chatId, made);
 }
 /** "AI fills it in" for "I have already gone back" (⑦). Returns the filled values, or null. */
 export async function fillCycle(chatId = currentChatId(), random = false) {
-    if (!room(chatId) || chatId !== currentChatId()) return null;
-    try { return await bus.ask('cycleFill', { random }); } catch (e) { console.warn('[System Blink] cycle fill', e); return null; }
+    const r = room(chatId);
+    if (!r || chatId !== currentChatId()) return null;
+    let got = null;
+    try { got = await bus.ask('cycleFill', { random }); } catch (e) { console.warn('[System Blink] cycle fill', e); return null; }
+    return room(chatId) === r && currentChatId() === chatId ? got : null;
 }

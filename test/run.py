@@ -135,6 +135,8 @@ def main():
             v072(browser, 'en')
             v080(browser, 'ko')
             v080(browser, 'en')
+            v080b(browser, 'ko')
+            v080b(browser, 'en')
             browser.close()
     finally:
         srv.terminate()
@@ -2946,7 +2948,7 @@ def v080(browser, lang):
     check('It is now time for this fated event' in p, 'D the due event is told')
     check('cycle 4' in p and 'regressed' in p, 'D the regression rules')
     check('Last life I was lost' not in p and 'lost on the bridge' not in p, 'D the private memory is not sent')
-    evs = ev(page, f"{C}.events.map(e => e.state)")
+    evs = ev(page, f"(async () => {{ const m = await import('/src/cycle.js'); const r = {R}; return r.cycle.events.map(e => m.evState(r, e)); }})()")
     check('happened' in evs, f'D judged happened ({evs})')
     # E. the leaked memory: a notice, "they remember" adds the name
     check(ev(page, "[...document.querySelectorAll('.sblink-toast')].some(x => x.innerText.includes('Mira'))"), 'E leaked-memory notice')
@@ -2996,6 +2998,172 @@ def v080(browser, lang):
     turn(page, 'And again.', 'Gone.')
     check('Also DEATH' not in ev(page, 'window.__checkLast'), 'I not asked any more')
     check(not errors, f'no page errors ({errors[:2]})')
+    page.close()
+
+def v080b(browser, lang):
+    """0.8.0 review: the boundary after deletes / Continue / a branch, answers on their way across going back and undo,
+    a temporary switch left on, the record after stop / undo, event results per swipe, setup fields, the tutorial."""
+    print(f'--- 0.8.0 review ({lang})')
+    R = "SillyTavern.getContext().extensionSettings.systemBlink.chats[__sbKey()]"
+    C = R + ".cycle"
+    B = 'TIME: -\\nWEATHER: -\\nPLACE: -\\nDATE: -\\nDAYS: 0\\nNEXT: -'
+    CY = "(await import('/src/cycle.js'))"
+    sent = lambda page: ev(page, "(() => { const c = SillyTavern.getContext().chat.slice(); window.systemBlinkInterceptor(c); return c.map(m => m.mes); })()")
+    msgs = lambda page: ev(page, "SillyTavern.getContext().chat.map(m => m.mes)")
+
+    def fresh(turns=4, on=True):
+        page, errors = open_page(browser, f'fresh&lang={lang}')
+        ev(page, "(async () => { await (await import('/src/engine.js')).switchOn('skip'); })()"); page.wait_for_timeout(900); close_pops(page)
+        ev(page, f"{R}.difficulty = 'off'")
+        ev(page, f"window.__checkAnswer = '{B}'")
+        if on:
+            ev(page, f"(async () => {CY}.setupCycle(__sbKey(), {{}}))()")
+        for i in range(turns):
+            turn(page, f'Old step {i}.', f'Old reply {i}.')
+        close_pops(page)
+        return page, errors
+
+    def go_back(page, d='{ mode: "memory" }'):
+        r = ev(page, f"(async () => {CY}.regress(__sbKey(), {d}))()")
+        page.wait_for_timeout(500); close_pops(page)
+        return r
+
+    async_del = lambda i, n: f"(async () => {{ const l = SillyTavern.getContext().chat; l.splice({i}, {n}); window.__fakeST.render(); await SillyTavern.getContext().eventSource.emit('message_deleted', l.length); }})()"
+
+    # 1. the boundary and the three messages before it deleted: the earlier life stays hidden
+    page, errors = fresh()
+    go_back(page)
+    turn(page, 'New step.', 'New reply.')
+    n = len(msgs(page))  # greeting + 8 old + 2 new = 11
+    ev(page, async_del(n - 6, 4)); page.wait_for_timeout(300)
+    out = sent(page)
+    check(out == [msgs(page)[0], 'New step.', 'New reply.'], f'1 deletes near the boundary: still hidden ({out})')
+    # 1b. nothing of the kept keys left: found by the time
+    ev(page, f"{C}.hide.keys = []; {C}.hide.key = 'd:gone'")
+    out = sent(page)
+    check(out == [msgs(page)[0], 'New step.', 'New reply.'], f'1b found by the time ({out})')
+    check(not errors, f'1 no page errors ({errors[:2]})')
+    page.close()
+
+    # 2. Continue on an earlier-life reply that became the last one: still hidden
+    page, errors = fresh()
+    go_back(page)
+    ev(page, 'window.__fakeST.deleteLast()'); ev(page, 'window.__fakeST.deleteLast()'); page.wait_for_timeout(300)
+    ev(page, "window.__fakeST.cont('and more.')"); page.wait_for_timeout(1500)
+    out = sent(page)
+    check(len(out) == 1, f'2 Continue after deletes: only the greeting ({out})')
+    check(not errors, f'2 no page errors ({errors[:2]})')
+    page.close()
+
+    # 3. a branch from a scene before going back: nothing hidden there; one at the boundary keeps it
+    page, errors = fresh()
+    go_back(page)
+    turn(page, 'New step.', 'New reply.')
+    def branch_at(keep):
+        ev(page, f"""(async () => {{ const st = window.__fakeST, ctx = SillyTavern.getContext();
+            const from = st.state.chatName, list = ctx.chat.slice(0, {keep}).map(m => ({{ ...m }}));
+            st.state.chatName = from + ' B{keep}'; st.chats[st.state.chatName] = list; st.metas[st.state.chatName] = {{ main_chat: from }};
+            st.render(); await ctx.eventSource.emit('chat_id_changed', st.state.chatName); return from; }})()""")
+        page.wait_for_timeout(700)
+    parent = ev(page, 'window.__fakeST.state.chatName')
+    branch_at(7)  # greeting + 6 old: before the boundary (index 8)
+    st = ev(page, f"[!!{C}.hide, {C}.n]")
+    out = sent(page)
+    check(st[0] is False and len(out) == 7, f'3 branch before going back: nothing hidden ({st}, {len(out)})')
+    ev(page, f"window.__fakeST.openCharChat(0, {parent!r})"); page.wait_for_timeout(500)
+    branch_at(10)  # through the boundary and one new message
+    out = sent(page)
+    check(ev(page, f"!!{C}.hide") and len(out) == 2, f'3 branch after it: the earlier life stays hidden ({len(out)})')
+    check(not errors, f'3 no page errors ({errors[:2]})')
+    page.close()
+
+    # 4. a story check still on its way when going back: dropped (no old place, days or death in the new life)
+    page, errors = fresh(2)
+    ev(page, "window.__aiDelay = 2600")
+    ev(page, "window.__checkAnswer = 'TIME: night\\nWEATHER: -\\nPLACE: the old bridge\\nDATE: -\\nDAYS: 2\\nNEXT: the morning\\nDEATH: YES - \"fell\"'")
+    turn(page, 'I fall.', 'She fell.')
+    go_back(page)
+    page.wait_for_timeout(3500)
+    st = ev(page, f"(() => {{ const r = {R}; return [r.cycle.n, r.cycle.deaths.filter(d => d.n === 2).length, (r.lifeLog || []).length, (r.dayLog || []).length]; }})()")
+    check(st == [2, 0, 0, 0], f'4 late check dropped ([life, deaths in life 2, life lines, day lines] {st})')
+    ev(page, "window.__aiDelay = 150")
+    page.close()
+
+    # 5. undo while the new life's quests are on their way: they are dropped
+    page, errors = fresh(2)
+    before = ev(page, f"{R}.quests.map(q => q.id).sort().join(',')")
+    ev(page, "window.__aiDelay = 1500")
+    ev(page, f"(async () => {CY}.regress(__sbKey(), {{ mode: 'memory' }}))()"); page.wait_for_timeout(200)
+    ev(page, f"(async () => {CY}.undoRegress(__sbKey()))()")
+    page.wait_for_timeout(2200)
+    after = ev(page, f"{R}.quests.map(q => q.id).sort().join(',')")
+    check(after == before and ev(page, f"{C}.n") == 1, f'5 undo: no quests of the cancelled life ({before} / {after})')
+    ev(page, "window.__aiDelay = 150")
+    page.close()
+
+    # 6. the confirm page left for another chat: the first chat is off again
+    page, errors = fresh(2, on=False)
+    ev(page, f"(async () => {{ {CY}.startTemp(__sbKey()); (await import('/src/ui/win.js')).openWindow('', {{ cycle: 'cycleGo' }}); }})()"); page.wait_for_timeout(500)
+    key_a = ev(page, '__sbKey()')
+    ev(page, "window.__fakeST.openCharChat(0, 'Another chat')"); page.wait_for_timeout(500)
+    ev(page, "(async () => (await import('/src/ui/win.js')).closeWindow())()"); page.wait_for_timeout(200)
+    st = ev(page, f"(() => {{ const c = SillyTavern.getContext().extensionSettings.systemBlink.chats[{key_a!r}].cycle; return [c.on, c.temp]; }})()")
+    check(st == [False, False], f'6 left for another chat: off again ({st})')
+    # 6b. left on before a reload: off on start
+    ev(page, f"(() => {{ const c = SillyTavern.getContext().extensionSettings.systemBlink.chats[{key_a!r}].cycle; c.on = true; c.temp = true; }})()")
+    ev(page, f"(async () => {CY}.clearTemps())()")
+    st = ev(page, f"(() => {{ const c = SillyTavern.getContext().extensionSettings.systemBlink.chats[{key_a!r}].cycle; return [c.on, c.temp]; }})()")
+    check(st == [False, False], f'6b on start: off again ({st})')
+    page.close()
+
+    # 7. the record: stopped while it is put down / undone after a temporary switch
+    page, errors = fresh(2, on=False)
+    ev(page, "window.__aiDelay = 1200")
+    ev(page, f"(async () => {{ {CY}.startTemp(__sbKey()); window.__sl = {CY}.sortLog(__sbKey()); }})()"); page.wait_for_timeout(200)
+    ev(page, f"(async () => {CY}.stopTemp(__sbKey()))()")
+    page.wait_for_timeout(1600)
+    st = ev(page, f"[{C}.on, {C}.journal.filter(j => j.src === 'ai').length]")
+    check(st == [False, 0], f'7 stopped while sorting: no AI lines ({st})')
+    ev(page, "window.__aiDelay = 150")
+    ev(page, f"(async () => {{ {CY}.startTemp(__sbKey()); await {CY}.sortLog(__sbKey()); }})()"); page.wait_for_timeout(600)
+    check(ev(page, f"{C}.journal.filter(j => j.src === 'ai').length") > 0, '7b sorted (AI lines)')
+    go_back(page)
+    ev(page, f"(async () => {CY}.undoRegress(__sbKey()))()"); page.wait_for_timeout(300)
+    st = ev(page, f"[{C}.on, {C}.temp, {C}.journal.filter(j => j.src === 'ai').length]")
+    check(st == [False, False, 0], f'7b undo: off and no AI lines ({st})')
+    page.close()
+
+    # 8. a fated event judged differently in two swipes: going back to the first swipe shows its result
+    page, errors = fresh(1)
+    ev(page, f"(async () => {{ const r = {R}; {CY}.setEventsText(r, '1 | The bell stops'); }})()")
+    ev(page, "window.__checkAnswer = (u) => '" + B + "' + (/EVENT1:/.test(u) ? '\\nEVENT1: HAPPENED - \"quiet\"' : '')")
+    turn(page, 'I listen.', 'The bell stopped.')
+    ev(page, "window.__swA = { ...SillyTavern.getContext().chat.at(-1) }")
+    ev(page, "window.__checkAnswer = (u) => '" + B + "' + (/EVENT1:/.test(u) ? '\\nEVENT1: BLOCKED - \"I held the rope\"' : '')")
+    ev(page, 'window.__fakeST.swipe()'); page.wait_for_timeout(1500)
+    s1 = ev(page, f"(async () => {{ const r = {R}; return {CY}.evState(r, r.cycle.events[0]); }})()")
+    ev(page, 'window.__fakeST.putBack(window.__swA)'); page.wait_for_timeout(400)
+    s2 = ev(page, f"(async () => {{ const r = {R}; return {CY}.evState(r, r.cycle.events[0]); }})()")
+    check(s1 == 'blocked' and s2 == 'happened', f'8 each swipe keeps its result ({s1} / {s2})')
+    # 8b. the setup fields are locked while the AI fills them in
+    ev(page, f"{C}.set = false")
+    ev(page, "window.__aiDelay = 1200")
+    ev(page, "(async () => (await import('/src/ui/win.js')).openWindow('', { cycle: 'cycleSetup' }))()"); page.wait_for_timeout(300)
+    page.click('#sblink-win [data-setup="again"]'); page.wait_for_timeout(200)
+    page.click('#sblink-win [data-act="setupFill"]'); page.wait_for_timeout(300)
+    check(ev(page, "document.querySelector('#sblink-win [data-sd=\"truth\"]').readOnly"), '8b fields locked while filling')
+    page.wait_for_timeout(1400)
+    check(not ev(page, "document.querySelector('#sblink-win [data-sd=\"truth\"]').readOnly"), '8b unlocked after')
+    ev(page, "window.__aiDelay = 150")
+    check(not errors, f'8 no page errors ({errors[:2]})')
+    page.close()
+
+    # 9. regression on: no death question during the tutorial
+    page, errors = open_page(browser, f'fresh&lang={lang}')
+    ev(page, "(async () => { await (await import('/src/engine.js')).switchOn('start'); })()"); page.wait_for_timeout(900); close_pops(page)
+    ev(page, f"(async () => {CY}.setupCycle(__sbKey(), {{}}))()")
+    a = ev(page, f"(async () => {{ const e = await import('/src/engine.js'); const v = e.chatView(); return {CY}.cycleAsk({R}, v, v.keys.at(-1))?.death || ''; }})()")
+    check(a == '', f'9 not asked during the tutorial ({a!r})')
     page.close()
 
 
