@@ -290,8 +290,31 @@ export const roomKey = (owner, name) => `${owner}/${name}`;
 // a chat it opens it under the new name first (copying may happen there), then says it was renamed — the renamed
 // chat's own data may then go there in place of that copy.
 let madeNow = '';
-// like SillyTavern's server, which drops these from a new chat name (sanitize-filename)
-const cleanName = (n) => String(n).replace(/[\/?<>\\:*|"]/g, '').replace(/[\x00-\x1f\x80-\x9f]/g, '');
+// 0.6.11: the name SillyTavern's server really gives a renamed chat file. It cleans the whole file name
+// (name + ".jsonl") the way sanitize-filename 1.6.3 does — drops these characters, reserved names, dots and spaces
+// at the end, and cuts it to 255 bytes (UTF-8) — then takes the name without its extension.
+const utf8Len = (seg) => new TextEncoder().encode(seg).length;
+function cut255(str) {
+    let bytes = 0;
+    for (let i = 0; i < str.length; i++) {
+        let seg = str[i];
+        const c = str.charCodeAt(i);
+        if (c >= 0xd800 && c <= 0xdbff && /[\udc00-\udfff]/.test(str[i + 1] || '')) seg += str[++i];
+        bytes += utf8Len(seg);
+        if (bytes === 255) return str.slice(0, i + 1);
+        if (bytes > 255) return str.slice(0, i - seg.length + 1);
+    }
+    return str;
+}
+function cleanName(file) {
+    let f = String(file || '');
+    if (!/\.jsonl$/i.test(f)) f = `${f.trim()}.jsonl`;
+    f = f.replace(/[\/?<>\\:*|"]/g, '').replace(/[\x00-\x1f\x80-\x9f]/g, '').replace(/^\.+$/, '')
+        .replace(/^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$/i, '').replace(/[. ]+$/, '');
+    f = cut255(f);
+    const dot = f.lastIndexOf('.');
+    return dot > 0 ? f.slice(0, dot) : f;
+}
 const nameOf = (key) => String(key).slice(String(key).indexOf('/') + 1);
 
 /** The open chat's key (owner/name), or null. */
@@ -383,7 +406,7 @@ const stripExt = (n) => String(n || '').replace(/\.jsonl$/i, '');
  */
 export function onChatRenamed(oldName, newName, owner = ownerKey(), openName = null) {
     const s = settings();
-    const a = stripExt(oldName), b = openName || cleanName(stripExt(newName).trim());
+    const a = stripExt(oldName), b = openName || cleanName(newName);
     if (!a || !b || a === b) return '';
     let from = owner ? roomKey(owner, a) : '', to = owner ? roomKey(owner, b) : '';
     if (!from || !s.chats[from]) {

@@ -155,7 +155,15 @@
             window.__chatListBody = body;
             const avatar = body.avatar_url;
             const cid = characters.findIndex(c => c.avatar === avatar);
-            return new Response(JSON.stringify(window.__fakeST.chatNames(cid).map(n => ({ file_name: `${n}.jsonl` }))), { status: 200 });
+            // like SillyTavern 1.19 with `simple`; window.__oldST: like 1.12 (ignores it, full entries)
+            const names = window.__fakeST.chatNames(cid);
+            const list = window.__oldST ? names.map(n => ({ file_name: `${n}.jsonl`, file_size: '1.00kb', chat_items: 1, mes: '', last_mes: 0 }))
+                : names.map(n => ({ file_name: `${n}.jsonl`, file_id: n }));
+            return new Response(JSON.stringify(list), { status: 200 });
+        }
+        if (url === '/version') {
+            window.__versionAsked = (window.__versionAsked || 0) + 1;
+            return new Response(JSON.stringify({ pkgVersion: window.__oldST ? '1.12.0' : '1.19.1' }), { status: 200 });
         }
         return realFetch(url, opts);
     };

@@ -382,9 +382,23 @@ function registerEvents() {
     on(ev.APP_READY, () => { settleRoom(msgKey); mountWand(); if (!settings().enabled) return; mountFab(); checkRealDay(); redraw(); enteredSoon(); }, true);
 }
 
+// 0.6.11: SillyTavern before 1.13.0 ignores `simple` and leaves chats it could not read out of the list, so
+// there a missing name proves nothing. Its version is asked once; unknown counts as old (data kept).
+let newListServer = null;
+async function listIsTrusty() {
+    if (newListServer !== null) return newListServer;
+    try {
+        const res = await fetch('/version');
+        const v = String((await res.json())?.pkgVersion || '').match(/^(\d+)\.(\d+)/);
+        newListServer = !!v && (Number(v[1]) > 1 || (Number(v[1]) === 1 && Number(v[2]) >= 13));
+    } catch { return false; } // try again next time
+    return newListServer;
+}
+
 // 0.6.11: after a delete, does this owner still have a chat of that name? true / false / null (could not tell → data kept)
 async function charStillHas(owner, name) {
     if (!owner.startsWith('c:')) return null;
+    if (!(await listIsTrusty())) return null;
     const c = ctx();
     const res = await fetch('/api/characters/chats', {
         method: 'POST',
@@ -394,7 +408,8 @@ async function charStillHas(owner, name) {
     });
     if (!res.ok) return null;
     const list = Object.values((await res.json()) || {});
-    if (!list.every(x => x && typeof x.file_name === 'string')) return null;
+    // a file-names-only list (a full one, with sizes and last messages, comes from a server that ignored `simple`)
+    if (!list.every(x => x && typeof x.file_name === 'string' && Object.keys(x).every(k => k === 'file_name' || k === 'file_id'))) return null;
     return list.some(x => x.file_name.replace(/\.jsonl$/i, '') === name);
 }
 async function groupStillHas(owner, name) {

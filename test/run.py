@@ -122,6 +122,7 @@ def main():
             v0610(browser, 'en')
             v0611(browser, 'ko')
             v0611(browser, 'en')
+            v0611c(browser)
             browser.close()
     finally:
         srv.terminate()
@@ -2176,6 +2177,46 @@ def v0611b(page, S, M, J, wake, open_chat, give, legacy):
     got = ev(page, f"[{S}.claimed.mainx, {S}.branchDone['c:new.png/two'], !!{S}.chats['c:new.png/two'], {S}.autoWake['c:lone2.png'], 'c:lone.png' in {S}.autoWake]")
     check(got == ['c:old.png/main', 'c:old.png/main', True, False, False], f'character rename: refs only for moved chats, wake setting always ({got})')
     ev(page, f"(() => {{ const s = {S}; for (const k of ['c:old.png/main', 'c:new.png/main', 'c:new.png/two']) delete s.chats[k]; delete s.claimed.mainx; delete s.branchDone['c:new.png/two']; delete s.autoWake['c:lone2.png']; }})()")
+    # N. 2nd review: an AI answer asked for one chat's data, arriving after other data took its name, is dropped
+    got = ev(page, f"""(async () => {{ const st = await import('/src/store.js'), en = await import('/src/engine.js');
+        const s = st.settings(); const key = st.currentChatId(); const orig = s.chats[key];
+        const copy = structuredClone(orig); copy.quests = copy.quests.filter(q => !(q.kind === 'daily' && q.day === copy.day));
+        s.chats[key] = copy; const before = orig.quests.length;
+        const ask = en.bus.ask; let rel = null; en.bus.ask = () => new Promise(r => {{ rel = r; }});
+        const p = en.newQuests(key); await new Promise(r => setTimeout(r, 20));
+        s.chats[key] = orig; rel && rel([{{ name: 'Copy quest A', reward: 10 }}, {{ name: 'Copy quest B', reward: 10 }}]); await p;
+        en.bus.ask = ask;
+        return [!!rel, orig.quests.some(q => q.name.startsWith('Copy quest')), orig.quests.length === before, copy.quests.some(q => q.name.startsWith('Copy quest'))]; }})()""")
+    check(got == [True, False, True, False], f'answer for data no longer there: dropped, not added to the new data ({got})')
+    # O. 2nd review: a chat not open renamed to a long name: the data follows the name the server really keeps
+    long_name = '가' * 83
+    got = ev(page, f"""(async () => {{ const st = await import('/src/store.js'); const s = st.settings();
+        s.chats['c:far.png/old'] = {{ ledger: [] }}; s.chats['c:far.png/q'] = {{ ledger: [] }};
+        const a = st.onChatRenamed('old.jsonl', {long_name!r} + '.jsonl copy.jsonl', 'c:far.png');
+        const b = st.onChatRenamed('q.jsonl', 'con.jsonl', 'c:far.png');
+        const out = [a, !!s.chats['c:far.png/' + {long_name!r}], b, !!s.chats['c:far.png/q']];
+        for (const k of Object.keys(s.chats)) if (k.startsWith('c:far.png/')) delete s.chats[k];
+        return out; }})()""")
+    check(got == ['moved', True, '', True], f"server's cleaned name: cut to 255 bytes / a name it drops leaves the data ({got})")
+
+
+def v0611c(browser):
+    """0.6.11 2nd review: SillyTavern before 1.13 ignores `simple` — a delete never drops data there."""
+    print('--- 0.6.11 delete check on an old SillyTavern')
+    page, errors = open_page(browser, 'fresh&lang=en')
+    S = "SillyTavern.getContext().extensionSettings.systemBlink"
+    M, J = 'c:mira.png/', 'c:juno.png/'
+    ev(page, "window.__oldST = true")
+    ev(page, "window.__fakeST.chats['1|Twin'] = [{ is_user: false, name: 'Juno', mes: 'Twin.', send_date: 'tw1' }]; window.__fakeST.chats['Twin'] = [{ is_user: false, name: 'Mira', mes: 'Twin.', send_date: 'tw2' }]")
+    for cid in (1, 0):
+        ev(page, f"window.__fakeST.openCharChat({cid}, 'Twin')"); page.wait_for_timeout(900); close_pops(page)
+        ev(page, f"{S}.chats[__sbKey()] = {{ ledger: [], on: true }}")
+    # Juno's chat really is gone, but an old server's list proves nothing: kept
+    ev(page, "window.__fakeST.deleteChat(1, 'Twin')"); page.wait_for_timeout(400)
+    got = ev(page, f"[!!{S}.chats['{J}Twin'], !!{S}.chats['{M}Twin'], window.__versionAsked > 0]")
+    check(got == [True, True, True], f'old SillyTavern: nothing dropped on delete ({got})')
+    check(not errors, f'no errors ({errors[:3]})')
+    page.close()
 
 
 if __name__ == '__main__':

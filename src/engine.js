@@ -59,6 +59,16 @@ function askFor(chatId, kind, opts) {
     return bus.ask(kind, opts);
 }
 
+/**
+ * 0.6.11: after waiting for the AI, the chat's data only if it is still the very same data the request started
+ * with. While waiting, another chat's data may have come to that name (a renamed chat replacing the copy made when
+ * it was opened, a backup put in): the answer is then dropped, never added to data it was not asked for.
+ */
+function sameRoom(chatId, r) {
+    const rr = room(chatId);
+    return rr && rr === r ? rr : null;
+}
+
 // ---------- the room ----------
 export function active(r = room()) { return !!(conf().enabled && r?.on); }
 
@@ -403,7 +413,7 @@ async function makeNextStage(chatId) {
     const i = g.list.length;
     let made = null;
     try { made = await askFor(chatId, 'stage', { title: r.goal.title, done: g.list.map(q => q.name), index: i, total: r.goal.total }); } catch (e) { console.warn('[System Blink] stage', e); }
-    const rr = room(chatId);
+    const rr = sameRoom(chatId, r);
     if (!rr?.goal || !made?.name) { changed(); return null; }
     if (goalNow(rr).list.length !== i) return null;
     const q = addStage(rr, i, made);
@@ -608,7 +618,7 @@ export async function newQuests(chatId = currentChatId(), { replaceOpen = false,
     const tone = toneOf(r);
     let made = null;
     try { made = await askFor(chatId, 'quests', { count: want, avoid: keep.map(q => q.name), diff, penalty, tone }); } catch (e) { console.warn('[System Blink] quests', e); }
-    const rr = room(chatId);
+    const rr = sameRoom(chatId, r);
     if (!rr) return;
     const aiList = Array.isArray(made) ? made : made?.quests;
     let list = Array.isArray(aiList) && aiList.length ? aiList : fallbackQuests(want, keep.map(q => q.name), diff, rr);
@@ -701,7 +711,7 @@ export async function stockDaily(chatId = currentChatId(), force = false) {
     const book = wantBook();
     const count = 4 + Math.floor(Math.random() * 3) - (book ? 1 : 0);
     try { made = await askFor(chatId, 'shop', { count, kind: 'daily', book }); } catch (e) { console.warn('[System Blink] shop', e); }
-    const rr = room(chatId);
+    const rr = sameRoom(chatId, r);
     if (!rr) return;
     const aiItems = Array.isArray(made) ? made : made?.items;
     const list = Array.isArray(aiItems) && aiItems.length ? aiItems : fallbackDaily(rr);
@@ -726,7 +736,7 @@ export async function restockStanding(chatId = currentChatId()) {
     if (points(r) < RESTOCK_COST) return 'short';
     let made = null;
     try { made = await askFor(chatId, 'shop', { count: 4, kind: 'standing' }); } catch (e) { console.warn('[System Blink] shop', e); }
-    const rr = room(chatId);
+    const rr = sameRoom(chatId, r);
     if (!rr) return false;
     const list = (Array.isArray(made) ? made : []).slice(0, 6);
     if (!list.length) return false; // keep what is on the shelf
@@ -949,7 +959,7 @@ export async function giveGoal(chatId = currentChatId(), force = false) {
     let made = null;
     try { made = await askFor(chatId, 'goal', {}); } catch (e) { console.warn('[System Blink] goal', e); }
     givingGoal = '';
-    const rr = room(chatId);
+    const rr = sameRoom(chatId, r);
     if (!rr || rr.goal || !active(rr) || currentChatId() !== chatId) { changed(); return null; }
     if (!made?.title || !made?.stage?.name) {
         goalFailed.add(chatId); changed();
@@ -1052,7 +1062,7 @@ async function makeSkill(chatId, grade, from) {
     if (!r) return null;
     let made = null;
     try { made = await askFor(chatId, 'skill', { grade, from, avoid: skillsOf(r).map(k => k.name) }); } catch (e) { console.warn('[System Blink] skill', e); }
-    const rr = room(chatId);
+    const rr = sameRoom(chatId, r);
     if (!rr) return null;
     const sk = cleanSkill(made?.name ? made : fallbackSkill(rr), grade, from);
     return addSkill(rr, sk);
@@ -1096,7 +1106,7 @@ export async function openGacha(bagId) {
             const rarity = pick(ITEM_ODDS);
             let made = null;
             try { made = await askFor(chatId, 'drawItem', { rarity }); } catch (e) { console.warn('[System Blink] draw', e); }
-            const rr = room(chatId);
+            const rr = sameRoom(chatId, r);
             if (!rr) return null;
             const base = made?.name ? made : fallbackDrawItem(rarity);
             const it = { ...cleanItem({ ...base, rarity }), odd: true };
@@ -1105,7 +1115,7 @@ export async function openGacha(bagId) {
             else rr.bag.push({ id: uid('i'), name: it.name, desc: it.desc, rarity: it.rarity, icon: it.icon, kind: 'item', count: 1 });
             out = { kind: 'item', item: it };
         }
-        const rr = room(chatId);
+        const rr = sameRoom(chatId, r);
         if (out && rr) {
             rr.draws.push({ id: uid('w'), at: Date.now(), kind: out.kind, grade: out.skill?.grade || out.item?.rarity, name: out.skill?.name || out.item?.name });
             if (rr.draws.length > 100) rr.draws.splice(0, rr.draws.length - 100);
@@ -1190,7 +1200,7 @@ export async function spectate(chatId, key, ev = 'reply') {
         let made = null;
         // a sponsorship has its own fixed line: no AI call for it
         if (s.specMode === 'rich' && !tip) { try { made = await askFor(chatId, 'spectator', { ev, tone, tip }); } catch (e) { console.warn('[System Blink] spectator', e); } }
-        const rr = room(chatId);
+        const rr = sameRoom(chatId, r);
         if (!active(rr)) return null;
         const lang = langOf();
         const name = String(made?.name || shuffle(specNames(lang, tone), specRnd)[0]).replace(/^['"‘’「」]+|['"‘’「」]+$/g, '').slice(0, 30);
