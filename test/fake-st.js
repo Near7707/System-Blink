@@ -68,6 +68,19 @@
             if (window.__checkAnswer) return window.__checkAnswer;
             return 'TIME: -\nWEATHER: -\nPLACE: -\nDATE: -\nDAYS: 0\nNEXT: -';
         }
+        // 0.8.0 regression (made-up lines only)
+        if (/keep the record of one life/.test(sys)) {
+            window.__calls.cycleLog = (window.__calls.cycleLog || 0) + 1;
+            window.__cycleLogLast = user;
+            if (window.__cycleLogFail) return 'hm';
+            return ko ? '{"log":[{"day":2,"what":"2일째 · 항구 · 등대지기 · 등대 불이 꺼진다"},{"day":3,"what":"3일째 · 시장 · 상인 · 다리가 무너진다"}]}'
+                : '{"log":[{"day":2,"what":"Day 2 · harbour · the keeper · the lighthouse goes dark"},{"day":3,"what":"Day 3 · market · a trader · the bridge falls"}]}';
+        }
+        if (/set up a regression/.test(sys)) {
+            window.__calls.cycleFill = (window.__calls.cycleFill || 0) + 1;
+            return ko ? '{"n":4,"truth":"이 마을은 매년 같은 날 바다에 잠긴다.","memory":"지난 생엔 셋째 날 다리에서 길을 잃었다.","events":[{"day":1,"what":"종탑의 종이 멈춘다"},{"day":3,"what":"다리가 무너진다"}],"back":"첫 출근 날 아침"}'
+                : '{"n":4,"truth":"The town sinks into the sea on the same day each year.","memory":"Last life I was lost on the bridge on day three.","events":[{"day":1,"what":"The bell tower stops ringing"},{"day":3,"what":"The bridge falls"}],"back":"The morning of my first shift"}';
+        }
         if (/NEXT stage of the main goal/.test(sys)) {
             window.__calls.stage = (window.__calls.stage || 0) + 1;
             if (window.__stageFail) return 'nope';

@@ -32,6 +32,7 @@ const WORDS = {
         ['item', 'item|아이템|물건'],
         ['skill', 'skill|스킬'],
         ['day', 'new ?day|day|새 ?날|하루|날'],
+        ['cycle', 'cycle|regression|회귀|회차'],   // 0.8.0
     ],
 };
 const WORD_RE = Object.fromEntries(Object.entries(WORDS).map(([k, list]) => [k, list.map(([kind, alt]) => [kind, new RegExp(`^\\s*(?:${alt})(?=$|[\\s·•:|\\-–—])`, 'i')])]));
@@ -47,7 +48,7 @@ function parseLine(type, rest) {
     const cut = /[·•|:]/.exec(rest);
     return { kind: 'any', name: (cut ? rest.slice(cut.index + 1) : rest).trim() };
 }
-const NOTICE_TAB = { awaken: 'status', tutorial: 'quests', item: 'bag', skill: 'status', day: 'status' };
+const NOTICE_TAB = { awaken: 'status', tutorial: 'quests', item: 'bag', skill: 'status', day: 'status', cycle: 'status' };
 const CODE = { game: 'SYS.NOTICE', star: 'SYS.STAR', threat: 'SYS.ALERT' };
 const DAILY_TAG = { game: 'DAILY', star: 'SCENARIO', threat: 'WARNING' };
 const TAG = { sudden: 'SUDDEN', hidden: 'HIDDEN', goal: 'MAIN', penalty: 'PENALTY' };
@@ -221,6 +222,7 @@ function noticeHtml(r, kind, text) {
     const uses = (r.uses || []).filter(u => (kind === 'skill' ? u.kind === 'skill' : u.kind !== 'skill'));
     if ((kind === 'item' || kind === 'skill') && !byName(uses, text)) return null;
     if (kind === 'tutorial' && (!r.tutorial || r.tutorial.state === 'none')) return null;
+    if (kind === 'cycle' && !r.cycle?.on) return null; // 0.8.0: only in a chat with regression
     const name = kind === 'item' || kind === 'skill' ? byName(uses, text).name : text;
     const row = kind === 'awaken' ? '' : `<div class="sblink-qbrow"><span class="sblink-qbdia">◆</span><span class="sblink-qbname">${esc(name)}</span></div>`;
     const meta = kind === 'awaken' ? `<div class="sblink-qbmeta">${esc(t('pop_awaken_2'))}</div>` : '';

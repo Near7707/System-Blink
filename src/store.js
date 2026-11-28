@@ -3,7 +3,7 @@
 
 export const MODULE = 'systemBlink';
 export const FORMAT = 2;
-export const VERSION = '0.7.2';
+export const VERSION = '0.8.0';
 export const TONES = ['game', 'star', 'threat'];
 export const DIFFS = ['off', 'easy', 'normal', 'hard', 'hell'];
 
@@ -49,6 +49,8 @@ const DEFAULTS = Object.freeze({
     chats: {},              // chatId -> room state
     branchDone: {},         // branch chatId -> parent chatId
     claimed: {},            // 0.6.11: a chat name from before 0.6.11 -> the chat (owner/name) that took its data
+    cycleAskOff: true,      // 0.8.0: a chat with regression off still asks once when the user's character loses their life
+    cycleNews: true,        // 0.8.0: the "regression was added" notice was shown (or not needed: a new user gets the guide card)
 });
 
 let ctxGetter = () => globalThis.SillyTavern?.getContext?.();
@@ -140,6 +142,8 @@ export function migrate(s) {
     if (!s.v051) { s.btnSnap = false; s.v051 = true; }
     // 0.6.5: people who already use the System (a chat with data) don't get the first-time guide
     if (s.guideSeen === undefined) s.guideSeen = !!(s.chats && typeof s.chats === 'object' && Object.keys(s.chats).length);
+    // 0.8.0: people who already use the System hear once that regression came (a new user gets it in the guide)
+    if (s.cycleNews === undefined) s.cycleNews = !(s.chats && typeof s.chats === 'object' && Object.keys(s.chats).length);
     for (const [k, v] of Object.entries(DEFAULTS)) if (s[k] === undefined) s[k] = structuredClone(v);
     for (const [k, list] of Object.entries(ONE_OF)) if (!list.includes(s[k])) s[k] = DEFAULTS[k];
     if (![0.5, 1, 2].includes(Number(s.pointRate))) s.pointRate = 1;
@@ -205,7 +209,49 @@ export function newRoom() {
         lastCheckKey: '',
         genreWas: '',           // 0.7.0: genre mode as the last story lines saw it: '' (not yet) | 'on' | 'off' (to notice a switch)
         genreOffAt: -1,         // 0.7.0: chat length when genre mode was switched off (the AI is told firmly for a while)
+        cycle: newCycle(),      // 0.8.0: regression (Next Cycle) — its own values per chat, not in "this chat only"
     };
+}
+
+/**
+ * 0.8.0: regression in a chat. Kept apart from the shared settings: every chat's story is its own.
+ * events: what happens on its own in the world { id, day (story day in a cycle) | null, when (text), what, state, stateKey, byHand, omenKey, dueKeys, newsKeys }
+ * journal: this life's record { id, cycle, day, text, key (AI reply it came from) | null, star, src: ai | quest | flow | hand | star, cand }
+ */
+export function newCycle() {
+    return {
+        on: false, temp: false,  // temp: switched on by "begin the regression" from a chat where it was off ([Stop] turns it off again)
+        set: false,              // "where do we start?" answered
+        n: 1, dayStart: 1,
+        mode: 'one',             // memory (memory only) | one (take one thing, default) | all (keep everything) — "how you go back"
+        perk: null,              // (room for later: a perk or a price that comes with going back)
+        scope: 'me',             // me (only the user's character remembers) | some (and the characters named) | faint (others feel déjà vu)
+        knowers: [],             // names that remember (scope some, or "they know" on a leaked memory)
+        flow: 'fixed',           // fixed | strong (it finds another way) | loose (only a reference)
+        omen: true, leak: true, death: true,
+        truth: '', memo: '', back: '',
+        events: [], journal: [], past: [], deaths: [], leaks: [],
+        hide: null,              // { key, keys: [the few messages before it], idx, n } — messages up to key are not sent to the AI
+        undo: null,              // { snap, mine } — "undo" until my next message
+        noAsk: false,            // "don't ask in this chat again" (a chat with regression off)
+    };
+}
+
+const CYCLE_ONE_OF = { mode: ['memory', 'one', 'all'], scope: ['me', 'some', 'faint'], flow: ['fixed', 'strong', 'loose'] };
+function fixCycle(c) {
+    const base = newCycle();
+    if (!c || typeof c !== 'object' || Array.isArray(c)) return base;
+    for (const [k, v] of Object.entries(base)) {
+        if (v === null) continue;
+        if (c[k] === undefined || typeof c[k] !== typeof v || Array.isArray(v) !== Array.isArray(c[k])) c[k] = v;
+    }
+    for (const [k, list] of Object.entries(CYCLE_ONE_OF)) if (!list.includes(c[k])) c[k] = base[k];
+    c.n = Math.max(1, Math.round(Number(c.n) || 1));
+    for (const k of ['events', 'journal', 'past', 'deaths', 'leaks']) c[k] = c[k].filter(x => x && typeof x === 'object');
+    c.knowers = c.knowers.map(String).filter(Boolean).slice(0, 12);
+    if (c.hide !== null && (typeof c.hide !== 'object' || !c.hide.key)) c.hide = null;
+    if (c.undo !== null && typeof c.undo !== 'object') c.undo = null;
+    return c;
 }
 
 function fixRoom(r) {
@@ -233,6 +279,7 @@ function fixRoom(r) {
     if (!DIFFS.includes(r.difficulty)) r.difficulty = 'off';
     if (!TONES.includes(r.tone)) r.tone = 'game';
     r.lifeMode = true;   // 0.6.9: always on
+    r.cycle = fixCycle(r.cycle);
     if (r.own !== null && (typeof r.own !== 'object' || Array.isArray(r.own))) r.own = null;
     if (r.own) fixOwn(r.own);
     r.skills = r.skills.filter(x => x && typeof x === 'object' && x.id && x.name);
@@ -348,6 +395,11 @@ function keysOf(r) {
     for (const c of r.cheers || []) out.push(c?.key);
     for (const k of r.skills || []) out.push(k?.hidden?.key);
     for (const q of r.quests || []) out.push(q?.fromKey, q?.acceptKey, ...(q?.toldKeys || []), ...(q?.seen || []));
+    const c = r.cycle;
+    if (c && typeof c === 'object') {
+        out.push(c.hide?.key);
+        for (const x of [...(c.journal || []), ...(c.deaths || []), ...(c.leaks || [])]) out.push(x?.key);
+    }
     return out.filter(k => typeof k === 'string' && k);
 }
 

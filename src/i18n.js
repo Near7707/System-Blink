@@ -1,6 +1,8 @@
 // Every screen text in one place. English is the base; Korean can be picked.
 // Values like names are put in after translating ({name}), so they are never translated again.
 
+import { CYCLE_EN, CYCLE_KO } from './i18n-cycle.js';
+
 const EN = {
     ext_name: 'System Blink', ok: '[OK]', close: 'Close', cancel: 'Cancel', save: 'Save', back: 'Back', edit: 'Edit', write: 'Write',
     empty: '(empty)', open: 'Open', settings: 'Settings', details: 'Details', fold: 'Fold', later: 'Later', skip: '[Skip]', start: '[Start]',
@@ -462,6 +464,8 @@ const KO = {
     qb_day_line: '{n}일차',
 };
 
+Object.assign(EN, CYCLE_EN);
+Object.assign(KO, CYCLE_KO);
 const DICT = { en: EN, ko: KO };
 let current = 'en';
 export function setLanguage(l) { current = l === 'ko' ? 'ko' : 'en'; }

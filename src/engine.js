@@ -4,6 +4,7 @@
 
 import { ctx, settings, conf, save, uid, room, currentChatId, ownerKey, DIFFS, TONES } from './store.js';
 import { t } from './i18n.js';
+import { dayCandidates, applyLog } from './cycle.js';
 import { standingDefaults, dailyPool, questPool, penaltyPool, parseCustomShop, shuffle, TUTORIAL_REWARD, GRADES, LOW_GRADES, skillPool, gachaOddPool, eraserItem, specLine, specNames } from './data.js';
 
 // ---------- a tiny event bus (engine → screens) ----------
@@ -202,7 +203,7 @@ export function checkBig(chatId = currentChatId()) {
     const r = room(chatId);
     if (!active(r) || warnCount(r) < WARN_MAX) return null;
     const now = Date.now();
-    const big = { id: uid('b'), at: now, day: r.day };
+    const big = { id: uid('b'), at: now, day: r.day, cycle: r.cycle?.n || 1 };
     r.bigs.push(big);
     if (r.bigs.length > 50) r.bigs.splice(0, r.bigs.length - 50);
     const who = ownerName(r);
@@ -557,6 +558,13 @@ export function rekeyReply(from, to, chatId = currentChatId()) {
         if (q.toldKeys) q.toldKeys = swAll(q.toldKeys);
         if (q.seen) q.seen = swAll(q.seen);
     }
+    // 0.8.0: regression — what this reply found (a death, a leaked memory, a record line, a fated event's result)
+    const c = r.cycle;
+    if (c) {
+        for (const list of [c.journal, c.deaths, c.leaks]) for (const x of list || []) if (x) x.key = sw(x.key);
+        for (const ev of c.events || []) { ev.stateKey = sw(ev.stateKey); for (const k of ['dueKeys', 'omenKeys', 'newsKeys']) ev[k] = swAll(ev[k] || []); }
+        if (c.hide) c.hide.key = sw(c.hide.key);
+    }
     save(); changed();
     return true;
 }
@@ -704,10 +712,12 @@ export async function nextDay(days = 1, nextTime = '') {
         { kind: 'DAY', text: t('qb_day_line', { n: r.day }) });
     if (lost) addNote(r, `As a penalty, the System took "${lost.name}" from ${ownerName(r)}'s bag. It is gone.`);
     r.shop.daily = []; r.shop.dailyDay = 0;
+    // 0.8.0: the day that ended: its record lines (one per reply so far) are put down to a few with the quest request
+    const logList = dayCandidates(r, r.day - 1, view);
     save(); changed();
     bus.emit('dayMoved', { days, failed, pen, debuff, lost, chatId });
     if (pen.some(x => x.warn)) checkBig(chatId);
-    await newQuests(chatId, { penalty: !!debuff });
+    await newQuests(chatId, { penalty: !!debuff, log: logList.length ? { list: logList, day: r.day - days } : null });
 }
 
 /** Hell: one random thing leaves the bag (not a gacha ticket). */
@@ -725,7 +735,7 @@ function loseItem(r) {
 }
 
 /** Today's daily quests (2–3). AI first, the built-in list if that fails. */
-export async function newQuests(chatId = currentChatId(), { replaceOpen = false, penalty = false } = {}) {
+export async function newQuests(chatId = currentChatId(), { replaceOpen = false, penalty = false, log = null } = {}) {
     const r = room(chatId);
     if (!active(r)) return;
     const view = chatView();
@@ -738,9 +748,10 @@ export async function newQuests(chatId = currentChatId(), { replaceOpen = false,
     const tone = toneOf(r);
     const veil = genreOn(r);
     let made = null;
-    try { made = await askFor(chatId, 'quests', { count: want, avoid: keep.map(q => q.name), diff, penalty, tone }); } catch (e) { console.warn('[System Blink] quests', e); }
+    try { made = await askFor(chatId, 'quests', { count: want, avoid: keep.map(q => q.name), diff, penalty, tone, log: log?.list.map(j => j.text) || null }); } catch (e) { console.warn('[System Blink] quests', e); }
     const rr = sameRoom(chatId, r);
     if (!rr) return;
+    if (log && Array.isArray(made?.log)) applyLog(rr, log.list, made.log, log.day);
     const aiList = Array.isArray(made) ? made : made?.quests;
     let list = Array.isArray(aiList) && aiList.length ? aiList : fallbackQuests(want, keep.map(q => q.name), diff, rr);
     list = list.slice(0, want).map(q => {

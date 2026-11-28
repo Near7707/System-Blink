@@ -5,6 +5,7 @@ import { ctx, conf, room, currentChatId } from './store.js';
 import { bus, chatView, lastReply, openQuests, condsOf, lifeNow, ownerName, langOf, rollFor, needsEveryCheck, diffOf, suddenLimitFor, lockedSkills, toneOf } from './engine.js';
 import { questPool, standingDefaults, dailyPool, shuffle } from './data.js';
 import { josa } from './i18n.js';
+import { cycleAsk, cycleStart, journalNow } from './cycle.js';
 import { ITEM_ICONS } from './icons.js';
 
 export function getProfiles() {
@@ -12,7 +13,7 @@ export function getProfiles() {
 }
 
 // "What was sent": the last request of each kind, for the settings screen.
-export const sentLog = { check: null, quests: null, shop: null, goal: null, skill: null, spectator: null };
+export const sentLog = { check: null, quests: null, shop: null, goal: null, skill: null, spectator: null, cycle: null };
 
 async function requestLLM(messages, { maxTokens = 500, signal } = {}) {
     const c = ctx();
@@ -94,7 +95,9 @@ function background() {
     } catch { /* ignore */ }
     parts.push(`The System's user: ${ownerName(r)}`);
     if (r?.world) parts.push(`WORLD NOTE (must follow): ${r.world.slice(0, 800)}`);
-    const recent = (chatView().list || []).filter(m => m && !m.is_system).slice(-6).map(m => line(m)); // (not .map(line): map's index would become the length)
+    // 0.8.0: only this cycle's story (earlier cycles are out of the AI's sight)
+    const view = chatView();
+    const recent = view.list.slice(cycleStart(r, view)).filter(m => m && !m.is_system).slice(-6).map(m => line(m)); // (not .map(line): map's index would become the length)
     if (recent.length) parts.push(`Recent story:\n${recent.join('\n')}`);
     return parts.join('\n\n');
 }
@@ -126,7 +129,7 @@ const TONE_SHOP = {
     threat: 'VOICE: this shop is a shady black market: dubious goods of unknown origin, risky but useful deals. Never anything illegal in the real world.',
 };
 
-async function makeQuests({ count = 3, avoid = [], diff = 'off', penalty = false, tone = 'game' }, signal) {
+async function makeQuests({ count = 3, avoid = [], diff = 'off', penalty = false, tone = 'game', log = null }, signal) {
     const s = conf();
     const lang = langOf();
     const many = diff === 'hard' ? 'Each quest has exactly 2 conditions in "conds": two short actions, each easy to check on its own; "name" is a short title for both. '
@@ -139,7 +142,8 @@ async function makeQuests({ count = 3, avoid = [], diff = 'off', penalty = false
         + 'like "Buy someone a drink" — never vague ones like "Be kind". Follow the WORLD NOTE if there is one. '
         + many
         + (penalty ? 'Also write ONE penalty quest in "penalty": a small, unpleasant but harmless chore or duty that fits the story, easy to check from the story text. ' : '')
-        + `Reply with JSON only: {"quests":[{"name":"...","conds":[],"reward":10}]${penalty ? ',"penalty":{"name":"..."}' : ''}}. reward is 10, 15, 20, 25 or 30 (harder = more).`;
+        + (log?.length ? 'Also put the day\'s RECORD lines below down to 1-3 short lines in "log": keep only what lasts (someone hurt or lost, something that cannot be undone, a hidden truth revealed, a betrayal, a promise, a decision, an accident or disaster); drop moods, weather, meals and small talk. Each line "when · where · who · what". ' : '')
+        + `Reply with JSON only: {"quests":[{"name":"...","conds":[],"reward":10}]${penalty ? ',"penalty":{"name":"..."}' : ''}${log?.length ? ',"log":["..."]' : ''}}. reward is 10, 15, 20, 25 or 30 (harder = more).`;
     const parts = [background()];
     if (DIFF_HINT[diff]) parts.push(DIFF_HINT[diff]);
     if (TONE_QUEST[tone]) parts.push(TONE_QUEST[tone]);
@@ -148,7 +152,8 @@ async function makeQuests({ count = 3, avoid = [], diff = 'off', penalty = false
     if (s.useDefaults) parts.push(`Examples of the kind of quest wanted (only a guide — make your own that fit this world and scene; use one as is only if it truly fits):\n${shuffle(questPool(lang, s.oddities)).slice(0, 6).map(q => `- ${q.name} (${q.reward})`).join('\n')}`);
     if (s.oddities) parts.push('One of them may be a little odd or funny, if it fits.');
     if (avoid.length) parts.push(`Do not repeat: ${avoid.join('; ')}`);
-    parts.push(`Make exactly ${count}. Write the names in ${LANG_NAME[lang]}.`);
+    if (log?.length) parts.push(`RECORD lines of the day that ended:\n${log.map(x => `- ${x}`).join('\n')}`);
+    parts.push(`Make exactly ${count}. Write the names${log?.length ? ' and the log' : ''} in ${LANG_NAME[lang]}.`);
     const messages = [{ role: 'system', content: system }, { role: 'user', content: parts.join('\n\n') }];
     sentLog.quests = { at: Date.now(), messages, answer: '' };
     const raw = await requestLLM(messages, { maxTokens: 500, signal });
@@ -157,7 +162,8 @@ async function makeQuests({ count = 3, avoid = [], diff = 'off', penalty = false
     const list = Array.isArray(j?.quests) ? j.quests.filter(q => q && typeof q.name === 'string' && q.name.trim()) : [];
     if (!list.length) throw new Error('BAD_ANSWER');
     const pen = typeof j?.penalty?.name === 'string' && j.penalty.name.trim() ? { name: j.penalty.name.trim() } : null;
-    return { quests: list.map(q => ({ ...q, conds: Array.isArray(q.conds) ? q.conds.map(String) : [] })), penalty: pen };
+    const logOut = Array.isArray(j?.log) ? j.log.map(x => String(x || '').trim()).filter(Boolean).slice(0, 3) : null;
+    return { quests: list.map(q => ({ ...q, conds: Array.isArray(q.conds) ? q.conds.map(String) : [] })), penalty: pen, log: logOut };
 }
 
 // ---------- skills and gacha draws (2-C) ----------
@@ -317,7 +323,59 @@ async function makeCheer({ ev = 'reply', tone = 'game' }, signal) {
     return { name: String(j.name || '').trim().slice(0, 30), line: lang === 'ko' ? josa(line) : line };
 }
 
+// ---------- 0.8.0 regression ----------
+const LOG_RULE = 'Keep only what lasts: someone hurt or lost, something that cannot be undone, a hidden truth revealed, a betrayal, a promise, a decision, an accident or disaster. Leave out moods, weather, meals and small talk. ';
+
+/** This life's record, put down from the story so far (the confirm page; one call). */
+async function makeCycleLog({ cands = [] }, signal) {
+    const lang = langOf();
+    const r = room();
+    const view = chatView();
+    const msgs = view.list.slice(cycleStart(r, view)).filter(m => m && !m.is_system).slice(-60);
+    const story = msgs.map(m => line(m, 300)).join('\n');
+    const system = 'You keep the record of one life in a roleplay where the user\'s character can go back in time (regression). '
+        + 'From the story, write the events of this life that the next life could meet again. ' + LOG_RULE
+        + 'Give each a story day if you can tell it (day 1 = the start), else null. At most 10, in story order. '
+        + 'Reply with JSON only: {"log":[{"day":3,"what":"when · where · who · what"}]}.';
+    const parts = [background(), `This life's story (oldest first, shortened):\n${story}`];
+    if (cands.length) parts.push(`Notes made along the way:\n${cands.map(x => `- ${x}`).join('\n')}`);
+    parts.push(`Write "what" in ${LANG_NAME[lang]}, at most 25 words each.`);
+    const messages = [{ role: 'system', content: system }, { role: 'user', content: parts.join('\n\n') }];
+    sentLog.cycle = { at: Date.now(), messages, answer: '' };
+    const raw = await requestLLM(messages, { maxTokens: 900, signal });
+    sentLog.cycle.answer = raw;
+    const j = looseJson(cleanAnswer(raw));
+    const list = Array.isArray(j?.log) ? j.log.filter(x => x && (typeof x === 'string' || String(x.what || '').trim())) : null;
+    if (!list) throw new Error('BAD_ANSWER');
+    return list;
+}
+
+/** "I have already gone back": the AI fills in the regression from the character card and world note. */
+async function makeCycleFill({ random = false }, signal) {
+    const lang = langOf();
+    const system = 'You set up a regression ("going back in time") story in a roleplay, in the style of Korean regression novels. '
+        + 'The user\'s character has ALREADY gone back in time and remembers earlier lives. From the character card, the world note and the story, write: '
+        + '"n" (which life this is now, 2 or more), "truth" (how this world really is, which only the regressor knows: 1-3 sentences), '
+        + '"memory" (what the regressor remembers of the last life: 1-3 sentences), "events" (3-6 events that will happen again unless changed, each with a story day "day" counted from the start, and "what" = when · where · who · what), '
+        + '"back" (the moment the regressor woke up again: a short phrase). '
+        + MOOD + 'Follow the WORLD NOTE if there is one. '
+        + (random ? 'Surprise: pick an unexpected but fitting number of lives and a bold truth. ' : '')
+        + 'Reply with JSON only: {"n":3,"truth":"...","memory":"...","events":[{"day":3,"what":"..."}],"back":"..."}.';
+    const messages = [{ role: 'system', content: system }, { role: 'user', content: `${background()}\n\nWrite everything in ${LANG_NAME[lang]}.` }];
+    sentLog.cycle = { at: Date.now(), messages, answer: '' };
+    const raw = await requestLLM(messages, { maxTokens: 900, signal });
+    sentLog.cycle.answer = raw;
+    const j = looseJson(cleanAnswer(raw));
+    if (!j || !Array.isArray(j.events)) throw new Error('BAD_ANSWER');
+    return {
+        n: Math.max(2, Math.min(99, Math.round(Number(j.n) || 2))), truth: String(j.truth || ''), memory: String(j.memory || ''), back: String(j.back || ''),
+        events: j.events.filter(x => x && String(x.what || '').trim()).slice(0, 8).map(x => ({ day: Number(x.day) || null, what: String(x.what).trim() })),
+    };
+}
+
 bus.ask = async (kind, opts) => {
+    if (kind === 'cycleLog') return makeCycleLog(opts);
+    if (kind === 'cycleFill') return makeCycleFill(opts);
     if (kind === 'quests') return makeQuests(opts);
     if (kind === 'goal') return makeGoal(opts);
     if (kind === 'stage') return makeStage(opts);
@@ -366,14 +424,15 @@ export async function runCheck({ force = false } = {}) {
     }
     const open = openQuests(r, view);
     const skills = lockedSkills(r, view);
-    if (!open.length && !r.lifeMode && !roll.sudden && !roll.hidden && !skills.length) return null;
+    const cy = cycleAsk(r, view, last.key); // 0.8.0
+    if (!open.length && !r.lifeMode && !roll.sudden && !roll.hidden && !skills.length && !cy) return null;
     tried.add(tag);
     r.sinceCheck = 0;
     busy = { chatId, key: last.key, ctl: new AbortController() };
     bus.emit('change');
     let result = null;
     try {
-        result = await askCheck(open, r, view, last, roll, busy.ctl.signal, skills);
+        result = await askCheck(open, r, view, last, roll, busy.ctl.signal, skills, cy);
     } catch (e) {
         if (e?.name !== 'AbortError') { console.warn('[System Blink] check', e); bus.emit('checkFailed', e); }
     } finally { busy = null; }
@@ -395,10 +454,11 @@ export function checkLines(open) {
     return lines;
 }
 
-async function askCheck(open, r, view, last, roll, signal, skills = []) {
+async function askCheck(open, r, view, last, roll, signal, skills = [], cy = null) {
     const lang = langOf();
     const count = conf().judgeEvery === 'three' ? 6 : 3;
-    const recent = view.list.slice(0, last.i + 1).filter(m => m && !m.is_system).slice(-count - 1);
+    // (0.8.0: never from an earlier cycle)
+    const recent = view.list.slice(cycleStart(r, view), last.i + 1).filter(m => m && !m.is_system).slice(-count - 1);
     let from = recent.length - 1;
     for (let i = recent.length - 1; i >= 0; i--) if (recent[i].is_user) { from = i; break; }
     if (conf().judgeEvery === 'three') from = Math.max(0, recent.length - count);
@@ -412,7 +472,8 @@ async function askCheck(open, r, view, last, roll, signal, skills = []) {
         + 'TIME: <time of day now, 1-2 words, or ->\nWEATHER: <1-3 words, or ->\nPLACE: <1-4 words, or ->\nDATE: <story date if stated, or ->\n'
         + 'DAYS: <how many days passed from the start to the end of the NEW part: 0, 1, 2...> - "<short quote>"\nNEXT: <time of day at the end, or ->\n'
         + 'Only when asked, also:\nSUDDEN: <quest> | <reward>\nHIDDEN: <quest> | <reward> | <why it was found>   or   HIDDEN: -\n'
-        + 'SKILL1: YES - "<short quote>"  or  SKILL1: NO   (one line per skill)';
+        + 'SKILL1: YES - "<short quote>"  or  SKILL1: NO   (one line per skill)\n'
+        + 'DEATH: YES - "<short quote>"  or  DEATH: NO\nEVENT1: HAPPENED|BLOCKED|CHANGED|NO - "<short quote>"   (one line per event)\nLEAK: <name> - "<short quote>"  or  LEAK: -\nLOG: <one line>  or  LOG: -';
     const parts = [];
     // 0.7.0: the new part is judged as a whole (was cut after 1,500 letters, so what happened late in a long reply
     // was never seen); earlier lines are only context and kept shorter
@@ -434,6 +495,13 @@ async function askCheck(open, r, view, last, roll, signal, skills = []) {
     }
     if (roll.hidden) parts.push(`Also write HIDDEN: only if in the NEW part ${who} did something unusual, kind or curious by chance that could open a hidden quest (a bigger next step of that same thing). reward 50-200. "why" = what ${who} did, at most 12 words. If nothing fits, write HIDDEN: -`);
     if (skills.length) parts.push(`Skills of ${who} — in the NEW part, did this skill clearly shine (it mattered in a striking, clever or lucky way, not just mentioned)? Say YES rarely.\n${skills.map((k, n) => `SKILL${n + 1}: [${k.name}] ${k.effect}`).join('\n')}`);
+    if (cy?.death) parts.push(`Also DEATH: did ${who} clearly die in the NEW part? YES only when ${who} is really dead${cy.death === 'off' ? ' beyond doubt' : ''} — not fainting, hurt, dreaming, imagining, a close call or being in danger.${cy.death === 'off' ? ' When unsure, NO.' : ''}`);
+    if (cy?.events?.length) parts.push(`Fated events — in the NEW part, did this happen as it was meant to (HAPPENED), was it prevented (BLOCKED), did it happen in another form (CHANGED), or not yet (NO)?\n${cy.events.map((ev, n) => `EVENT${n + 1}: ${ev.what}`).join('\n')}`);
+    if (cy?.leak) {
+        const k = r.cycle.knowers.filter(Boolean);
+        parts.push(`Also LEAK: ${who} has gone back in time and remembers earlier lives${k.length ? ` (so do ${k.join(', ')})` : ''}; nobody else does. In the NEW part, did another character act as if they remembered things that have not happened in this life? Only a clear case, by name; else LEAK: -`);
+    }
+    if (cy?.log) parts.push(`Also LOG: if the NEW part has something lasting for the record of this life, one line "when · where · who · what" (at most 20 words, in ${LANG_NAME[lang]}). ${LOG_RULE}Otherwise LOG: -`);
     parts.push(`Write TIME/WEATHER/PLACE/NEXT in ${LANG_NAME[lang]}. Quotes stay in the story's own language, at most 15 words. Use "-" when it did not change or is unknown.`);
     const messages = [{ role: 'system', content: system }, { role: 'user', content: parts.join('\n\n') }];
     sentLog.check = { at: Date.now(), messages, answer: '' };
@@ -448,6 +516,12 @@ async function askCheck(open, r, view, last, roll, signal, skills = []) {
         life: parsed.life, days: parsed.days, dayReason: parsed.dayReason, nextTime: parsed.next,
         sudden: roll.sudden ? parsed.sudden : null, hidden: roll.hidden ? parsed.hidden : null,
         skills: skills.map((k, n) => ({ k, a: parsed.skill[n + 1] })).filter(o => o.a?.yes).map(o => ({ skillId: o.k.id, reason: o.a.reason })),
+        cycle: cy ? {
+            death: cy.death && parsed.death?.yes ? (parsed.death.reason || '…') : '',
+            events: (cy.events || []).map((ev, n) => ({ id: ev.id, ...(parsed.event[n + 1] || {}) })).filter(x => x.state),
+            leak: cy.leak && parsed.leak ? parsed.leak : null,
+            log: cy.log ? parsed.log : '',
+        } : null,
     };
 }
 
@@ -455,13 +529,27 @@ const unq = (s) => String(s || '').trim().replace(/^["'“”「」]+|["'“”�
 const field = (v) => { const x = unq(v); return !x || x === '-' || x === '?' || /^(none|unknown|n\/a|same)$/i.test(x) ? '' : x.slice(0, 40); };
 
 export function parseCheck(text) {
-    const out = { q: {}, life: {}, days: 0, dayReason: '', next: '', any: false, sudden: null, hidden: null, skill: {} };
+    const out = { q: {}, life: {}, days: 0, dayReason: '', next: '', any: false, sudden: null, hidden: null, skill: {}, death: null, event: {}, leak: null, log: '' };
     for (const raw of String(text || '').split('\n')) {
         const ln = raw.replace(/^[\s*\-#>]+/, '').replace(/\*\*/g, '');
         let m = /^Q(\d+)\s*[:：.)]\s*(YES|NO)\b\s*[-–—:,.]?\s*(.*)$/i.exec(ln);
         if (m) { out.any = true; out.q[Number(m[1])] = { yes: m[2].toUpperCase() === 'YES', reason: unq(m[3]).slice(0, 120) }; continue; }
         m = /^SKILL\s*(\d+)\s*[:：.)]\s*(YES|NO)\b\s*[-–—:,.]?\s*(.*)$/i.exec(ln);
         if (m) { out.skill[Number(m[1])] = { yes: m[2].toUpperCase() === 'YES', reason: unq(m[3]).slice(0, 120) }; continue; }
+        // 0.8.0 regression
+        m = /^DEATH\s*[:：]\s*(YES|NO)\b\s*[-–—:,.]?\s*(.*)$/i.exec(ln);
+        if (m) { out.death = { yes: m[1].toUpperCase() === 'YES', reason: unq(m[2]).slice(0, 120) }; continue; }
+        m = /^EVENT\s*(\d+)\s*[:：.)]\s*(HAPPENED|BLOCKED|CHANGED|NO)\b\s*[-–—:,.]?\s*(.*)$/i.exec(ln);
+        if (m) { const st = m[2].toUpperCase(); out.event[Number(m[1])] = { state: st === 'NO' ? '' : st.toLowerCase(), quote: unq(m[3]).slice(0, 120) }; continue; }
+        m = /^LEAK\s*[:：]\s*(.*)$/i.exec(ln);
+        if (m) {
+            const [who, ...rest] = m[1].split(/\s+[-–—]\s+/);
+            const name = unq(who).replace(/[.,]$/, '');
+            if (name && name !== '-' && !/^(none|no|n\/a)$/i.test(name)) out.leak = { who: name.slice(0, 30), quote: unq(rest.join(' - ')).slice(0, 120) };
+            continue;
+        }
+        m = /^LOG\s*[:：]\s*(.*)$/i.exec(ln);
+        if (m) { const v = unq(m[1]); out.log = v && v !== '-' && !/^(none|n\/a)$/i.test(v) ? v.slice(0, 160) : ''; continue; }
         m = /^(TIME|WEATHER|PLACE|DATE|NEXT)\s*[:：]\s*(.*)$/i.exec(ln);
         if (m) {
             out.any = true;

@@ -19,6 +19,11 @@ import {
 import { esc, isPhone } from './src/ui/util.js';
 import { hasPlainSys } from './src/ui/qblock.js';
 import { renderPanel, placePanel, setPanelHidden, setPanelHooks, foldPanel, unmountPanel, endPanelDrag } from './src/ui/panel.js';
+import { interceptor, storeCycleCheck, markCycleSent, answerDeath, noAskHere, knowsNow, cycleOn, startTemp, toggleStar, undoRegress, dropUndo, deathsOf } from './src/cycle.js';
+import { deathPopup, procPopup, startPopup, cycleHint, setNowHook } from './src/ui/cycle-pop.js';
+
+// 0.8.0: earlier lives (regression) are taken out of what the AI is sent — SillyTavern calls this before each request
+globalThis.systemBlinkInterceptor = interceptor;
 
 export { VERSION };
 const PROMPT_KEY = 'system_blink';
@@ -26,6 +31,7 @@ const RULES_KEY = 'system_blink_rules'; // 0.7.0: the lines that stay the same, 
 let lastPrompt = '';
 let sentNoteIds = [];
 let sentTellIds = [];
+let sentCycle = [];
 let generating = false;
 let checkingKey = null; // 0.7.0: the AI reply being checked now (its CLEAR windows show "checking")
 
@@ -35,8 +41,9 @@ function updatePrompt(genType = 'normal', live = false) {
     let rules = '';
     let ids = [];
     let tells = [];
-    try { ({ rules = '', text, noteIds: ids, tellIds: tells = [] } = buildPrompt(genType)); } catch (e) { console.error('[System Blink] prompt', e); }
-    if (live) { sentNoteIds = ids; sentTellIds = tells; lastPrompt = rules ? `${rules}\n\n${text}` : text; }
+    let cyc = [];
+    try { ({ rules = '', text, noteIds: ids, tellIds: tells = [], cycleSent: cyc = [] } = buildPrompt(genType)); } catch (e) { console.error('[System Blink] prompt', e); }
+    if (live) { sentNoteIds = ids; sentTellIds = tells; sentCycle = cyc; lastPrompt = rules ? `${rules}\n\n${text}` : text; }
     try {
         // 0 = in the prompt (after the story string), 1 = in the chat at depth 1; role 0 = system
         ctx().setExtensionPrompt(RULES_KEY, rules, 0, 0, false, 0);
@@ -137,7 +144,9 @@ function checkSoon(force = false) {
             return;
         }
         const out = storeCheck(chatId, res.key, res);
+        const cy = storeCycleCheck(chatId, res.key, res); // 0.8.0
         afterCheck(out, chatId);
+        afterCycle(cy, chatId);
         redraw();
         cheer(chatId, res.key, out.cleared.length ? 'clear' : out.failed.length ? 'fail' : 'reply');
     }, force ? 0 : 700);
@@ -210,6 +219,72 @@ function afterCheck(out, chatId) {
     // genre mode: a found hidden quest waits for the reply that brings it in
     if (out.hidden && !veiled(room(chatId), out.hidden)) hiddenPopup(out.hidden, rate(out.hidden.reward));
     if (out.sudden) suddenPopup(out.sudden, rate(out.sudden.reward), (yes) => answered(out.sudden.id, yes));
+}
+
+// ---------- 0.8.0 regression ----------
+/** What the story check found about regression: a lost life (the big popup), a leaked memory (a small notice). */
+function afterCycle(cy, chatId) {
+    if (!cy || currentChatId() !== chatId) return;
+    if (cy.death) askDeath(cy.death);
+    if (cy.leak) notice(t('leak_toast', { name: cy.leak.who }), 'warn', '', () => knowsNow(cy.leak.who, chatId), t('leak_ok', { name: cy.leak.who }));
+}
+
+/** ① asked once per reply (and again from its log card). */
+function askDeath(d) {
+    const chatId = currentChatId();
+    if (popupWaiting(p => p.deathFor === d.key)) return;
+    deathPopup(d, {
+        n: room(chatId)?.cycle?.n || 1,
+        answer: (act) => {
+            if (currentChatId() !== chatId) return;
+            if (act === 'cont') return answerDeath(d.id, 'cont', chatId);
+            if (act === 'noask') { noAskHere(chatId); return answerDeath(d.id, 'cont', chatId); }
+            goBack(chatId);
+        },
+    });
+}
+
+/** Toward the confirm page: straight there in a chat with regression on; else ② says what will happen first. */
+function goBack(chatId = currentChatId()) {
+    if (cycleOn(room(chatId))) { openWindow('', { cycle: 'cycleGo' }); return; }
+    procPopup((yes) => {
+        if (!yes || currentChatId() !== chatId) return;
+        startTemp(chatId);
+        openWindow('', { cycle: 'cycleGo' });
+    });
+}
+
+/** A new life has begun: ③ (begin as a story / OK / undo until my next message). */
+function regressed(res, kept) {
+    const chatId = currentChatId();
+    startPopup({
+        n: res.n, kept,
+        onClose: (act) => {
+            if (currentChatId() !== chatId) return;
+            if (act === 'top') storyStart(chatId);
+            if (act === 'link' && undoRegress(chatId)) notice(t('cyc_undone', { n: res.n - 1 }));
+        },
+    });
+}
+
+/** The log card was tapped: a lost life takes me back to the question; the rest opens its tab. */
+function openFromCard(tab) {
+    if (tab.startsWith('death:')) {
+        const d = deathsOf(room()).find(x => x.id === tab.slice(6));
+        if (d && d.ans !== 'go') return goBack();
+        return openWindow('status');
+    }
+    if (tab === 'cycle') return openWindow('', { cycle: 'cycle' });
+    return openWindow(tab);
+}
+
+function starCard(mes) {
+    const i = Number(mes?.getAttribute('mesid'));
+    const v = chatView();
+    const key = v.keys[i];
+    if (!key) return;
+    const text = String(v.list[i]?.mes || '').replace(/\[SYS:[^\]]*\][^\n]*/g, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80);
+    toggleStar(key, text);
 }
 
 // ---------- the awakening ----------
@@ -290,6 +365,7 @@ const GUIDE = [
     { title: 'guide_2', body: 'guide_2_body', group: 'spectators' },
     { title: 'guide_3', body: 'guide_3_body', group: 'button' },
     { title: 'guide_4', body: 'guide_4_body', group: 'make' },
+    { title: 'guide_cycle', body: 'guide_cycle_body', group: 'room' }, // 0.8.0
 ];
 let guideBack = -1; // the card to come back to when the window (opened by "Open this setting") closes
 
@@ -353,7 +429,8 @@ function wireBus() {
     bus.on('awaken', () => { dropPopups(p => !!p.wakeFor); awakenPopup(); }); // woken by hand: an open "wake?" question is moot
     bus.on('tutorialStep', () => redrawSoon());
     bus.on('tutorialBoost', (pts) => notice(t('toast_tut_boost'), 'gold', `+${pts}P`));
-    bus.on('tutorialDone', () => alertOr(t('toast_tut_done'), () => popup({ tag: 'CLEAR', code: 'SYS.NOTICE // TUTORIAL', title: t('pop_tut_done'), lines: [`<span class="sblink-dia">◆</span><span class="sblink-ell">${esc(t('tut_reward'))}</span>`] })));
+    // 0.8.0: the tutorial's end tells about regression (the way back exists even while it is off)
+    bus.on('tutorialDone', () => alertOr(t('toast_tut_done'), () => popup({ tag: 'CLEAR', code: 'SYS.NOTICE // TUTORIAL', title: t('pop_tut_done'), lines: [`<span class="sblink-dia">◆</span><span class="sblink-ell">${esc(t('tut_reward'))}</span>`], body: cycleHint() })));
 }
 
 // ---------- settings panel & wand ----------
@@ -434,6 +511,9 @@ function enteredSoon() {
         if (!chatId || currentChatId() !== chatId || !settings().enabled || generating) return;
         try {
             if (wantsWake()) { askWake(chatId); return; } // waking gives the goal itself (after the tutorial)
+            // 0.8.0: someone who already used the System hears once, in an awake chat, that regression came
+            const s = settings();
+            if (!s.cycleNews && room(chatId)?.on) { s.cycleNews = true; save(); notice(`${t('upd_cycle')} · ${t('upd_cycle_sub')}`, '', '', () => guideCard(GUIDE.length - 1)); }
             await giveGoal(chatId);
         } catch (e) { console.warn('[System Blink] enter', e); }
     }, 600);
@@ -453,7 +533,7 @@ function registerEvents() {
     }
     // 0.7.0: a swipe shown or a message deleted after a Continue that ended without saving: that Continue is over
     for (const name of [ev.MESSAGE_SWIPED, ev.MESSAGE_DELETED]) on(name, () => { if (!generating) contFrom = null; });
-    on(ev.MESSAGE_SENT, () => { bindUses(); foldStrip(); foldPanel(); redrawSoon(); });
+    on(ev.MESSAGE_SENT, () => { bindUses(); dropUndo(); foldStrip(); foldPanel(); redrawSoon(); });
     on(ev.GENERATION_STARTED, (type, _opts, dryRun) => {
         const kind = String(type || 'normal');
         if (!dryRun && kind !== 'quiet') { generating = true; hold(true); }
@@ -467,6 +547,7 @@ function registerEvents() {
         const m = view.list[Number(mesId)];
         if (m && !m.is_user && sentNoteIds.length) { markDelivered(view.keys[Number(mesId)], sentNoteIds); sentNoteIds = []; }
         if (m && !m.is_user && sentTellIds.length) { revealed(markTold(view.keys[Number(mesId)], sentTellIds)); sentTellIds = []; redrawSoon(); }
+        if (m && !m.is_user && sentCycle.length) { markCycleSent(view.keys[Number(mesId)], sentCycle); sentCycle = []; }
     });
     for (const name of [ev.GENERATION_ENDED, ev.GENERATION_STOPPED]) {
         on(name, () => {
@@ -600,14 +681,15 @@ async function init() {
     setLanguage(uiLang());
     setLangGetter(lang);
     wireBus();
-    setPrefsHooks({ guide: guideAgain, redrawAll, turnedOff, turnedOn: redrawAll, lastPrompt: () => lastPrompt, langNow: uiLang, showText: showText });
-    setWinHooks({ opened: () => { setFabHidden(true); setPanelHidden(true); renderStrip(); }, closed: () => { setFabHidden(false); setPanelHidden(false); renderStrip(); badge(); windowClosed(); } });
+    setPrefsHooks({ cycleSetup: () => openWindow('', { cycle: 'cycleSetup' }), guide: guideAgain, redrawAll, turnedOff, turnedOn: redrawAll, lastPrompt: () => lastPrompt, langNow: uiLang, showText: showText });
+    setNowHook(popupFront);
+    setWinHooks({ regressed, opened: () => { setFabHidden(true); setPanelHidden(true); renderStrip(); }, closed: () => { setFabHidden(false); setPanelHidden(false); renderStrip(); badge(); windowClosed(); } });
     setPanelHooks({
         open: (opts) => openWindow('quests', opts),
         off: () => { settings().questPanel = false; save(); notice(t('panel_off_toast')); redrawAll(); },
     });
     setFabHooks({ open: () => openWindow() });
-    setPopHooks({ openTab: (tab) => openWindow(tab), openSkill: (id) => openWindow('status', { skill: id }), badge, checking: () => checkingKey });
+    setPopHooks({ star: starCard, openTab: openFromCard, openSkill: (id) => openWindow('status', { skill: id }), badge, checking: () => checkingKey });
     mountPanel();
     if (!mountWand()) { let n = 0; const w = setInterval(() => { if (mountWand() || ++n > 30) clearInterval(w); }, 1000); }
     if (settings().enabled) mountFab();

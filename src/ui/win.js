@@ -11,6 +11,10 @@ import {
     skillsOf, hiddenOpen, seeSkill, useSkill, openGacha, isDrawing, gradeRarity, veiled,
 } from '../engine.js';
 import { runCheck, isChecking, cancelCheck } from '../ai.js';
+import {
+    cycleOn, cycleDay, eventsOf, evState, omens, setEvent, journalNow, knownLines, addLine, editLine, dropLine, regress, stopTemp, isSorting, sortLog,
+    setupCycle, setEventsText, eventLine, fillCycle,
+} from '../cycle.js';
 import { gearHtml, setValue, runButton, toggleGroup, openGroup, ROWS, getValue, setScope } from '../prefs.js';
 import { icon, hexMark } from '../icons.js';
 import { esc, $id, viewport, safeInsets, isPhone, motionOn } from './util.js';
@@ -27,9 +31,9 @@ const ui = {
     drafts: {},      // unsaved "set the goal" drafts, per chat (‹ Back keeps them, Cancel drops them)
     rest: null,      // the window's place before the keyboard came up
 };
-const SUBS = ['gear', 'text', 'life', 'goal', 'goalEdit', 'skill'];
-const SUB_CODE = { gear: 'CONFIG', life: 'DAY', text: 'TEXT', goal: 'GOAL', goalEdit: 'GOAL', skill: 'SKILL' };
-let hooks = { opened: () => {}, closed: () => {} };
+const SUBS = ['gear', 'text', 'life', 'goal', 'goalEdit', 'skill', 'cycle', 'cycleGo', 'cycleSetup'];
+const SUB_CODE = { gear: 'CONFIG', life: 'DAY', text: 'TEXT', goal: 'GOAL', goalEdit: 'GOAL', skill: 'SKILL', cycle: 'CYCLE', cycleGo: 'CYCLE', cycleSetup: 'CYCLE' };
+let hooks = { opened: () => {}, closed: () => {}, regressed: () => {} };
 export function setWinHooks(h) { hooks = { ...hooks, ...h }; }
 
 export const isOpen = () => !!$id('sblink-win');
@@ -61,6 +65,8 @@ export function openWindow(tab, opts = {}) {
     // 0.6.5: straight to one part of ⚙ (the first-time guide), or to one quest (the quest panel)
     if (opts.gear) { ui.back = TABS.includes(ui.view) ? ui.view : 'status'; ui.view = 'gear'; openGroup(opts.gear); setScope('gear', ['screen', 'button'].includes(opts.gear) ? 'common' : 'room'); }
     if (opts.quest) { ui.view = 'quests'; ui.openQuest = opts.quest; }
+    // 0.8.0: regression pages
+    if (opts.cycle) { ui.back = TABS.includes(ui.view) ? ui.view : 'status'; ui.view = opts.cycle; if (opts.cycle === 'cycleGo') ui.cycleDraft = null; if (opts.cycle === 'cycleSetup') ui.setupDraft = null; }
     if (!TABS.includes(ui.view) && !SUBS.includes(ui.view)) ui.view = 'status';
     let win = $id('sblink-win');
     if (!win) {
@@ -96,6 +102,7 @@ export function openWindow(tab, opts = {}) {
 
 export function closeWindow() {
     keepScroll();
+    if (ui.view === 'cycleGo') { stopTemp(); ui.cycleDraft = null; } // closed without going back: as if never begun
     if (ui.view === 'goalEdit') stashDraft();
     $id('sblink-win')?.remove();
     $id('sblink-shade')?.remove();
@@ -202,6 +209,9 @@ function render() {
     keepScroll();
     const keep = ui.scroll[ui.view] || 0;
     if (ui.view === 'goalEdit' && !ui.freshDraft) readDraft();
+    if (ui.view === 'cycleGo') readGo();
+    if (ui.view === 'cycleSetup' && !ui.freshSetup) readSetup();
+    ui.freshSetup = false;
     ui.freshDraft = false;
     const inSub = SUBS.includes(ui.view);
     const r = room();
@@ -295,11 +305,190 @@ function statusTab(r) {
         body += sec(t('warnings'), `<span class="sblink-code sblink-neg">${warns} / ${WARN_MAX}</span>`)
             + `<div class="sblink-warnbox">${warnDias(Math.min(WARN_MAX, warns))}<b>${warns} / ${WARN_MAX}</b></div><div class="sblink-hint">${esc(t('warn_hint'))}</div>`;
     }
+    body += cycleBlock(r, view);
     body += `<button type="button" class="sblink-todayline" data-tab="quests"><span class="sblink-code">TODAY</span><span class="sblink-ell">${esc(t('today_quests', { done, all: list.length }))}</span><span>▸</span></button>`;
     body += skillsBlock(r, view);
     const foot = `${r.lifeMode ? `<button type="button" class="sblink-btn" data-act="lifeEdit"><span class="sblink-ell">${esc(t('edit'))}</span></button>` : ''}
       <button type="button" class="sblink-btn sblink-btn-main" data-act="nextDay"><span class="sblink-ell">${esc(t('next_day'))} ▸</span></button>`;
     return { body, foot };
+}
+
+// ----- 0.8.0 regression: the Status tab's part, the life record, "where do we start?", the confirm page -----
+const SRC_TAG = { ai: 'src_ai', quest: 'src_quest', flow: 'src_flow', star: 'src_star', hand: 'src_hand', log: 'src_log' };
+const srcTag = (src) => `<span class="sblink-code sblink-srctag sblink-src-${src}">${esc(t(SRC_TAG[src] || 'src_ai'))}</span>`;
+const dayWord = (d) => (d ? t('cyc_day', { n: d }) : '—');
+
+function cycleBlock(r, view) {
+    if (!cycleOn(r)) return '';
+    const c = r.cycle;
+    const d = cycleDay(r, view);
+    const om = new Set(omens(r, view).map(ev => ev.id));
+    let html = sec(t('cyc_sec'), `<span class="sblink-code">CYCLE ${String(c.n).padStart(2, '0')}</span>`, 'sblink-cychead');
+    html += `<div class="sblink-cycnow"><span class="sblink-code">NOW</span><b class="sblink-ell">${esc(t('cyc_now', { n: c.n, d }))}</b></div>`;
+    html += `<div class="sblink-cycrow"><span class="sblink-code">${esc(t('cyc_truth'))}</span><span class="sblink-ell">${esc(c.truth || '—')}</span></div>`;
+    html += `<div class="sblink-cycrow"><span class="sblink-code">${esc(t('cyc_memo', { name: ownerName(r) }))}</span><span class="sblink-ell">${esc(c.memo || '—')}</span></div>`;
+    if (c.knowers.length) html += `<div class="sblink-hint">${esc(t('cyc_knowers', { list: c.knowers.join(', ') }))}</div>`;
+    html += `<div class="sblink-cycsub">${esc(t('cyc_events'))}</div>`;
+    const evs = eventsOf(r);
+    if (!evs.length) html += `<div class="sblink-hint">${esc(t('cyc_none'))}</div>`;
+    for (const ev of evs) {
+        const st = evState(r, ev, view);
+        html += `<button type="button" class="sblink-cycev sblink-ev-${st}${ui.selEvent === ev.id ? ' sblink-on' : ''}" data-ev="${esc(ev.id)}">
+            <span class="sblink-code">${esc(ev.day ? t('cyc_day', { n: ev.day }) : ev.when || '?')}</span><span class="sblink-ell">${esc(ev.what)}</span>
+            ${om.has(ev.id) ? `<span class="sblink-omen">${esc(t('omen'))}</span>` : ''}<span class="sblink-evst">${esc(t(`ev_${st}`))}</span></button>`;
+        if (ui.selEvent === ev.id) {
+            html += `<div class="sblink-chips sblink-evmenu">${['happened', 'blocked', 'changed'].map(x => `<button type="button" class="sblink-chip${ev.byHand && ev.state === x ? ' sblink-chip-on' : ''}" data-evset="${x}"><span class="sblink-ell">${esc(t(`ev_${x}`))}</span></button>`).join('')}
+              <button type="button" class="sblink-chip${!ev.byHand ? ' sblink-chip-on' : ''}" data-evset=""><span class="sblink-ell">${esc(t('ev_auto'))}</span></button>
+              <button type="button" class="sblink-chip sblink-evnow" data-evset="now"><span class="sblink-ell">${esc(t('ev_now'))}</span></button></div>`;
+        }
+    }
+    html += `<div class="sblink-cycbtns"><button type="button" class="sblink-btn" data-act="cycleEdit"><span class="sblink-ell">${esc(t('cyc_edit'))}</span></button>
+      <button type="button" class="sblink-btn" data-act="cycleLog"><span class="sblink-ell">${esc(t('cyc_journal'))}</span></button></div>
+      <button type="button" class="sblink-btn sblink-btn-wide sblink-cycgo" data-act="cycleGo"><span class="sblink-ell">${esc(t('cyc_next'))}</span></button>`;
+    return html;
+}
+
+/** ⑧ this life's record (and the earlier lives). */
+function cyclePage() {
+    const r = room();
+    if (!r?.cycle) return { body: '', foot: '' };
+    const c = r.cycle;
+    const view = chatView();
+    const lines = journalNow(r, view);
+    const known = knownLines(r, view);
+    let body = `<div class="sblink-cycsub">${esc(t('jn_this', { n: c.n }))}</div>`;
+    if (!lines.length && !known.length) body += `<div class="sblink-hint">${esc(t('jn_empty'))}</div>`;
+    for (const j of lines) {
+        body += `<div class="sblink-jline${j.cand ? ' sblink-jcand' : ''}">${srcTag(j.star ? 'star' : j.src)}<span class="sblink-code">${esc(dayWord(j.day))}</span>
+          <input class="sblink-input sblink-jinput" data-jl="${esc(j.id)}" value="${esc(j.text)}" maxlength="160">
+          <button type="button" class="sblink-x" data-jdrop="${esc(j.id)}" aria-label="${esc(t('cancel'))}">${icon('close')}</button></div>`;
+    }
+    for (const k of known) body += `<div class="sblink-jline sblink-jknown">${srcTag(k.src)}<span class="sblink-code">${esc(dayWord(k.day))}</span><span class="sblink-ell">${esc(k.text)}</span></div>`;
+    body += `<div class="sblink-jadd"><input class="sblink-input" data-jadd maxlength="160" placeholder="${esc(t('jn_add_ph'))}"><button type="button" class="sblink-btn sblink-btn-sm" data-act="jAdd"><span class="sblink-ell">${esc(t('jn_add'))}</span></button></div>`;
+    if (c.past.length) {
+        body += `<div class="sblink-cycsub">${esc(t('jn_past'))}</div>`;
+        for (const p of [...c.past].reverse()) {
+            body += `<div class="sblink-jpast"><div class="sblink-code">${esc(t('jn_past_line', { n: p.n, days: p.days, pts: p.pts }))}</div>${(p.journal || []).map(x => `<div class="sblink-hint sblink-ell">◇ ${esc(x)}</div>`).join('')}</div>`;
+        }
+    }
+    return { body, foot: '' };
+}
+
+/** ⑦ "Where do we start?" — and, once answered, editing the truth, memory, events and who remembers. */
+function setupPage() {
+    const r = room();
+    const c = r?.cycle;
+    if (!c) return { body: '', foot: '' };
+    const d = ui.setupDraft ||= { again: c.set ? true : null, n: Math.max(2, c.n), truth: c.truth, memo: c.memo, back: c.back, events: eventsOf(r).map(eventLine).join('\n'), knowers: c.knowers.join(', '), filling: false };
+    const who = ownerName(r);
+    let body = '';
+    if (!c.set) {
+        body += `<div class="sblink-poptitle">${esc(t('setup_q'))}</div><div class="sblink-radios" role="radiogroup">
+          ${[['first', false], ['again', true]].map(([k, v]) => `<button type="button" class="sblink-radio${d.again === v ? ' sblink-radio-on' : ''}" data-setup="${k}" role="radio" aria-checked="${d.again === v}">
+            <i class="sblink-radiodot"></i><span class="sblink-radiotext"><b class="sblink-radioname">${esc(t(`setup_${k}`))}</b><span class="sblink-radiodesc">${esc(t(`setup_${k}_d`))}</span></span></button>`).join('')}</div>`;
+    }
+    if (d.again) {
+        const f = (k, label, hint, tag = 'input', extra = '') => `<label class="sblink-field"><span class="sblink-code">${esc(label)}</span>
+            ${tag === 'input' ? `<input class="sblink-input" data-sd="${k}" value="${esc(d[k] ?? '')}"${extra}>` : `<textarea class="sblink-ta sblink-ta-s" data-sd="${k}"${extra}>${esc(d[k] ?? '')}</textarea>`}</label>${hint ? `<div class="sblink-hint">${esc(hint)}</div>` : ''}`;
+        if (!c.set) body += `<div class="sblink-cycbtns"><button type="button" class="sblink-btn" data-act="setupFill"${d.filling ? ' disabled' : ''}><span class="sblink-ell">${esc(d.filling ? t('setup_filling') : t('setup_ai'))}</span></button>
+            <button type="button" class="sblink-btn" data-act="setupRandom"${d.filling ? ' disabled' : ''}><span class="sblink-ell">${esc(t('setup_random'))}</span></button></div>`;
+        body += f('n', t('setup_n'), '', 'input', ' inputmode="numeric" maxlength="3"')
+            + f('truth', t('setup_truth'), t('setup_truth_hint'), 'ta', ' maxlength="2000"')
+            + f('memo', t('setup_memo', { name: who }), t('setup_memo_hint'), 'ta', ' maxlength="2000"')
+            + f('events', t('setup_events'), t('setup_events_hint'), 'ta', ` placeholder="${esc(t('go_add_ph'))}"`)
+            + f('back', t('setup_back'), '', 'input', ` maxlength="120" placeholder="${esc(t('go_back_ph'))}"`)
+            + f('knowers', t('setup_knowers'), t('setup_knowers_hint', { name: who }), 'input', ' maxlength="200"');
+    }
+    return {
+        body,
+        foot: `<button type="button" class="sblink-btn" data-act="back"><span class="sblink-ell">${esc(t('cancel'))}</span></button>
+          <button type="button" class="sblink-btn sblink-btn-main" data-act="setupSave"${d.again === null ? ' disabled' : ''}><span class="sblink-ell">${esc(t('save'))}</span></button>`,
+    };
+}
+
+function readSetup() {
+    const d = ui.setupDraft;
+    if (!d) return;
+    $id('sblink-win')?.querySelectorAll('[data-sd]').forEach(el => { d[el.dataset.sd] = el.value; });
+}
+
+/** ③④ [Go back?] */
+function goPage() {
+    const r = room();
+    const c = r?.cycle;
+    if (!c) return { body: '', foot: '' };
+    const view = chatView();
+    const d = ui.cycleDraft ||= { mode: c.mode, keepItem: '', keepSkills: false, off: {}, extra: '', back: '', backText: '', tried: false };
+    const lines = journalNow(r, view);
+    const known = knownLines(r, view);
+    // nothing on record yet: the AI puts it down from the story, once (the page can be used meanwhile)
+    if (!lines.length && !d.tried && !isSorting()) { d.tried = true; setTimeout(runSort, 0); }
+    const sortingNow = isSorting();
+    const open = r.quests.filter(q => ['active', 'offered'].includes(questState(r, q, view).status)).length;
+    const bag = r.bag.filter(b => b.count > 0);
+    const part = (k, inner) => `<div class="sblink-gosec"><div class="sblink-cycsub"><span class="sblink-dia">◆</span> ${esc(t(k))}</div>${inner}</div>`;
+    let body = `<div class="sblink-poptitle">${esc(t('go_title'))}</div><div class="sblink-hint">${esc(t('go_now', { n: c.n }))}</div>`;
+    body += part('go_keep', `<div class="sblink-hint">${esc(t('go_keep_v'))}</div>`);
+    body += part('go_lose', d.mode === 'all' ? `<div class="sblink-golose"><s>${esc(t('go_lose_all'))}</s></div>`
+        : `<div class="sblink-golose"><s>${esc(t('go_lose_pts', { n: points(r, view) }))}</s><s>${esc(t('go_lose_bag', { n: bag.length }))}</s><s>${esc(t('go_lose_q', { n: open }))}</s></div>`);
+    body += part('go_mode', `<div class="sblink-chips">${['memory', 'one', 'all'].map(x => `<button type="button" class="sblink-chip${d.mode === x ? ' sblink-chip-on' : ''}" data-gomode="${x}"><span class="sblink-ell">${esc(t(`opt_cycleMode_${x}`))}</span></button>`).join('')}</div>`);
+    if (d.mode === 'one') {
+        body += part('go_take', (bag.length ? `<div class="sblink-chips">${bag.map(b => `<button type="button" class="sblink-chip${d.keepItem === b.id ? ' sblink-chip-on' : ''}" data-gotake="${esc(b.id)}"><span class="sblink-ell">${esc(b.name)}</span></button>`).join('')}</div>` : `<div class="sblink-hint">${esc(t('go_take_none'))}</div>`)
+            + `<div class="sblink-rowmain"><span class="sblink-rowlabel">${esc(t('go_take_skills'))}</span><button type="button" class="sblink-tog${d.keepSkills ? ' sblink-on' : ''}" data-act="goSkills" role="switch" aria-checked="${d.keepSkills}"><i></i></button></div>`);
+    }
+    let rec = `<div class="sblink-hint">${esc(t('go_log_hint'))}</div>`;
+    if (sortingNow) rec += `<div class="sblink-gosort">${esc(t('go_sorting'))}</div>`;
+    else if (d.failed) rec += `<div class="sblink-gosort sblink-neg">${esc(t('go_sort_fail'))}</div>`;
+    const item = (id, src, day, text, editable) => `<div class="sblink-jline${src === 'ai' ? ' sblink-jcand' : ''}"><button type="button" class="sblink-check${d.off[id] ? '' : ' sblink-on'}" data-gopick="${esc(id)}" role="checkbox" aria-checked="${!d.off[id]}">${d.off[id] ? '' : '✓'}</button>
+        ${srcTag(src)}<span class="sblink-code">${esc(dayWord(day))}</span>${editable ? `<input class="sblink-input sblink-jinput" data-jl="${esc(id)}" value="${esc(text)}" maxlength="160">` : `<span class="sblink-ell">${esc(text)}</span>`}</div>`;
+    for (const j of lines) rec += item(j.id, j.star ? 'star' : j.src, j.day, j.text, true);
+    for (const k of known) rec += item(k.id, k.src, k.day, k.text, false);
+    rec += `<textarea class="sblink-ta sblink-ta-s" data-goextra placeholder="${esc(t('go_add_ph'))}">${esc(d.extra)}</textarea>`;
+    rec += `<div class="sblink-cycbtns"><button type="button" class="sblink-btn" data-act="goSort"${sortingNow ? ' disabled' : ''}><span class="sblink-ell">${esc(t('go_resort'))}</span></button></div>`;
+    body += part('go_log', rec);
+    body += part('go_back', `<div class="sblink-chips">${['first', 'text'].map(x => `<button type="button" class="sblink-chip${(d.back || 'first') === x ? ' sblink-chip-on' : ''}" data-goback="${x}"><span class="sblink-ell">${esc(t(`go_back_${x}`))}</span></button>`).join('')}</div>`
+        + (d.back === 'text' ? `<input class="sblink-input" data-gobacktext maxlength="120" value="${esc(d.backText)}" placeholder="${esc(t('go_back_ph'))}">` : ''));
+    body += part('go_where', `<div class="sblink-hint">◇ ${esc(t('go_where_here'))}</div>`);
+    return {
+        body,
+        foot: `<button type="button" class="sblink-btn" data-act="goStop"><span class="sblink-ell">${esc(t('stop'))}</span></button>
+          <button type="button" class="sblink-btn sblink-btn-main" data-act="goGo"${sortingNow ? ' disabled' : ''}><span class="sblink-ell">${esc(t('go_btn', { n: c.n + 1 }))}</span></button>`,
+    };
+}
+
+function readGo() {
+    const d = ui.cycleDraft;
+    const win = $id('sblink-win');
+    if (!d || !win) return;
+    const ex = win.querySelector('[data-goextra]');
+    if (ex) d.extra = ex.value;
+    const bt = win.querySelector('[data-gobacktext]');
+    if (bt) d.backText = bt.value;
+}
+
+async function runSort() {
+    if (ui.cycleDraft) ui.cycleDraft.failed = false;
+    render();
+    const ok = await sortLog();
+    if (ui.cycleDraft) ui.cycleDraft.failed = ok === false;
+    render();
+}
+
+async function doRegress() {
+    readGo();
+    const r = room();
+    const d = ui.cycleDraft;
+    if (!r?.cycle || !d || isSorting()) return;
+    const view = chatView();
+    const pick = [...journalNow(r, view).map(j => ({ id: j.id, day: j.day, text: j.text })), ...knownLines(r, view)].filter(x => !d.off[x.id]);
+    const lines = [...pick.map(x => `${x.day || ''} | ${x.text}`), ...String(d.extra || '').split('\n')].map(x => x.trim()).filter(x => x && x !== '|');
+    const bag = r.bag.find(b => b.id === d.keepItem);
+    const kept = d.mode === 'all' ? [t('opt_cycleMode_all')] : [bag && d.mode === 'one' ? bag.name : '', d.mode === 'one' && d.keepSkills && r.skills.length ? t('skills') : ''].filter(Boolean);
+    const res = await regress(currentChatId(), { mode: d.mode, keepItem: d.keepItem, keepSkills: d.keepSkills, lines, back: d.back === 'text' ? d.backText : '' });
+    if (!res) return;
+    ui.cycleDraft = null;
+    closeWindow();
+    hooks.regressed(res, kept);
 }
 
 // ----- skills (㉖-B honeycomb, ㉗ detail) -----
@@ -726,6 +915,9 @@ function subBody() {
     if (ui.view === 'goal') return goalPage();
     if (ui.view === 'goalEdit') return goalEditPage();
     if (ui.view === 'skill') return skillPage();
+    if (ui.view === 'cycle') return cyclePage();
+    if (ui.view === 'cycleGo') return goPage();
+    if (ui.view === 'cycleSetup') return setupPage();
     if (ui.view === 'text') {
         const k = ui.textKey;
         const row = ROWS[k];
@@ -781,6 +973,15 @@ async function onClick(e) {
         return;
     }
     if (d.sfilter) { ui.skillFilter = d.sfilter; ui.selSkill = null; return render(); }
+    // 0.8.0 regression
+    if (d.ev) { ui.selEvent = ui.selEvent === d.ev ? null : d.ev; return render(); }
+    if (d.evset !== undefined) { setEvent(ui.selEvent, d.evset || null); return render(); }
+    if (d.jdrop) { dropLine(d.jdrop); return render(); }
+    if (d.gomode) { ui.cycleDraft.mode = d.gomode; return render(); }
+    if (d.gotake) { ui.cycleDraft.keepItem = ui.cycleDraft.keepItem === d.gotake ? '' : d.gotake; return render(); }
+    if (d.gopick) { ui.cycleDraft.off[d.gopick] = !ui.cycleDraft.off[d.gopick]; return render(); }
+    if (d.goback) { ui.cycleDraft.back = d.goback; return render(); }
+    if (d.setup) { readSetup(); ui.setupDraft.again = d.setup === 'again'; return render(); }
     if (d.title !== undefined) { const r = room(); if (r) { r.title = d.title; save(); } ui.titlePick = false; bus.emit('change'); return render(); }
     if (d.sudden) { bus.emit('sudden', { id: d.id, yes: d.sudden === 'yes' }); return render(); }
     if (d.gtotal) { readDraft(); ui.goalDraft.total = Number(d.gtotal); return render(); }
@@ -805,6 +1006,7 @@ async function onClick(e) {
         case 'gear': ui.back = TABS.includes(ui.view) ? ui.view : 'status'; ui.view = 'gear'; return render();
         case 'back':
             if (ui.view === 'goalEdit') stashDraft();
+            if (ui.view === 'cycleGo') { stopTemp(); ui.cycleDraft = null; }
             ui.view = ui.view === 'text' ? 'gear' : ui.view === 'goalEdit' && room()?.goal ? 'goal' : (ui.back || 'status'); ui.goalDraft = null; return render();
         case 'goalCancel':
             if (ui.goalMode === 'new') dropDraft();
@@ -841,6 +1043,42 @@ async function onClick(e) {
             return render();
         }
         case 'roomOn': await switchOn(); return render();
+        case 'cycleEdit': ui.back = 'status'; ui.setupDraft = null; ui.view = 'cycleSetup'; return render();
+        case 'cycleLog': ui.back = 'status'; ui.view = 'cycle'; return render();
+        case 'cycleGo': ui.back = 'status'; ui.cycleDraft = null; ui.view = 'cycleGo'; return render();
+        case 'jAdd': { const inp = $id('sblink-win').querySelector('[data-jadd]'); if (inp?.value.trim()) addLine(inp.value); return render(); }
+        case 'goSkills': ui.cycleDraft.keepSkills = !ui.cycleDraft.keepSkills; return render();
+        case 'goSort': readGo(); return runSort();
+        case 'goStop': stopTemp(); ui.cycleDraft = null; ui.view = 'status'; return render();
+        case 'goGo': return doRegress();
+        case 'setupFill': case 'setupRandom': {
+            readSetup();
+            const sd = ui.setupDraft; sd.filling = true; render();
+            const got = await fillCycle(currentChatId(), d.act === 'setupRandom');
+            sd.filling = false;
+            if (got) ui.freshSetup = true;
+            if (got) Object.assign(sd, { n: got.n, truth: got.truth, memo: got.memory, back: got.back, events: got.events.map(e => `${e.day || ''} | ${e.what}`).join('\n') });
+            else notice(t('setup_fail'), 'warn');
+            return render();
+        }
+        case 'setupSave': {
+            readSetup();
+            const sd = ui.setupDraft;
+            const r = room();
+            if (!r?.cycle || sd.again === null) return;
+            const knowers = String(sd.knowers || '').split(/[,，、]/).map(x => x.trim()).filter(Boolean).slice(0, 12);
+            if (!r.cycle.set) setupCycle(currentChatId(), sd.again ? { again: true, n: sd.n, truth: sd.truth, memo: sd.memo, events: sd.events, back: sd.back } : {});
+            else {
+                const c = r.cycle;
+                c.n = Math.max(1, Math.min(999, Math.round(Number(sd.n) || c.n)));
+                c.truth = String(sd.truth || '').slice(0, 2000); c.memo = String(sd.memo || '').slice(0, 2000); c.back = String(sd.back || '').slice(0, 120);
+                setEventsText(r, sd.events);
+                save();
+            }
+            if (sd.again) { r.cycle.knowers = knowers; if (knowers.length && r.cycle.scope === 'me') r.cycle.scope = 'some'; save(); }
+            ui.setupDraft = null; ui.view = 'status'; bus.emit('change');
+            return render();
+        }
         case 'titlePick': ui.titlePick = !ui.titlePick; return render();
         case 'lifeEdit': ui.back = 'status'; ui.view = 'life'; return render();
         case 'saveLife': {
@@ -914,6 +1152,8 @@ async function onClick(e) {
 }
 
 function onChange(e) {
+    const jl = e.target.closest('[data-jl]');
+    if (jl) { editLine(jl.dataset.jl, jl.value); return; }
     const sel = e.target.closest('[data-sel]');
     if (sel) setValue(sel.dataset.sel, sel.value);
 }

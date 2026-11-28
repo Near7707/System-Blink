@@ -4,6 +4,7 @@
 import { t, setLanguage, lang } from './i18n.js';
 import { settings, conf, save, room, currentChatId, device, saveDevice, exportData, importData, settleRoom, oldBackup, VERSION, TONES, ROOM_KEYS, setRoomOwn, setRoomSetting } from './store.js';
 import { switchOn, switchOff, bus, skipOldTold, charKey, giveGoal, msgKey } from './engine.js';
+import { setCycleOn, unhide } from './cycle.js';
 import { getProfiles, sentLog } from './ai.js';
 import { buildLog, logFileName } from './export.js';
 import { esc } from './ui/util.js';
@@ -16,6 +17,7 @@ export { VERSION };
 export const SCHEMA = [
     { group: 'room', rows: [
         { k: 'roomOn', kind: 'toggle', scope: 'room' },
+        { k: 'cycleOn', kind: 'toggle', scope: 'room', box: true },   // 0.8.0: right under "wake", where it is seen
         { k: 'autoWake', kind: 'toggle', scope: 'room', when: () => !!charKey() },
         { k: 'lifeToAI', kind: 'toggle', scope: 'room' },   // 0.6.9: each chat its own (daily-life mode is always on)
         { k: 'world', kind: 'text', scope: 'room' },
@@ -34,6 +36,17 @@ export const SCHEMA = [
     { group: 'genre', rows: [
         { k: 'genreMode', kind: 'toggle' },
         { k: 'genreAlert', kind: 'choice', opts: ['toast', 'popup'], common: true },
+    ] },
+    // 0.8.0: regression — each chat's own (its story is its own), apart from "this chat only"
+    { group: 'cycle', rows: [
+        { k: 'cycleMode', kind: 'choice', opts: ['memory', 'one', 'all'], scope: 'room', cyc: true },
+        { k: 'cycleScope', kind: 'choice', opts: ['me', 'some', 'faint'], scope: 'room', cyc: true },
+        { k: 'cycleFlow', kind: 'choice', opts: ['fixed', 'strong', 'loose'], scope: 'room', cyc: true },
+        { k: 'cycleOmen', kind: 'toggle', scope: 'room', cyc: true },
+        { k: 'cycleLeak', kind: 'toggle', scope: 'room', cyc: true },
+        { k: 'cycleDeath', kind: 'toggle', scope: 'room', cyc: true },
+        { k: 'cycleUnhide', kind: 'button', scope: 'room', when: () => !!room()?.cycle?.hide },
+        { k: 'cycleAskOff', kind: 'toggle', common: true },
     ] },
     { group: 'quests', rows: [
         { k: 'suddenFreq', kind: 'choice', opts: ['off', 'rare', 'normal', 'often'] },
@@ -120,6 +133,13 @@ export function getValue(k, where = 'gear') {
         case 'autoWake': { const ck = charKey(); return !!ck && s.autoWake[ck] === true; }
         case 'lifeToAI': return r ? r.lifeToAI !== false : true;
         case 'world': return r?.world || '';
+        case 'cycleOn': return !!r?.cycle?.on;
+        case 'cycleMode': return r?.cycle?.mode || 'one';
+        case 'cycleScope': return r?.cycle?.scope || 'me';
+        case 'cycleFlow': return r?.cycle?.flow || 'fixed';
+        case 'cycleOmen': return r ? r.cycle?.omen !== false : true;
+        case 'cycleLeak': return r ? r.cycle?.leak !== false : true;
+        case 'cycleDeath': return r ? r.cycle?.death !== false : true;
         case 'difficulty': return r?.difficulty || 'off';
         case 'tone': return r?.tone || 'game';
         case 'lang': return lang();
@@ -132,12 +152,13 @@ export function getValue(k, where = 'gear') {
 
 const isDisabled = (row, where = 'gear') => {
     if (row.scope === 'room' && !currentChatId()) return true;
-    if (['lifeToAI', 'world', 'difficulty', 'tone', 'roomOwn'].includes(row.k)) return !room()?.on;
+    if (['lifeToAI', 'world', 'difficulty', 'tone', 'roomOwn', 'cycleOn', 'cycleUnhide'].includes(row.k)) return !room()?.on;
+    if (row.cyc) return !room()?.on || !room()?.cycle?.on;
     if (row.needs) { const n = getValue(row.needs, where); if (!n || n === 'off') return true; }
     return false;
 };
 
-let hooks = { guide: () => {}, redrawAll: () => {}, turnedOff: () => {}, turnedOn: () => {}, lastPrompt: () => '', openText: () => {}, showText: () => {}, langNow: () => 'en' };
+let hooks = { cycleSetup: () => {}, guide: () => {}, redrawAll: () => {}, turnedOff: () => {}, turnedOn: () => {}, lastPrompt: () => '', openText: () => {}, showText: () => {}, langNow: () => 'en' };
 export function setPrefsHooks(h) { hooks = { ...hooks, ...h }; }
 
 export async function setValue(k, v, where = 'gear') {
@@ -179,6 +200,22 @@ export async function setValue(k, v, where = 'gear') {
                 }
             }
             break;
+        case 'cycleOn': {
+            const r = room();
+            if (!r?.on) break;
+            if (v && !r.cycle.set) { hooks.redrawAll(); hooks.cycleSetup(); return; } // first time: "where do we start?"
+            setCycleOn(!!v);
+            break;
+        }
+        case 'cycleMode': case 'cycleScope': case 'cycleFlow': {
+            const c = room()?.cycle;
+            const key = { cycleMode: 'mode', cycleScope: 'scope', cycleFlow: 'flow' }[k];
+            const ok = { mode: ['memory', 'one', 'all'], scope: ['me', 'some', 'faint'], flow: ['fixed', 'strong', 'loose'] }[key];
+            if (c && ok.includes(v)) { c[key] = v; save(); }
+            break;
+        }
+        case 'cycleOmen': case 'cycleLeak': case 'cycleDeath': { const c = room()?.cycle; if (c) { c[k.slice(5).toLowerCase()] = !!v; save(); } break; }
+        case 'cycleAskOff': s.cycleAskOff = !!v; save(); break;
         case 'autoWake': { const ck = charKey(); if (ck) { s.autoWake[ck] = !!v; save(); } break; }
         case 'goalAuto': s.goalAuto = !!v; save(); if (v) giveGoal(); break;
         case 'lifeToAI': { const r = room(); if (r) { r.lifeToAI = !!v; save(); } break; }
@@ -206,6 +243,7 @@ export async function setValue(k, v, where = 'gear') {
 
 export async function runButton(k) {
     if (k === 'guideAgain') return hooks.guide();
+    if (k === 'cycleUnhide') { if (await confirmBox(t('cycle_unhide_q'))) unhide(); bus.emit('change'); hooks.redrawAll(); return; }
     if (k === 'btnReset') { resetPos(); resetPanelPos(); globalThis.toastr?.info?.(t('btn_reset_done'), t('ext_name')); return; }
     if (k === 'export') return doExport();
     if (k === 'logTxt' || k === 'logJson') {
@@ -325,7 +363,7 @@ function gearRow(row) {
     const h = hint(row);
     const hintHtml = h && h !== `set_${row.k}_hint` ? `<div class="sblink-hint">${esc(h)}</div>` : '';
     if (row.kind === 'toggle') {
-        return `<div class="sblink-row${d}"><div class="sblink-rowmain"><span class="sblink-rowlabel">${esc(label(row))}</span>
+        return `<div class="sblink-row${d}${row.box ? ' sblink-cyclebox' : ''}"><div class="sblink-rowmain"><span class="sblink-rowlabel">${esc(label(row))}</span>
           <button type="button" class="sblink-tog${v ? ' sblink-on' : ''}" data-set="${row.k}" data-val="${v ? '0' : '1'}" role="switch" aria-checked="${v ? 'true' : 'false'}"${dis ? ' disabled' : ''}><i></i></button></div>${hintHtml}</div>`;
     }
     if (row.kind === 'choice') {

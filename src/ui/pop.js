@@ -10,8 +10,10 @@ import { icon, hexMark } from '../icons.js';
 import { esc, $id, typeIn, motionOn, inputTop, viewport, safeInsets } from './util.js';
 import { drawQuestBlocks, undrawQuestBlocks, setQBlockHooks, hasPlainSys, refreshClears, redoLater } from './qblock.js';
 import { panelBarBottom, setPanelDrawn } from './panel.js';
+import { shatter } from './cycle-pop.js';
+import { deathsOf, journalNow, starred, cycleOn, hideThrough } from '../cycle.js';
 
-let hooks = { openTab: () => {}, openSkill: () => {}, badge: () => {} };
+let hooks = { openTab: () => {}, openSkill: () => {}, badge: () => {}, star: () => {} };
 export function setPopHooks(h) { hooks = { ...hooks, ...h }; setQBlockHooks(hooks); }
 
 /** The System's voice in this chat, as a class (2-D). */
@@ -51,7 +53,7 @@ export function fitPop(wrap) {
     scroll.className = 'sblink-popscroll';
     const btns = box.querySelector(':scope > .sblink-popbtns');
     for (const el of [...box.children]) {
-        if (el.matches('.sblink-cn, .sblink-tag, .sblink-popbtns, .sblink-poplink')) continue; // buttons (and the quiet choice under them) always show
+        if (el.matches('.sblink-cn, .sblink-tag, .sblink-popbtns, .sblink-poplink, .sblink-deco, .sblink-haze')) continue; // buttons (and the quiet choice under them) always show
         scroll.appendChild(el);
     }
     box.insertBefore(scroll, btns || null);
@@ -112,7 +114,7 @@ function draw(p) {
         ${head}
         <div class="sblink-pophead"><span class="sblink-code">${esc(p.code || 'SYS.NOTICE')}</span>${dots}</div>
         <div class="sblink-stripes"></div>
-        <div class="sblink-poptitle"><span class="sblink-typed"></span><span class="sblink-cursor">▌</span></div>
+        ${p.plainTitle ? `<div class="sblink-poptitle sblink-plaintitle">${esc(p.title || '')}</div>` : '<div class="sblink-poptitle"><span class="sblink-typed"></span><span class="sblink-cursor">▌</span></div>'}
         ${p.sub ? `<div class="sblink-popsub">${p.sub}</div>` : ''}
         ${p.stage || ''}
         ${p.lines?.length ? `<div class="sblink-poplines">${p.lines.map(l => `<div class="sblink-popline">${l}</div>`).join('')}</div>` : ''}
@@ -129,12 +131,20 @@ function draw(p) {
       </div>`;
     document.body.appendChild(wrap);
     fitPop(wrap);
-    typeIn(wrap.querySelector('.sblink-typed'), p.title || '');
+    if (!p.plainTitle) typeIn(wrap.querySelector('.sblink-typed'), p.title || '');
     const dec = wrap.querySelector('[data-decode]');
     if (dec) decode(dec, dec.dataset.decode);
+    let breaking = false;
     wrap.addEventListener('click', (e) => {
         const b = e.target.closest('[data-pop]');
-        if (b) closePopup(b.dataset.pop);
+        if (!b || breaking) return;
+        // 0.8.0: [Start over] breaks the window apart first (the motion setting off: straight on)
+        if (p.shatter && b.dataset.pop === 'ok' && motionOn()) {
+            breaking = true;
+            shatter(wrap, { x: e.clientX, y: e.clientY }).then(() => closePopup('ok'));
+            return;
+        }
+        closePopup(b.dataset.pop);
     });
     setTimeout(() => wrap.querySelector('.sblink-btn-main')?.focus({ preventScroll: true }), 50);
 }
@@ -153,13 +163,13 @@ export function clearPopups() { $id('sblink-gacha')?.remove(); queue.length = 0;
 /**
  * A small notice. `more` (0.7.0, genre mode): a tappable "See ›" that opens the big popup it stands for.
  */
-export function notice(text, kind = '', right = '', more = null) {
+export function notice(text, kind = '', right = '', more = null, moreLabel = '') {
     if (!settings().enabled) return;
     let box = $id('sblink-toasts');
     if (!box) { box = document.createElement('div'); box.id = 'sblink-toasts'; document.body.appendChild(box); }
     const el = document.createElement('div');
     el.className = `sblink-toast sblink-holo ${toneClass()} ${kind ? `sblink-toast-${kind}` : ''}${more ? ' sblink-toast-more' : ''}`;
-    el.innerHTML = `${hexMark()}<span class="sblink-ell">${esc(text)}</span>${right ? `<b class="sblink-toastpts">${esc(right)}</b>` : ''}${more ? `<button type="button" class="sblink-toastmore">${esc(t('see_more'))}</button>` : ''}<i class="sblink-toastbar"></i>`;
+    el.innerHTML = `${hexMark()}<span class="sblink-ell">${esc(text)}</span>${right ? `<b class="sblink-toastpts">${esc(right)}</b>` : ''}${more ? `<button type="button" class="sblink-toastmore">${esc(moreLabel || t('see_more'))}</button>` : ''}<i class="sblink-toastbar"></i>`;
     if (more) {
         el.querySelector('.sblink-toastmore').addEventListener('click', (e) => {
             e.stopPropagation();
@@ -334,11 +344,32 @@ function indexRecords(r, view) {
     // 2-D: spectator sponsorships tied to a reply
     const tips = new Map();
     for (const c of r.cheers || []) if (c.pts && c.key) add(tips, c.key, c);
-    return { clears, lives, uses, fails, unlocks, tips, quests: new Map(r.quests.map(q => [q.id, q])) };
+    // 0.8.0 regression: a lost life, a record line, the end of an earlier life
+    const deaths = new Map();
+    for (const d of deathsOf(r, view)) deaths.set(d.key, d);
+    const logs = new Map();
+    if (cycleOn(r)) for (const j of journalNow(r, view)) if (j.cand && j.key) logs.set(j.key, j);
+    const bound = hideThrough(r, view);
+    return { clears, lives, uses, fails, unlocks, tips, deaths, logs, bound, quests: new Map(r.quests.map(q => [q.id, q])) };
 }
+
+function cycleLines(r, key, i, idx) {
+    const out = [];
+    const d = idx.deaths.get(key);
+    if (d) {
+        const went = d.ans === 'go';
+        out.push(`<div class="sblink-cardline sblink-carddeath" data-death="${esc(d.id)}"><span class="sblink-dia">◇</span><span class="sblink-code">CYCLE</span><span class="sblink-ell">${esc(t(went ? 'card_death_went' : 'card_death'))}</span>${went ? '' : `<b class="sblink-pts">${esc(t('card_next'))}</b>`}</div>`);
+    }
+    const j = idx.logs.get(key);
+    if (j) out.push(`<div class="sblink-cardline sblink-cardlog"><span class="sblink-dia">◇</span><span class="sblink-code">${esc(t('card_log'))}</span><span class="sblink-ell">${esc(j.text)}</span></div>`);
+    if (i === idx.bound && i > 0) out.push(`<div class="sblink-cardline sblink-cardbound"><span class="sblink-code">◇ CYCLE</span><span class="sblink-ell">${esc(t('cyc_bound', { n: r.cycle.hide?.n ? r.cycle.hide.n - 1 : r.cycle.n - 1 }))}</span></div>`);
+    return out;
+}
+const starBtn = (r, key) => (cycleOn(r) ? `<button type="button" class="sblink-cardstar${starred(r, key) ? ' sblink-on' : ''}" data-star="1" aria-label="${esc(t('card_star'))}" title="${esc(t('card_star'))}">${starred(r, key) ? '★' : '☆'}</button>` : '');
 
 function cardFor(r, m, key, i, idx, view) {
     if (!r) return '';
+    const cy = cycleLines(r, key, i, idx);
     if (isAI(m)) {
         const list = (idx.clears.get(key) || []).map(e => ({ e, q: idx.quests.get(e.questId) })).filter(o => o.q);
         const l = idx.lives.get(key);
@@ -346,7 +377,7 @@ function cardFor(r, m, key, i, idx, view) {
         const fails = idx.fails.get(key) || [];
         const unl = idx.unlocks.get(key) || [];
         const tips = (idx.tips.get(key) || []).filter(c => c.pts);
-        if (!list.length && !life.length && !fails.length && !unl.length && !tips.length) return '';
+        if (!list.length && !life.length && !fails.length && !unl.length && !tips.length && !cy.length) return '';
         const lines = list.map(({ q, e }) => {
             const conds = condsOf(q);
             const st = questState(r, q, view);
@@ -366,11 +397,13 @@ function cardFor(r, m, key, i, idx, view) {
             const bits = life.map(k => `${esc(t(`life_${k}`))} ${l.lifeFrom?.[k] ? `${esc(l.lifeFrom[k])} ▸ ` : ''}${esc(l.life[k])}`).join(' · ');
             lines.push(`<div class="sblink-cardline sblink-cardlife"><span class="sblink-dia">◇</span><span class="sblink-ell">${bits}</span></div>`);
         }
-        return `<div class="sblink-cardhead"><span class="sblink-code">SYS.LOG // #${i}</span><span class="sblink-sp"></span><span class="sblink-open">${esc(t('open'))} ▸</span></div>${lines.join('')}|quests`;
+        lines.push(...cy);
+        const tab = idx.deaths.has(key) && idx.deaths.get(key).ans !== 'go' ? `death:${idx.deaths.get(key).id}` : idx.logs.has(key) ? 'cycle' : 'quests';
+        return `<div class="sblink-cardhead"><span class="sblink-code">SYS.LOG // #${i}</span><span class="sblink-sp"></span>${starBtn(r, key)}<span class="sblink-open">${esc(t('open'))} ▸</span></div>${lines.join('')}|${tab}`;
     }
     if (m?.is_user) {
         const us = idx.uses.get(key) || [];
-        if (!us.length) return '';
+        if (!us.length) return cy.length ? `${cy.join('')}|status` : '';
         const sk = us.filter(u => u.kind === 'skill');
         const it = us.filter(u => u.kind !== 'skill');
         const head = sk.length && it.length ? 'ITEM · SKILL' : sk.length ? 'SKILL' : 'ITEM';
@@ -413,7 +446,11 @@ export function renderCards() {
         if (card && card.dataset.sig === sig && card.classList.contains(tc)) return;
         if (!card) {
             card = document.createElement('div');
-            card.addEventListener('click', () => hooks.openTab(card.dataset.tab || 'quests'));
+            card.addEventListener('click', (e) => {
+                // 0.8.0: ☆ = this scene goes into the life's record for sure
+                if (e.target.closest('[data-star]')) { e.stopPropagation(); hooks.star(card.closest('.mes')); return; }
+                hooks.openTab(card.dataset.tab || 'quests');
+            });
             const block = mes.querySelector('.mes_block') || mes;
             const text = block.querySelector(':scope > .mes_text') || block.querySelector('.mes_text');
             if (text && text.parentElement) text.parentElement.insertBefore(card, text.nextSibling);

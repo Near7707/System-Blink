@@ -1042,3 +1042,115 @@
 .sblink-moving .sblink-incdots i:nth-child(3) { animation-delay: 0.4s; }
 @keyframes sblink-incdot { 30% { opacity: 1; } }
 .sblink-qp-in .sblink-qp-name, .sblink-qp-incoming { color: var(--sb-acc); opacity: 0.85; }
+
+/* ---------- 0.8.0 regression (Next Cycle) ---------- */
+/* settings: regression sits right under "wake the System", in a box so it is seen */
+.sblink-cyclebox { margin: 6px 0; padding: 10px 12px; border: 1px solid var(--sb-acc-dim); background: rgba(var(--sb-acc-rgb), 0.06); clip-path: var(--sb-cut-s); }
+.sblink-panel .sblink-cyclebox { padding: 0; border: 0; background: none; }
+
+/* ① vital signs lost: the same System window, broken at two corners (top left, bottom right) */
+.sblink-v-death .sblink-pop {
+    clip-path: polygon(0 16px, 8px 16px, 8px 8px, 18px 8px, 18px 0, 24% 0, 24% 6px, calc(24% + 8px) 6px, calc(24% + 8px) 12px, calc(24% + 16px) 12px, calc(24% + 16px) 6px, calc(24% + 26px) 6px, calc(24% + 26px) 0,
+        58% 0, 58% 5px, calc(58% + 6px) 5px, calc(58% + 6px) 10px, calc(58% + 18px) 10px, calc(58% + 18px) 5px, calc(58% + 22px) 5px, calc(58% + 22px) 0, 100% 0,
+        100% 42%, calc(100% - 6px) 42%, calc(100% - 6px) calc(42% + 8px), calc(100% - 13px) calc(42% + 8px), calc(100% - 13px) calc(42% + 18px), calc(100% - 6px) calc(42% + 18px), calc(100% - 6px) calc(42% + 26px), 100% calc(42% + 26px),
+        100% calc(100% - 40px), calc(100% - 8px) calc(100% - 40px), calc(100% - 8px) calc(100% - 28px), calc(100% - 20px) calc(100% - 28px), calc(100% - 20px) calc(100% - 16px), calc(100% - 32px) calc(100% - 16px), calc(100% - 32px) calc(100% - 6px), calc(100% - 44px) calc(100% - 6px), calc(100% - 44px) 100%,
+        calc(30% + 14px) 100%, calc(30% + 14px) calc(100% - 6px), 30% calc(100% - 6px), 30% 100%, 0 100%, 0 calc(70% + 16px), 6px calc(70% + 16px), 6px 70%, 0 70%, 0 34%);
+    padding-top: 18px;
+}
+.sblink-v-death .sblink-cn-tl, .sblink-v-death .sblink-cn-br { display: none; }
+.sblink-v-death .sblink-tag { position: static; align-self: flex-start; margin: 0 0 6px 6px; }
+.sblink-v-death .sblink-pophead { justify-content: flex-start; }
+.sblink-plaintitle { text-align: center; font-size: 20px; font-weight: 800; margin: 10px 0 12px; text-shadow: 2px 0 0 rgba(var(--sb-acc-rgb), 0.35), -1px 0 0 rgba(255, 255, 255, 0.15); }
+.sblink-moving.sblink-v-death .sblink-plaintitle { animation: sblink-glitch1 0.7s steps(2) 0.25s 1; }
+@keyframes sblink-glitch1 { 0% { transform: translate(2px, 0); color: var(--sb-acc); } 30% { transform: translate(-2px, 1px); color: #fff; } 60% { transform: translate(1px, -1px); color: var(--sb-acc); } 100% { transform: none; } }
+.sblink-dthtable { border: 1px dashed rgba(var(--sb-acc-rgb), 0.35); padding: 4px 10px; }
+.sblink-dthrow { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 5px 0; font-family: var(--sb-mono); font-size: 11px; color: var(--sb-dim); border-bottom: 1px dashed rgba(var(--sb-acc-rgb), 0.18); }
+.sblink-dthrow:last-child { border-bottom: 0; }
+.sblink-dthrow .sblink-dia { color: var(--sb-acc); font-size: 10px; }
+.sblink-dthkey { flex: none; }
+.sblink-dthrow b { margin-left: auto; font-family: inherit; font-weight: 400; color: var(--sb-text); font-size: 13px; text-align: right; max-width: 70%; }
+.sblink-dthrow b .sblink-acc { color: var(--sb-acc); }
+.sblink-dthrow b .sblink-dim { color: var(--sb-dim); font-size: 11px; }
+.sblink-dthq { font-size: 17px; font-weight: 800; margin: 14px 0 4px; text-align: center; }
+.sblink-dthq2 { font-size: 13px; line-height: 1.6; color: var(--sb-text); text-align: center; opacity: 0.9; }
+.sblink-dthbond { font-family: var(--sb-mono); font-size: 11px; color: var(--sb-dim); text-align: center; margin-top: 6px; }
+/* bits already coming off the broken edges (never over the title or the table) */
+.sblink-deco { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
+.sblink-chunk { position: absolute; display: block; background: var(--sb-bg); border: 1px solid var(--sb-acc-dim); }
+.sblink-moving .sblink-chunk { animation: sblink-drift var(--t) cubic-bezier(.3, .1, .6, 1) var(--dl) infinite; }
+@keyframes sblink-drift { 0% { transform: translate(0, 0) rotate(0); opacity: 0; } 6% { opacity: 1; } 75% { opacity: 0.9; } 100% { transform: translate(var(--dx), var(--dy)) rotate(var(--r)); opacity: 0; } }
+.sblink-hole { position: absolute; display: block; width: 6px; height: 6px; background: #0b0f14; box-shadow: inset 0 0 0 1px rgba(var(--sb-acc-rgb), 0.35), 0 0 6px rgba(var(--sb-acc-rgb), 0.35); z-index: -1; }
+/* coming to (light: only the shade of two layers changes — no blur) */
+.sblink-haze { position: absolute; inset: 0; pointer-events: none; z-index: 3; background: rgba(190, 215, 232, 0.55); opacity: 0; animation: sblink-haze 3s ease-out 1; }
+@keyframes sblink-haze { 0%, 12% { opacity: 0.85; } 35% { opacity: 0.5; } 52%, 70% { opacity: 0; } 78% { opacity: 0.3; } 100% { opacity: 0; } }
+.sblink-dimfx { position: absolute; inset: 0; pointer-events: none; background: #000; opacity: 0; animation: sblink-dimfx 3s ease-out 1; }
+@keyframes sblink-dimfx { 0%, 8% { opacity: 1; } 25% { opacity: 0; } 70% { opacity: 0; } 78% { opacity: 0.4; } 100% { opacity: 0; } }
+.sblink-v-death .sblink-pop { animation: none !important; }
+.sblink-moving.sblink-v-death .sblink-pop { animation: sblink-in 0.6s ease-out !important; }
+/* [Start over]: the pieces, the dust, the dark after */
+.sblink-shards { position: fixed; inset: 0; pointer-events: none; z-index: 2; }
+.sblink-shard, .sblink-shard * { animation: none !important; transition: none !important; }
+.sblink-shard { box-shadow: none !important; }
+.sblink-dust { position: fixed; width: 3px; height: 3px; background: var(--sb-acc); box-shadow: 0 0 4px var(--sb-acc); pointer-events: none; }
+.sblink-broken { background: rgba(0, 2, 6, 0.85); transition: background 0.8s; }
+/* ② drawn from the top down, like a scan */
+.sblink-moving.sblink-v-scan .sblink-pop { animation: sblink-scan 0.6s ease-out 1 !important; }
+@keyframes sblink-scan { from { clip-path: inset(0 0 100% 0); } to { clip-path: inset(0 0 0 0); } }
+.sblink-prochead { font-family: var(--sb-mono); font-size: 11px; color: var(--sb-acc); margin: 10px 0 4px; letter-spacing: 0.08em; }
+.sblink-procline { display: flex; gap: 8px; font-size: 13px; line-height: 1.5; margin-top: 4px; }
+.sblink-procline .sblink-dia { color: var(--sb-acc); flex: none; }
+/* ③ the new life's summary */
+.sblink-cycsum { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.sblink-cycsum > div { display: flex; gap: 10px; align-items: baseline; min-width: 0; font-size: 13px; }
+.sblink-cycsum .sblink-code { flex: none; width: 58px; }
+/* the tutorial's regression hint */
+.sblink-hintbox { margin-top: 12px; padding: 8px 10px; border: 1px dashed rgba(var(--sb-acc-rgb), 0.55); font-size: 12px; line-height: 1.55; color: var(--sb-text); display: flex; flex-direction: column; gap: 3px; }
+.sblink-hinttitle { font-weight: 800; margin-top: 4px; }
+
+/* the Status tab */
+.sblink-cycnow { display: flex; gap: 10px; align-items: baseline; padding: 8px 12px; margin-top: 6px; border: 1px solid var(--sb-acc-dim); background: rgba(var(--sb-acc-rgb), 0.07); clip-path: var(--sb-cut-s); min-width: 0; }
+.sblink-cycrow { display: flex; gap: 10px; align-items: baseline; min-width: 0; padding: 6px 2px; font-size: 13px; border-bottom: 1px solid rgba(var(--sb-acc-rgb), 0.08); }
+.sblink-cycrow .sblink-code { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; }
+.sblink-cycsub { font-size: 12px; font-weight: 700; color: var(--sb-acc); margin: 12px 0 6px; }
+.sblink-cycev { width: 100%; display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 10px; margin-bottom: 4px; color: var(--sb-text); background: var(--sb-cell); border: 1px solid rgba(var(--sb-acc-rgb), 0.2); text-align: left; cursor: pointer; clip-path: var(--sb-cut-s); font-size: 13px; }
+.sblink-cycev.sblink-on { border-color: var(--sb-acc); }
+.sblink-cycev .sblink-ell { flex: 1; min-width: 0; }
+.sblink-evst { flex: none; font-size: 11px; font-family: var(--sb-mono); color: var(--sb-dim); }
+.sblink-ev-happened .sblink-evst { color: var(--sb-red); }
+.sblink-ev-blocked .sblink-evst { color: var(--sb-acc); }
+.sblink-ev-changed .sblink-evst { color: var(--sb-gold); }
+.sblink-ev-happened .sblink-ell, .sblink-ev-blocked .sblink-ell { opacity: 0.7; }
+.sblink-omen { flex: none; font-size: 11px; color: var(--sb-acc); border: 1px dashed var(--sb-acc-dim); padding: 0 6px; }
+.sblink-evmenu { margin: 2px 0 8px; }
+.sblink-cycbtns { display: flex; gap: 8px; margin-top: 10px; }
+.sblink-cycbtns .sblink-btn { flex: 1; }
+.sblink-cycgo { margin-top: 10px; border-color: var(--sb-acc); }
+
+/* the life record and the confirm page */
+.sblink-jline { display: flex; align-items: center; gap: 6px; min-width: 0; margin-bottom: 4px; font-size: 13px; }
+.sblink-jline .sblink-ell { flex: 1; min-width: 0; }
+.sblink-jcand .sblink-jinput, .sblink-jcand > .sblink-ell { border-style: dashed; }
+.sblink-jknown { opacity: 0.85; }
+.sblink-jinput { flex: 1; min-width: 0; height: 36px; }
+.sblink-srctag { flex: none; padding: 0 5px; border: 1px solid var(--sb-acc-dim); font-size: 10px; }
+.sblink-src-ai { border-style: dashed; }
+.sblink-src-star { color: var(--sb-gold); border-color: rgba(242, 193, 78, 0.6); }
+.sblink-src-flow { color: var(--sb-purple); border-color: rgba(179, 140, 255, 0.5); }
+.sblink-jadd { display: flex; gap: 6px; margin-top: 8px; }
+.sblink-jadd .sblink-input { flex: 1; min-width: 0; }
+.sblink-jpast { padding: 6px 0; border-bottom: 1px solid rgba(var(--sb-acc-rgb), 0.08); }
+.sblink-gosec { margin-top: 4px; }
+.sblink-golose { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 13px; color: var(--sb-red); }
+.sblink-gosort { margin: 6px 0; padding: 8px 10px; border: 1px dashed var(--sb-acc-dim); font-size: 13px; color: var(--sb-dim); }
+.sblink-check { flex: none; width: 26px; height: 26px; padding: 0; display: inline-flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 800; color: #04131F; background: transparent; border: 1px solid var(--sb-acc-dim); cursor: pointer; }
+.sblink-check.sblink-on { background: var(--sb-acc); border-color: var(--sb-acc); }
+.sblink-ta-s { min-height: 84px; margin-top: 4px; }
+
+/* log cards */
+.sblink-carddeath .sblink-code, .sblink-cardbound .sblink-code { color: var(--sb-acc); }
+.sblink-carddeath { border: 1px dashed var(--sb-acc-dim); padding: 2px 6px; margin-top: 4px; }
+.sblink-cardlog { opacity: 0.85; }
+.sblink-cardlog .sblink-dia { color: var(--sb-acc); }
+.sblink-cardbound { margin-top: 4px; padding: 2px 6px; border-top: 1px dashed var(--sb-acc-dim); }
+.sblink-cardstar { flex: none; width: 32px; height: 26px; margin-right: 4px; padding: 0; background: none; border: 0; color: var(--sb-dim); font-size: 16px; cursor: pointer; }
+.sblink-cardstar.sblink-on { color: var(--sb-gold); }
