@@ -22,6 +22,7 @@ export function systemEvents(r = room(), view = chatView()) {
     for (const e of r.ledger) {
         if (e.undone) continue;
         if (e.questId === 'tutorial') { loose.push({ type: 'tutorial', pts: e.pts, at: e.at }); continue; }
+        if (e.questId === 'tutorial-boost') { loose.push({ type: 'boost', pts: e.pts, at: e.at }); continue; }
         if (e.questId === 'spectator') continue; // with the spectator reactions below
         const q = quests.get(e.questId);
         const conds = condsOf(q);
@@ -92,6 +93,7 @@ function line(ev) {
         case 'buy': return `${t('bought', { name: ev.item })} −${ev.pts}P`;
         case 'restock': return `${t('restocked')} −${ev.pts}P`;
         case 'tutorial': return `${t('pop_tut_done')} +${ev.pts}P`;
+        case 'boost': return `${t('toast_tut_boost')} +${ev.pts}P`;
         default: return '';
     }
 }

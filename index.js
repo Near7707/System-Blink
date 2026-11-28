@@ -352,6 +352,7 @@ function wireBus() {
     bus.on('woke', () => { const s = settings(); if (!s.guideSeen) { s.guideSeen = true; save(); guideHi(); } });
     bus.on('awaken', () => { dropPopups(p => !!p.wakeFor); awakenPopup(); }); // woken by hand: an open "wake?" question is moot
     bus.on('tutorialStep', () => redrawSoon());
+    bus.on('tutorialBoost', (pts) => notice(t('toast_tut_boost'), 'gold', `+${pts}P`));
     bus.on('tutorialDone', () => alertOr(t('toast_tut_done'), () => popup({ tag: 'CLEAR', code: 'SYS.NOTICE // TUTORIAL', title: t('pop_tut_done'), lines: [`<span class="sblink-dia">◆</span><span class="sblink-ell">${esc(t('tut_reward'))}</span>`] })));
 }
 

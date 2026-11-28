@@ -981,7 +981,21 @@
 .sblink-qp-dias i.sblink-on { background: var(--sb-orange); }
 .sblink-qp-foot { font-size: 11px; color: var(--sb-dim); padding: 5px 10px 7px; flex: none; border-top: 1px solid rgba(255, 255, 255, 0.06); }
 .sblink-qp-row:hover, .sblink-qp-line[data-qp]:hover .sblink-qp-name { filter: brightness(1.15); }
-.sblink-pinrow { display: flex; justify-content: flex-end; margin: -2px 0 4px; }
+.sblink-pinrow { display: flex; justify-content: flex-end; align-items: center; gap: 10px; margin: -2px 0 4px; }
+.sblink-hudbtn { display: inline-flex; align-items: center; gap: 6px; }
+.sblink-hudico { flex: none; }
+.sblink-tutnext { display: flex; align-items: center; gap: 6px; }
+.sblink-tutnext .sblink-ell { flex: 1 1 auto; min-width: 0; }
+.sblink-tutskip { flex: none; color: var(--sb-dim); }
+/* 0.7.2 quest HUD: the phone line's grip, today's dailies as diamonds */
+.sblink-qp-sumrow { display: flex; align-items: center; }
+.sblink-qp-sumrow .sblink-qp-sum { flex: 1 1 auto; min-width: 0; }
+.sblink-qp-grip { flex: none; display: inline-flex; flex-direction: column; justify-content: center; gap: 3px; width: 34px; height: 38px; padding: 0 0 0 10px; box-sizing: border-box; cursor: ns-resize; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.sblink-qp-grip i { display: block; width: 14px; height: 2px; background: rgba(var(--sb-acc-rgb), 0.6); }
+.sblink-qp-head .sblink-qp-grip { height: 28px; width: 26px; padding-left: 2px; }
+.sblink-qp-ddias { margin-left: 6px; }
+.sblink-qp-ddias i { border-color: var(--sb-acc); }
+.sblink-qp-ddias i.sblink-on { background: var(--sb-acc); }
 .sblink-guidebtn { justify-content: flex-start; gap: 8px; }
 .sblink-guidego { margin-left: auto; color: var(--sb-dim); }
 .sblink-guidetones { display: flex; gap: 6px; flex-wrap: wrap; margin: 2px 0 8px; }

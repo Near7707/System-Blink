@@ -1,6 +1,8 @@
 // 0.6.5: the quest panel — the quests in progress, always in sight while chatting.
 // PC: a small window against the chat column's side (outside it, opposite the bookmark), moved by its head.
 // Phone (or no room beside the column): one line on top of the chat column that opens downwards.
+// 0.7.2: called the quest HUD on screen; on a phone its ≡ grip drags the line up or down (another extension may
+// have a bar right under SillyTavern's top menu), remembered for this device.
 // Only shows what is already known: no AI calls. Tapping a line opens the Quests tab there.
 
 import { t } from '../i18n.js';
@@ -28,7 +30,9 @@ const pcState = () => {
     const p = d.panel && typeof d.panel === 'object' ? d.panel : {};
     return { side: p.side === undefined ? 'left' : p.side, fx: Number(p.fx) || 0, fy: Number(p.fy) || 0, folded: !!p.folded, v: 1 };
 };
-function savePc(p) { const d = device(); d.panel = p; saveDevice(d); }
+function savePc(p) { const d = device(); d.panel = { ...(d.panel && typeof d.panel === 'object' ? d.panel : {}), ...p }; saveDevice(d); }
+/** Phone: where the line sits between the top (0) and the lowest spot above the input (1). */
+const phoneFy = () => { const p = device().panel; const v = Number(p && p.phoneFy); return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0; };
 
 /** What is in progress now, in the order the panel shows it. */
 function rows(r, view) {
@@ -73,7 +77,8 @@ function summary(x) {
     if (s) bits.push(`<span class="sblink-qp-orange">${esc(t('panel_sudden'))}</span>${dias(s.left, s.q.limit || 3)}`);
     else if (x.sudden.length) bits.push(`<span class="sblink-qp-orange">${esc(t('panel_offer'))}</span>`);
     if (x.penalty.length) bits.push(`<span class="sblink-qp-red">${esc(t('panel_penalty'))}</span>`);
-    if (x.daily.length) bits.push(esc(t('panel_daily', { n: x.dailyDone, all: x.daily.length })));
+    // 0.7.2: today's dailies as diamonds (◆ cleared, ◇ not yet)
+    if (x.daily.length) bits.push(`${esc(t('panel_daily'))}<span class="sblink-qp-dias sblink-qp-ddias" role="img" aria-label="${x.dailyDone} / ${x.daily.length}">${Array.from({ length: x.daily.length }, (_, i) => `<i class="${i < x.dailyDone ? 'sblink-on' : ''}"></i>`).join('')}</span>`);
     if (!bits.length && x.tut) bits.push(esc(t('panel_tut', { n: x.tut.n })));
     if (!bits.length && x.hidden.length) bits.push(`<span class="sblink-qp-purple">${esc(t('panel_hidden'))}</span>`);
     if (x.incoming) bits.push(`<span class="sblink-qp-incoming">${esc(t('panel_incoming'))}</span>`);
@@ -134,9 +139,10 @@ export function renderPanel() {
     el.className = `sblink-qpanel sblink-holo sblink-tn-${tone} sblink-qp-${mode}${folded ? ' sblink-qp-folded' : ''}${motionOn() ? ' sblink-moving' : ''}`;
     el.setAttribute('role', 'region');
     el.setAttribute('aria-label', t('panel_name'));
+    const grip = mode === 'bar' ? `<span class="sblink-qp-grip" aria-label="${esc(t('panel_grip'))}" title="${esc(t('panel_grip'))}"><i></i><i></i><i></i></span>` : '';
     const head = folded
-        ? `<button type="button" class="sblink-qp-sum" data-qp-act="unfold" aria-expanded="false"><span class="sblink-qp-tag">QUEST</span><span class="sblink-qp-sumtext sblink-ell">${summary(x)}</span><span class="sblink-qp-arrow">▾</span></button>`
-        : `<div class="sblink-qp-head"><span class="sblink-qp-tag">QUEST</span><span class="sblink-code">SYS.TRACK</span><span class="sblink-sp"></span>
+        ? `<div class="sblink-qp-sumrow">${grip}<button type="button" class="sblink-qp-sum" data-qp-act="unfold" aria-expanded="false"><span class="sblink-qp-tag">SYS.QUEST</span><span class="sblink-qp-sumtext sblink-ell">${summary(x)}</span><span class="sblink-qp-arrow">▾</span></button></div>`
+        : `<div class="sblink-qp-head">${grip}<span class="sblink-qp-tag">SYS.QUEST</span><span class="sblink-code">HUD // TRACK</span><span class="sblink-sp"></span>
             <button type="button" class="sblink-qp-btn" data-qp-act="tab" aria-label="${esc(t('panel_tab'))}"><span class="sblink-ell">${esc(t('panel_tab'))}</span></button>
             <button type="button" class="sblink-qp-btn" data-qp-act="fold" aria-label="${esc(t('panel_fold'))}">▴</button>
             ${mode === 'side' ? `<button type="button" class="sblink-qp-btn" data-qp-act="off" aria-label="${esc(t('panel_off'))}">✕</button>` : ''}</div>`;
@@ -169,15 +175,24 @@ function colBox() {
     return { l: Math.max(left, r.left), r: Math.min(right, r.right), left, right, top, vp, ins };
 }
 
+/** Phone line: the highest spot (under SillyTavern's top menu) and the lowest (just above the input). */
+function barRange(c = colBox()) {
+    const top = c.top + 6;
+    return { top, low: Math.max(top, Math.min(inputTop(), c.vp.y + c.vp.h) - BAR_H - 12) };
+}
+
 export function placePanel() {
     const el = $id('sblink-qpanel');
     if (!el || el.hidden || drag) return;
     const c = colBox();
     if (mode === 'bar') {
+        const { top, low } = barRange(c);
+        const y = top + phoneFy() * (low - top);
         el.style.left = `${Math.round(c.l + 8)}px`;
         el.style.width = `${Math.round(Math.max(160, c.r - c.l - 16))}px`;
-        el.style.top = `${Math.round(c.top + 6)}px`;
-        el.style.maxHeight = `${Math.round(Math.max(BAR_H, (inputTop() - c.top) * 0.6))}px`;
+        el.style.top = `${Math.round(y)}px`;
+        // opened, it grows downwards: at most 60% of the column, and never under the input
+        el.style.maxHeight = `${Math.round(Math.max(BAR_H, Math.min((inputTop() - c.top) * 0.6, inputTop() - y - 10)))}px`;
         return;
     }
     const p = pcState();
@@ -200,6 +215,7 @@ export function placePanel() {
 export function panelBarBottom(whole = false) {
     const el = $id('sblink-qpanel');
     if (!el || el.hidden || mode !== 'bar') return 0;
+    if (phoneFy() > 0.02) return 0; // moved down: notices and the button keep their own places at the top
     const r = el.getBoundingClientRect();
     return r.height ? (whole ? r.bottom : r.top + Math.min(r.height, BAR_H + 2)) : 0;
 }
@@ -218,7 +234,19 @@ function onClick(e) {
 // ---------- moving it (PC: by the head) ----------
 let dragMoved = false;
 function onDown(e) {
-    if (mode !== 'side' || e.button > 0) return;
+    if (e.button > 0) return;
+    // 0.7.2 phone: only the ≡ grip drags (a tap on the line still opens it)
+    if (mode === 'bar') {
+        if (!e.target.closest('.sblink-qp-grip')) return;
+        e.preventDefault();
+        const r = $id('sblink-qpanel').getBoundingClientRect();
+        drag = { id: e.pointerId, sx: e.clientX, sy: e.clientY, x: r.left, y: r.top, moved: false, bar: true };
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onUp);
+        window.addEventListener('pointercancel', endPanelDrag);
+        return;
+    }
+    if (mode !== 'side') return;
     const head = e.target.closest('.sblink-qp-head, .sblink-qp-sum');
     if (!head || (e.target.closest('button') && !e.target.closest('.sblink-qp-sum'))) return;
     const el = $id('sblink-qpanel');
@@ -235,6 +263,11 @@ function onMove(e) {
     drag.moved = true;
     const el = $id('sblink-qpanel');
     el.classList.add('sblink-qp-dragging');
+    if (drag.bar) {
+        const { top, low } = barRange();
+        el.style.top = `${Math.round(Math.min(low, Math.max(top, drag.y + dy)))}px`;
+        return;
+    }
     el.style.left = `${Math.round(drag.x + dx)}px`;
     el.style.top = `${Math.round(drag.y + dy)}px`;
 }
@@ -247,6 +280,13 @@ function onUp(e) {
         setTimeout(() => { dragMoved = false; }, 0);
         const r = el.getBoundingClientRect();
         const c = colBox();
+        if (drag.bar) {
+            const { top, low } = barRange(c);
+            savePc({ phoneFy: low > top ? Math.min(1, Math.max(0, (r.top - top) / (low - top))) : 0 });
+            endPanelDrag();
+            onDrawn(); // notices and the floating button may use the top again
+            return;
+        }
         const p = pcState();
         // let go near the column's side = stick to it again
         if (Math.abs(r.right - c.l) < 60 && c.l - c.left >= W + GAP + 6) p.side = 'left';

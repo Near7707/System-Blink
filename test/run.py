@@ -131,6 +131,8 @@ def main():
             v070c(browser, 'en')
             v071(browser, 'ko')
             v071(browser, 'en')
+            v072(browser, 'ko')
+            v072(browser, 'en')
             browser.close()
     finally:
         srv.terminate()
@@ -1663,7 +1665,7 @@ def v065(browser, lang):
     check(('말투와 난이도' if ko else 'Voice and difficulty') in txt() and not ev(page, "!!document.getElementById('sblink-win')"), 'see again: card 1, window closed')
     page.click('#sblink-pop [data-pop="second"]'); page.wait_for_timeout(300)
     panel_text = ev(page, "document.getElementById('sblink_settings').textContent")
-    check(('추가 포인트 배율' if ko else 'Extra point rate') in panel_text and ('퀘스트 패널' if ko else 'Quest panel') in panel_text, 'extension panel has the new rows')
+    check(('추가 포인트 배율' if ko else 'Extra point rate') in panel_text and ('퀘스트 HUD' if ko else 'Quest HUD') in panel_text, 'extension panel has the new rows')
     check(not errors, f'no errors ({errors[:3]})')
     page.close()
 
@@ -2759,6 +2761,96 @@ def v071(browser, lang):
     ev(page, f"(async () => {{ const s = SillyTavern.getContext().extensionSettings.systemBlink; delete {R}.dayLog; const st = await import('/src/store.js'); st.migrate ? st.migrate(s) : null; }})()")
     s = sug()
     check(s and s['days'] == 1, f'F old waiting check carried over ({s})')
+    check(not errors, f'no page errors ({errors[:2]})')
+    page.close()
+
+
+def v072(browser, lang):
+    """0.7.2: tutorial catch-up / skip / starter points, giving up a hidden quest, the quest HUD (phone drag, ◆◇, wording)."""
+    print(f'--- 0.7.2 tutorial, hidden, HUD ({lang})')
+    ko = lang == 'ko'
+    R = "SillyTavern.getContext().extensionSettings.systemBlink.chats[__sbKey()]"
+    S = "SillyTavern.getContext().extensionSettings.systemBlink"
+    YES1 = 'Q1: YES - "did it"\nQ2: NO\nQ3: NO\nTIME: -\nWEATHER: -\nPLACE: -\nDATE: -\nDAYS: 0\nNEXT: -'
+    YES3 = 'Q1: YES - "did it"\nQ2: YES - "did it"\nQ3: YES - "did it"\nTIME: -\nWEATHER: -\nPLACE: -\nDATE: -\nDAYS: 0\nNEXT: -'
+    wake = lambda page, how: (ev(page, f"(async () => {{ await (await import('/src/engine.js')).switchOn('{how}'); }})()"), page.wait_for_timeout(900), close_pops(page))
+    openq = lambda page: (ev(page, "(async () => (await import('/src/ui/win.js')).openWindow('quests'))()"), page.wait_for_timeout(300))
+
+    # A. dailies cleared before the window was ever opened: the tutorial catches up
+    page, errors = open_page(browser, f'fresh&lang={lang}')
+    wake(page, 'start')
+    turn(page, 'I do it all.', 'Done, all of it.', YES3); close_pops(page)
+    openq(page)
+    done = ev(page, f"{R}.tutorial.done")
+    check(done[:2] == [True, True] and ev(page, f"{R}.tutorial.state") == 'active', f'A clear before opening the window counts ({done})')
+    check(not ev(page, f"{R}.ledger.some(e => e.questId === 'tutorial-boost')"), 'A enough points: no starter points')
+    # C. skip button in the Quests tab, with a confirm
+    check(ev(page, "!!document.querySelector('#sblink-win [data-act=\"tutSkip\"]')"), 'C skip button in the tutorial section')
+    page.click('#sblink-win [data-act="tutSkip"]'); page.wait_for_timeout(200)
+    check(ev(page, f"{R}.tutorial.state") == 'active', 'C asks first')
+    page.click('#sblink-win [data-modal="yes"]'); page.wait_for_timeout(400)
+    check(ev(page, f"{R}.tutorial.state") == 'skipped', 'C skipped after yes')
+    page.close()
+
+    # B. a 10P first clear: the shop step gets the difference, once
+    page, errors = open_page(browser, f'fresh&lang={lang}')
+    wake(page, 'start')
+    ev(page, f"(() => {{ const r = {R}; for (const q of r.quests) q.reward = 10; }})()")
+    openq(page); ev(page, "(async () => (await import('/src/ui/win.js')).closeWindow())()")
+    turn(page, 'One thing.', 'Done.', YES1); close_pops(page)
+    pts = epoints(page)
+    check(ev(page, f"{R}.tutorial.done")[:2] == [True, True], 'B step 2 reached')
+    check(pts == 20, f'B starter points up to the cheapest item (20P, got {pts})')
+    check(ev(page, f"{R}.ledger.filter(e => e.questId === 'tutorial-boost').length") == 1, 'B given once')
+    openq(page)
+    check(ev(page, f"{R}.ledger.filter(e => e.questId === 'tutorial-boost').length") == 1, 'B not again on the next open')
+
+    # D. give up a hidden quest: no penalty, a new one may come
+    ev(page, f"(() => {{ const r = {R}; r.tutorial.state = 'skipped'; r.quests.push({{ id: 'qhid1', kind: 'hidden', name: 'Follow the stray cat', reward: 60, day: r.day, failed: false, why: 'x', fromKey: null }}); }})()")
+    openq(page)
+    page.click('#sblink-win [data-quest="qhid1"]'); page.wait_for_timeout(200)
+    check(ev(page, "!!document.querySelector('#sblink-win [data-giveup=\"qhid1\"]')"), 'D give-up button on an open hidden quest')
+    before = epoints(page)
+    page.click('#sblink-win [data-giveup="qhid1"]'); page.wait_for_timeout(200)
+    page.click('#sblink-win [data-modal="yes"]'); page.wait_for_timeout(300)
+    st = ev(page, f"(async () => {{ const m = await import('/src/engine.js'); const r = {R}; const q = r.quests.find(x => x.id === 'qhid1'); return [m.questState(r, q).status, !!q.givenUp, m.openQuests(r).some(x => x.id === 'qhid1')]; }})()")
+    check(st == ['failed', True, False], f'D given up, out of the check ({st})')
+    check(epoints(page) == before, 'D no points taken')
+    check(('포기함' if ko else 'Given up') in ev(page, "document.getElementById('sblink-win').innerText"), 'D shows as given up')
+    page.close()
+
+    # E. the quest HUD on a phone
+    page, errors = open_page(browser, f'fresh&lang={lang}&qpanel')
+    wake(page, 'skip')
+    turn(page, 'One thing.', 'Done.', YES1); close_pops(page)
+    tag = ev(page, "document.querySelector('#sblink-qpanel .sblink-qp-tag')?.textContent")
+    check(tag == 'SYS.QUEST', f'E tag SYS.QUEST ({tag})')
+    dias = ev(page, "[...document.querySelectorAll('#sblink-qpanel .sblink-qp-ddias i')].map(i => i.classList.contains('sblink-on'))")
+    check(dias == [True, False, False], f'E dailies as ◆◇◇ ({dias})')
+    check(ev(page, "!!document.querySelector('#sblink-qpanel .sblink-qp-grip')"), 'E grip on the phone line')
+    y0 = ev(page, "document.getElementById('sblink-qpanel').getBoundingClientRect().top")
+    g = ev(page, "(() => { const r = document.querySelector('#sblink-qpanel .sblink-qp-grip').getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; })()")
+    page.mouse.move(g[0], g[1]); page.mouse.down(); page.mouse.move(g[0], g[1] + 60, steps=4); page.mouse.move(g[0], g[1] + 160, steps=4); page.mouse.up()
+    page.wait_for_timeout(300)
+    y1 = ev(page, "document.getElementById('sblink-qpanel').getBoundingClientRect().top")
+    check(y1 > y0 + 120, f'E dragged down ({y0} → {y1})')
+    check(ev(page, "JSON.parse(localStorage.getItem('systemBlink.device') || '{}').panel?.phoneFy > 0"), 'E spot saved on this device')
+    check(ev(page, "document.querySelector('#sblink-qpanel').classList.contains('sblink-qp-folded')"), 'E dragging did not open the line')
+    check(ev(page, "(async () => (await import('/src/ui/panel.js')).panelBarBottom())()") == 0, 'E moved down: notices and button keep the top')
+    ev(page, "(async () => { (await import('/src/ui/panel.js')).renderPanel(); })()"); page.wait_for_timeout(200)
+    y2 = ev(page, "document.getElementById('sblink-qpanel').getBoundingClientRect().top")
+    check(abs(y2 - y1) < 3, f'E stays after a redraw ({y2})')
+    page.click('#sblink-qpanel .sblink-qp-sum'); page.wait_for_timeout(200)
+    check(not ev(page, "document.querySelector('#sblink-qpanel').classList.contains('sblink-qp-folded')"), 'E a tap still opens it')
+    bottom = ev(page, "document.getElementById('sblink-qpanel').getBoundingClientRect().bottom")
+    inp = ev(page, "document.getElementById('form_sheld').getBoundingClientRect().top")
+    check(bottom <= inp, f'E opened lower down, it stays above the input ({bottom} ≤ {inp})')
+    check('HUD // TRACK' in ev(page, "document.getElementById('sblink-qpanel').innerText"), 'E opened head HUD // TRACK')
+    # F. the Quests tab button
+    openq(page)
+    txt = ev(page, "document.querySelector('#sblink-win .sblink-pinrow').innerText")
+    check('SYS.HUD // ON' in txt and ('HUD 고정 중' if ko else 'HUD pinned') in txt and '📌' not in txt, f'F pin row ({txt.strip()})')
+    check(ev(page, "!!document.querySelector('#sblink-win .sblink-pinrow svg')"), 'F drawn icon')
     check(not errors, f'no page errors ({errors[:2]})')
     page.close()
 

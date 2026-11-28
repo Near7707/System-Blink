@@ -4,7 +4,7 @@
 import { t } from '../i18n.js';
 import { settings, room, currentChatId, save } from '../store.js';
 import {
-    active, chatView, points, todays, questState, clearByHand, undoClear, lifeNow, setLife, nextDay, ownerName,
+    active, chatView, points, todays, questState, clearByHand, undoClear, giveUpHidden, lifeNow, setLife, nextDay, ownerName,
     standingItems, dailyReady, stockDaily, restockStanding, RESTOCK_COST, buy, useItem, tutorialStep, skipTutorial, switchOn, rate, bus,
     goalNow, condsOf, suddenLeft, setGoal, editGoal, nextStage, isMakingStage, goalLocked, isGivingGoal, goalGiveFailed, giveGoal,
     diffOf, penaltyFor, debuffsNow, priceOf, penaltyQuests, toneOf, warnFor, warnCount, WARN_MAX,
@@ -36,6 +36,7 @@ export const isOpen = () => !!$id('sblink-win');
 
 const RC = { common: 'sblink-r-common', rare: 'sblink-r-rare', epic: 'sblink-r-epic', legendary: 'sblink-r-legendary' };
 const rarityTag = (r) => `<b class="sblink-rar ${RC[r] || ''}">${esc(t(`rarity_${r}`))}</b>`;
+const HUD_ICON = '<svg class="sblink-hudico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M3 9V3h6M15 3h6v6M21 15v6h-6M9 21H3v-6"/><path d="M12 8.5l3.5 3.5-3.5 3.5-3.5-3.5z" fill="currentColor" stroke="none"/></svg>';
 const HEX = '<svg class="sblink-cellhex" viewBox="0 0 24 24" aria-hidden="true"><polygon points="12,1.5 21.5,7 21.5,17 12,22.5 2.5,17 2.5,7"/></svg>';
 const SPARK = '<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M5 0L6 4L10 5L6 6L5 10L4 6L0 5L4 4Z"/></svg>';
 
@@ -489,7 +490,7 @@ function questRow(r, q, view) {
     } else if (st.status === 'declined') extra += `<div class="sblink-qmeta">${esc(t('declined'))}${penBit(true)}</div>`;
     else if (st.rerolled && !conds) {
         extra += `<div class="sblink-qwhy sblink-rerolled">${icon('undo')}<span>${esc(t('rerolled', { pts: rate(q.reward) }))}</span></div>`;
-    } else if (st.status === 'failed') extra += `<div class="sblink-qmeta">${esc(q.kind === 'sudden' ? t('sudden_failed') : q.kind === 'penalty' ? t('penalty_expired') : t('failed'))}${penBit(q.kind === 'sudden' || !!q.failedAt)}</div>`;
+    } else if (st.status === 'failed') extra += `<div class="sblink-qmeta">${esc(q.kind === 'sudden' ? t('sudden_failed') : q.kind === 'penalty' ? t('penalty_expired') : q.givenUp ? t('hidden_given_up') : t('failed'))}${penBit(q.kind === 'sudden' || !!q.failedAt)}</div>`;
     else {
         const bits = ['<span class="sblink-code">IN PROGRESS</span>'];
         if (conds) bits.push(esc(t('cond_n', { n: st.condDone.filter(Boolean).length, all: conds.length })));
@@ -511,7 +512,7 @@ function questRow(r, q, view) {
     }
     let actions = '';
     if (isOpenRow && st.status === 'done') actions = `<div class="sblink-qacts"><button type="button" class="sblink-btn sblink-btn-sm sblink-btn-danger" data-undo="${esc(q.id)}"><span class="sblink-ell">${esc(t('undo_clear'))}</span></button></div>`;
-    if (isOpenRow && st.status === 'active') actions = `<div class="sblink-qacts"><button type="button" class="sblink-btn sblink-btn-sm" data-clear="${esc(q.id)}"><span class="sblink-ell">${esc(t('clear_hand'))}</span></button></div>`;
+    if (isOpenRow && st.status === 'active') actions = `<div class="sblink-qacts">${q.kind === 'hidden' ? `<button type="button" class="sblink-btn sblink-btn-sm" data-giveup="${esc(q.id)}"><span class="sblink-ell">${esc(t('hidden_give_up'))}</span></button>` : ''}<button type="button" class="sblink-btn sblink-btn-sm" data-clear="${esc(q.id)}"><span class="sblink-ell">${esc(t('clear_hand'))}</span></button></div>`;
     return `<div class="sblink-quest ${cls}${KIND_CLASS[q.kind] || ''}${isOpenRow ? ' sblink-quest-open' : ''}" data-quest="${esc(q.id)}" role="button" tabindex="0">
       <div class="sblink-qmain"><i class="sblink-qdia"></i><span class="sblink-qname">${esc(q.name)}</span>${q.kind === 'penalty' ? `<b class="sblink-pts sblink-dimpts">${esc(t('no_reward'))}</b>` : `<b class="sblink-pts">+${rate(q.reward)}P</b>`}</div>
       ${extra}${actions}</div>`;
@@ -552,13 +553,15 @@ const incomingBox = () => `<div class="sblink-incoming"><span class="sblink-incd
 function questsTab(r) {
     const view = chatView();
     const pinned = !!settings().questPanel;
-    let body = `<div class="sblink-pinrow"><button type="button" class="sblink-btn sblink-btn-sm${pinned ? ' sblink-btn-main' : ''}" data-act="pinPanel" aria-pressed="${pinned}"><span class="sblink-ell">${esc(t(pinned ? 'panel_pinned' : 'panel_pin'))}</span></button></div>`;
+    // 0.7.2: the quest HUD — a drawn corner-bracket mark (no 📌) and its state as a System code
+    let body = `<div class="sblink-pinrow"><span class="sblink-code${pinned ? '' : ' sblink-dimcode'}">SYS.HUD // ${pinned ? 'ON' : 'OFF'}</span><button type="button" class="sblink-btn sblink-btn-sm sblink-hudbtn${pinned ? ' sblink-btn-main' : ''}" data-act="pinPanel" aria-pressed="${pinned}">${HUD_ICON}<span class="sblink-ell">${esc(t(pinned ? 'panel_pinned' : 'panel_pin'))}</span></button></div>`;
     const tut = r.tutorial;
     if (tut.state === 'active') {
         const next = tut.done.findIndex(x => !x);
         body += sec(t('tutorial'), `<span class="sblink-code">${tut.done.filter(Boolean).length} / 4</span>`)
             + `<div class="sblink-tutbar">${tut.done.map((d, i) => `<i class="${d ? 'sblink-on' : i === next ? 'sblink-now' : ''}"></i>`).join('')}</div>
-               <div class="sblink-tutnext"><span class="sblink-code">${next >= 0 ? 'NEXT' : 'CLEAR'}</span> ▸ <span class="sblink-ell">${esc(next >= 0 ? t(`tut_${next}`) : '')}</span></div>`;
+               <div class="sblink-tutnext"><span class="sblink-code">${next >= 0 ? 'NEXT' : 'CLEAR'}</span> ▸ <span class="sblink-ell">${esc(next >= 0 ? t(`tut_${next}`) : '')}</span>
+                 <button type="button" class="sblink-link sblink-tutskip" data-act="tutSkip">${esc(t('tut_skip'))}</button></div>`;
     }
     body += goalBlock(r, view);
     const seen = (q) => !veiled(r, q, view);
@@ -782,6 +785,7 @@ async function onClick(e) {
     if (d.sudden) { bus.emit('sudden', { id: d.id, yes: d.sudden === 'yes' }); return render(); }
     if (d.gtotal) { readDraft(); ui.goalDraft.total = Number(d.gtotal); return render(); }
     if (d.clear) { clearByHand(d.clear); ui.openQuest = null; return render(); }
+    if (d.giveup) { const id = d.giveup; ui.modal = { title: t('hidden_give_up_q'), body: t('hidden_give_up_body'), yes: t('hidden_give_up'), code: 'SYS.CONFIRM // HIDDEN', run: () => { giveUpHidden(id); ui.openQuest = null; } }; return render(); }
     if (d.undo) { undoClear(d.undo); ui.openQuest = null; return render(); }
     if (d.quest && !e.target.closest('button')) { ui.openQuest = ui.openQuest === d.quest ? null : d.quest; return render(); }
     if (d.fold) { toggleGroup(d.fold); return render(); }
@@ -821,6 +825,7 @@ async function onClick(e) {
         }
         case 'goalSuggest': return askSuggest();
         case 'pinPanel': return setValue('questPanel', !settings().questPanel);
+        case 'tutSkip': ui.modal = { title: t('tut_skip_q'), body: t('tut_skip_body'), yes: t('tut_skip'), code: 'SYS.CONFIRM // TUTORIAL', run: () => skipTutorial() }; return render();
         case 'goalRetry': { const p = giveGoal(currentChatId(), true); render(); await p; return render(); }
         case 'stageRetry': return retryStage();
         case 'goalSave': {

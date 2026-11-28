@@ -317,6 +317,15 @@ export function undoClear(questId) {
     save(); changed();
 }
 
+/** 0.7.2: give up a hidden quest (no penalty): it ends, and a new hidden quest can be found again. */
+export function giveUpHidden(questId) {
+    const r = room();
+    const q = r?.quests.find(x => x.id === questId);
+    if (!q || q.kind !== 'hidden' || questState(r, q).status !== 'active') return;
+    q.failed = true; q.givenUp = true; q.failAt = Date.now();
+    save(); changed();
+}
+
 // ----- sudden quests -----
 /** Answer a sudden quest's popup (or its buttons in the Quests tab). */
 export function answerSudden(questId, accept) {
@@ -1047,8 +1056,38 @@ export function tutorialStep(r, n) {
     if (!t || t.state !== 'active' || t.done[n]) return;
     for (let i = 0; i < n; i++) if (!t.done[i]) return; // in order
     t.done[n] = true;
+    // 0.7.2: a later step already done before its turn counts now (e.g. a daily quest cleared before the window
+    // was ever opened — the tutorial used to wait for a second clear that never came)
+    let i = n + 1;
+    while (i < t.done.length && !t.done[i] && stepMet(r, i)) { t.done[i] = true; i += 1; }
     if (t.done.every(Boolean)) finishTutorial(r);
-    else { tutorialNote(r); bus.emit('tutorialStep', n); }
+    else { tutorialBoost(r); tutorialNote(r); bus.emit('tutorialStep', n); }
+}
+
+/** Has this tutorial step been done already (out of turn)? 1 = a daily quest cleared, 2 = bought something, 3 = used something. */
+function stepMet(r, i) {
+    const view = chatView();
+    if (i === 1) return todays(r).some(q => questState(r, q, view).status === 'done');
+    if (i === 2) return r.spend.some(x => x.kind !== 'restock') || (r.skills || []).some(k => k.from === 'book');
+    if (i === 3) return r.uses.length > 0 || (r.draws || []).length > 0;
+    return false;
+}
+
+/**
+ * 0.7.2: the "buy something" step with too few points for anything in the standing shop (a first quest of 10P,
+ * Easy's ×0.8): the System gives the difference, once per chat.
+ */
+function tutorialBoost(r) {
+    const t = r.tutorial;
+    if (t.boosted || t.done.findIndex(x => !x) !== 2) return;
+    const prices = standingItems(r).map(x => priceOf(x, r)).filter(n => Number.isFinite(n) && n > 0);
+    const need = prices.length ? Math.min(...prices) : 20;
+    const have = points(r);
+    if (have >= need) return;
+    t.boosted = true;
+    const pts = need - have;
+    r.ledger.push({ id: uid('l'), questId: 'tutorial-boost', cond: null, pts, key: null, reason: '', at: Date.now() });
+    bus.emit('tutorialBoost', pts);
 }
 
 /** 0.7.0 genre mode: the tutorial's next step comes as a System window in the next reply. */
