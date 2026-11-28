@@ -6,9 +6,10 @@ A game-like **System** for SillyTavern roleplay, in the style of Korean system n
 In the middle of the story, a translucent System window pops up — *"[Daily quests have arrived]"* —
 you clear quests in the story, earn points, and spend them in your own **personal shop**.
 
-This version (0.6.11): the System window, the tutorial, daily quests, the shop, the bag and daily-life mode,
+This version (0.7.0): the System window, the tutorial, daily quests, the shop, the bag and daily-life mode,
 sudden quests, hidden quests, a main goal, quests with several conditions, **difficulty with penalties**,
-**skills and gacha**, **three System voices** with **spectators** who react and sponsor — and, if you like, **new quests shown in the story**.
+**skills and gacha**, **three System voices** with **spectators** who react and sponsor — and, if you like, **new quests shown in the story**
+or a whole **genre mode** where the System becomes the heart of the story.
 A **quest panel** keeps the quests in progress in sight while you chat (beside the chat on a PC, one line on top on a phone),
 and a short **settings guide** greets you the first time you wake the System.
 
@@ -44,6 +45,17 @@ https://github.com/Near7707/System-Blink
   a new main-goal stage, a penalty quest — the AI writes a short `[SYS:QUEST] …` line in its next reply. On screen the line is
   drawn as a small System window in your voice's colours (daily quests share one, with their rewards). Tap it to open your quests.
   The message text keeps the plain line; the story check ignores these lines; a swiped reply asks for them again.
+- **Genre mode** (off by default, ⚙ › *Genre mode*; a chat can keep its own): the System becomes the core of the story.
+  The AI writes System windows into its replies — the awakening, tutorial steps, quests arriving, items and skills used, a new day —
+  and the characters see them and react. A quest cleared in the story gets a `[SYS:CLEAR]` window right there; the window shows the
+  extension's own judgment (*checking…* → *confirmed* with points, or dim *not confirmed* — clear it by hand in the Quests tab).
+  New quests stay hidden (*"[Something is arriving…]"*) until the reply that brings them into the story; re-roll or delete that reply
+  and they wait for the next one. Windows the extension never asked for (an invented quest or reward) stay plain text.
+  Arrivals come as small notices with *See ›* (or as the big popups, if you prefer). No extra AI calls; each reply sends a little more text.
+  ⚠ The story's mood and direction may change. Switched off, the next replies go back to quiet.
+- **[Begin as a story]**: when the System wakes for the first time in a chat, this button has the AI write the scene where it appears
+  right away (one story reply, like sending an empty message; what you typed stays in the box). Even without genre mode, the next
+  reply after waking shows the character first noticing the System.
 - **Main goal**: one big goal per chat in 3–5 stages. It is locked during the tutorial; when the tutorial ends (or is skipped), the System
   sets one by itself from the character card and the story — once per chat (*[Edit goal]* changes any line). You can also write one,
   or ask the AI on the *[Set a goal]* page;

@@ -8,7 +8,7 @@ import { specNames, starWho } from '../data.js';
 import { gradeBadge, gradeClass, isTop, tag } from './skills.js';
 import { icon, hexMark } from '../icons.js';
 import { esc, $id, typeIn, motionOn, inputTop, viewport, safeInsets } from './util.js';
-import { drawQuestBlocks, undrawQuestBlocks, setQBlockHooks } from './qblock.js';
+import { drawQuestBlocks, undrawQuestBlocks, setQBlockHooks, hasPlainSys, refreshClears } from './qblock.js';
 import { panelBarBottom, setPanelDrawn } from './panel.js';
 
 let hooks = { openTab: () => {}, openSkill: () => {}, badge: () => {} };
@@ -120,6 +120,7 @@ function draw(p) {
         ${p.warn ? `<div class="sblink-popwarn">${esc(p.warn)}</div>` : ''}
         ${p.calm ? `<div class="sblink-popcalm">${esc(p.calm)}</div>` : ''}
         ${p.dust ? `<div class="sblink-dustbox">${Array.from({ length: 8 }, (_, i) => `<i style="left:${8 + i * 11}%;animation-delay:${(i * 0.37) % 2.6}s"></i>`).join('')}</div>` : ''}
+        ${p.top ? `<button type="button" class="sblink-btn sblink-btn-main sblink-btn-top" data-pop="top"><span class="sblink-ell">${esc(p.top)}</span></button>` : ''}
         <div class="sblink-popbtns">
           ${p.second ? `<button type="button" class="sblink-btn" data-pop="second"><span class="sblink-ell">${esc(p.second)}</span></button>` : ''}
           <button type="button" class="sblink-btn sblink-btn-main" data-pop="ok"><span class="sblink-ell">${esc(p.ok || t('ok'))}</span></button>
@@ -149,16 +150,26 @@ export const popupWaiting = (test) => (showing && test(showing)) || queue.some(t
 export function clearPopups() { $id('sblink-gacha')?.remove(); queue.length = 0; if (showing) { showing = null; $id('sblink-pop')?.remove(); } hooks.badge(); }
 
 // ---------- small notices ----------
-export function notice(text, kind = '', right = '') {
+/**
+ * A small notice. `more` (0.7.0, genre mode): a tappable "See ›" that opens the big popup it stands for.
+ */
+export function notice(text, kind = '', right = '', more = null) {
     if (!settings().enabled) return;
     let box = $id('sblink-toasts');
     if (!box) { box = document.createElement('div'); box.id = 'sblink-toasts'; document.body.appendChild(box); }
     const el = document.createElement('div');
-    el.className = `sblink-toast sblink-holo ${toneClass()} ${kind ? `sblink-toast-${kind}` : ''}`;
-    el.innerHTML = `${hexMark()}<span class="sblink-ell">${esc(text)}</span>${right ? `<b class="sblink-toastpts">${esc(right)}</b>` : ''}<i class="sblink-toastbar"></i>`;
+    el.className = `sblink-toast sblink-holo ${toneClass()} ${kind ? `sblink-toast-${kind}` : ''}${more ? ' sblink-toast-more' : ''}`;
+    el.innerHTML = `${hexMark()}<span class="sblink-ell">${esc(text)}</span>${right ? `<b class="sblink-toastpts">${esc(right)}</b>` : ''}${more ? `<button type="button" class="sblink-toastmore">${esc(t('see_more'))}</button>` : ''}<i class="sblink-toastbar"></i>`;
+    if (more) {
+        el.querySelector('.sblink-toastmore').addEventListener('click', (e) => {
+            e.stopPropagation();
+            el.remove();
+            try { more(); } catch (err) { console.error('[System Blink]', err); }
+        });
+    }
     box.appendChild(el);
     placeToasts();
-    const life = kind === 'spec' || kind === 'gold' ? 4200 : 2800;
+    const life = more ? 5600 : kind === 'spec' || kind === 'gold' ? 4200 : 2800;
     if (motionOn()) el.querySelector('.sblink-toastbar').style.animationDuration = `${life}ms`;
     setTimeout(() => { el.classList.add('sblink-gone'); setTimeout(() => el.remove(), 300); }, life);
     while (box.children.length > 3) box.firstChild.remove();
@@ -393,6 +404,7 @@ export function renderCards() {
         card.className = `sblink-card sblink-holo ${tc}${m?.is_user ? ' sblink-card-mine' : ''}`;
         card.innerHTML = html;
     });
+    if (blocks) refreshClears(chatEl);
 }
 
 /**
@@ -407,7 +419,7 @@ export function drawQuestLinesNow(mesEls) {
     let view = null;
     for (const mes of mesEls) {
         const mt = mes?.querySelector?.('.mes_text');
-        if (!mt || !mt.textContent.includes('[SYS:QUEST]')) continue;
+        if (!hasPlainSys(mt)) continue;
         view = view || chatView();
         const i = Number(mes.getAttribute('mesid'));
         const m = view.list[i];

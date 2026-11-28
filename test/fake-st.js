@@ -127,6 +127,8 @@
         }
         return '';
     }
+    const extPrompts = {};
+    window.__extPrompts = extPrompts;
     const ctx = {
         characters, extensionSettings, eventSource, eventTypes, event_types: eventTypes,
         get characterId() { return state.characterId; },
@@ -137,7 +139,13 @@
         get chat() { return state.characterId === undefined ? [] : chat(); },
         get chatMetadata() { return (metas[state.chatName] ||= {}); },
         saveSettingsDebounced: () => localStorage.setItem('sblink_test_settings', JSON.stringify(extensionSettings)),
-        setExtensionPrompt: (key, value) => { lastPrompt = value; },
+        // 0.7.0: two keys (the steady rules near the top, the lines for this reply in the chat); the test sees both
+        setExtensionPrompt: (key, value, position, depth) => {
+            extPrompts[key] = { value: String(value), position, depth };
+            lastPrompt = ['system_blink_rules', 'system_blink'].map(k => extPrompts[k]?.value).filter(Boolean).join('\n\n');
+        },
+        // like SillyTavern's Generate: a normal reply with nothing typed (it empties the input box, like the real one)
+        generate: async (type = 'normal', opts = {}) => { window.__generateCalls = (window.__generateCalls || []).concat([{ type, opts }]); const ta = document.getElementById('send_textarea'); if (ta) ta.value = ''; return generate(type); },
         POPUP_TYPE: { TEXT: 1, CONFIRM: 2 },
         callGenericPopup: async (html) => { window.__lastPopup = html; return window.__confirmAnswer ?? true; },
         ConnectionManagerRequestService: { sendRequest: async (_id, messages) => ({ content: await fakeAI(messages[0].content, messages[1].content) }) },

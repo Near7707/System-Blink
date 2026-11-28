@@ -123,6 +123,8 @@ def main():
             v0611(browser, 'ko')
             v0611(browser, 'en')
             v0611c(browser)
+            v070(browser, 'ko')
+            v070(browser, 'en')
             browser.close()
     finally:
         srv.terminate()
@@ -1566,16 +1568,18 @@ def v065(browser, lang):
     # 0.6.6: card 2 = the world note, "you don't have to write anything"; opens the "this chat" part
     page.click('#sblink-pop [data-pop="ok"]'); page.wait_for_timeout(900)
     check(('세계관 지시' if ko else 'World note') in txt() and ('꼭 적지 않아도' if ko else "don't have to") in txt(), f'card 2: world note, optional ({txt()[:60]})')
-    check(('02 / 05') in txt(), 'five cards now')
+    check(('02 / 06') in txt(), 'six cards now (0.7.0: genre mode)')
     shot(page, f'{lang}_066_world_card')
     page.click('#sblink-pop [data-pop="link"]'); page.wait_for_timeout(500)
     top = ev(page, "(() => { const b = document.querySelector('#sblink-win .sblink-body'); const g = b.querySelector('[data-group=\"room\"]'); return Math.round(g.getBoundingClientRect().top - b.getBoundingClientRect().top); })()")
     check(abs(top) < 30, f'"open this setting" → this chat part ({top})')
     page.click('#sblink-win [data-act="close"]'); page.wait_for_timeout(900)
     check(('세계관 지시' if ko else 'World note') in txt(), 'closing brings card 2 back')
+    page.click('#sblink-pop [data-pop="ok"]'); page.wait_for_timeout(900)
+    check(('장르 모드' if ko else 'Genre mode') in txt() and ('03 / 06') in txt(), f'card 3: genre mode ({txt()[:40]})')
     for i in range(3):
         page.click('#sblink-pop [data-pop="ok"]'); page.wait_for_timeout(900)
-    check(('AI 호출' if ko else 'AI calls') in txt(), 'card 5 (last)')
+    check(('AI 호출' if ko else 'AI calls') in txt(), 'card 6 (last)')
     check(not ev(page, "!!document.querySelector('#sblink-pop [data-pop=\"second\"]')"), 'last card: no [Stop here]')
     page.click('#sblink-pop [data-pop="ok"]'); page.wait_for_timeout(900)
     check(ev(page, "!!document.querySelector('#sblink-pop .sblink-hexspin')"), 'then the awakening popup')
@@ -2216,6 +2220,157 @@ def v0611c(browser):
     got = ev(page, f"[!!{S}.chats['{J}Twin'], !!{S}.chats['{M}Twin'], window.__versionAsked > 0]")
     check(got == [True, True, True], f'old SillyTavern: nothing dropped on delete ({got})')
     check(not errors, f'no errors ({errors[:3]})')
+    page.close()
+
+
+
+def v070(browser, lang):
+    """0.7.0: genre mode (System windows in the story, quests opened by the scene, CLEAR windows), the quiet room's
+    awakening line, the steady rules near the top, [Begin as a story], the guide before the wake question."""
+    print(f'--- 0.7.0 genre mode ({lang})')
+    ko = lang == 'ko'
+    S = 'SillyTavern.getContext().extensionSettings.systemBlink'
+    page, errors = open_page(browser, f'fresh&lang={lang}')
+    setv = lambda k, v: ev(page, f"(async () => {{ const m = await import('/src/prefs.js'); await m.setValue({k!r}, {v}); }})()")
+    live = lambda: ev(page, 'window.__fakeST.livePrompt')
+    sent = lambda: ev(page, 'window.__fakeST.prompt')
+    rules = lambda: ev(page, "window.__extPrompts.system_blink_rules?.value || ''")
+    check(ev(page, f"{S}.genreMode") is False, 'genre mode is off by default')
+    check(ev(page, f"{S}.genreAlert") == 'toast', 'genre notices default: small notices')
+
+    # --- a quiet room: the awakening line, steady rules near the top
+    page.click('#sblink-fab'); page.click('[data-act="roomOn"]'); page.wait_for_timeout(600)
+    check(ev(page, "!!document.querySelector('#sblink-pop [data-pop=\"top\"]')"), 'awakening popup has [Begin as a story]')
+    shot(page, f'{lang}_070_01_awaken')
+    page.click('#sblink-pop [data-pop="ok"]'); page.wait_for_timeout(600)
+    close_pops(page)
+    if ev(page, "!!document.getElementById('sblink-win')"):
+        page.click('#sblink-win [data-act="close"]'); page.wait_for_timeout(200)
+    check('has just appeared to' in live(), 'quiet room: the AI hears the System has just appeared')
+    check('[SYS:' not in live(), 'quiet room: no System window lines')
+    r0 = ev(page, "window.__extPrompts.system_blink_rules")
+    check(r0 and r0['position'] == 0 and 'can see and hear' in r0['value'], f'steady rules go near the top of the prompt ({r0 and r0["position"]})')
+    check(ev(page, "window.__extPrompts.system_blink.position") == 1 and ev(page, "window.__extPrompts.system_blink.depth") == 1, 'the lines for this reply stay at depth 1')
+    before_rules = rules()
+    turn(page, 'Hm?', 'Something flickers at the edge of sight.')
+    check('has just appeared to' in sent(), 'the awakening line went with that reply')
+    check('has just appeared to' not in live(), 'and only once')
+    check(rules() == before_rules, 'the steady rules did not change between replies')
+    ev(page, 'window.__fakeST.swipe()'); page.wait_for_timeout(1300)
+    check('has just appeared to' in sent(), 'a swipe hears the one-time line again (0.7.0)')
+    check('has just appeared to' not in live(), 'after the swipe: not again')
+
+    # --- switching genre mode on: asked first
+    ev(page, 'window.__confirmAnswer = false'); setv('genreMode', 'true'); page.wait_for_timeout(300)
+    check(ev(page, f"{S}.genreMode") is False, 'answered no: stays off')
+    check(('장르 모드를 켤까요' if ko else 'Switch genre mode on') in (ev(page, 'window.__lastPopup') or ''), 'the question says what changes')
+    ev(page, 'window.__confirmAnswer = true'); setv('genreMode', 'true'); page.wait_for_timeout(300)
+    check(ev(page, f"{S}.genreMode") is True, 'answered yes: on')
+    check('This is a System story' in rules(), 'genre rules go near the top')
+    check('[SYS:QUEST]' not in live(), 'quests from before are not all shown at once')
+    gear = ev(page, "(async () => { const m = await import('/src/prefs.js'); return m.gearHtml ? m.gearHtml() : ''; })()")
+    check(('장르 모드' if ko else 'Genre mode') in (gear or ''), 'the ⚙ page has the genre mode part')
+
+    # --- a new day in genre mode: the quests wait for the scene
+    page.click('#sblink-fab'); page.click('#sblink-win [data-tab="status"]'); page.click('[data-act="nextDay"]'); page.click('[data-modal="yes"]'); page.wait_for_timeout(900)
+    names = ev(page, room_js("r.quests.filter(q => q.kind === 'daily' && q.day === r.day).map(q => q.name)"))
+    check(len(names) >= 2 and ev(page, room_js("r.quests.filter(q => q.kind === 'daily' && q.day === r.day).every(q => q.veil)")), f'new daily quests are veiled ({len(names)})')
+    check(not ev(page, "document.querySelector('#sblink-pop')?.textContent.includes('" + ('일일 퀘스트' if ko else 'Daily quests') + "')"), 'no arrival popup before the scene')
+    if ev(page, "!!document.getElementById('sblink-pop')"):
+        close_pops(page)
+    if not ev(page, "!!document.getElementById('sblink-win')"):
+        page.click('#sblink-fab')
+    page.click('#sblink-win [data-tab="quests"]'); page.wait_for_timeout(200)
+    check(ev(page, "!!document.querySelector('#sblink-win .sblink-incoming')"), 'Quests tab: "something is arriving"')
+    check(not any(ev(page, f"document.querySelector('#sblink-win').textContent.includes({n!r})") for n in names), 'Quests tab: the names stay hidden')
+    shot(page, f'{lang}_070_02_incoming')
+    page.click('#sblink-win [data-act="close"]'); page.wait_for_timeout(200)
+    lp = live()
+    check(all(f'[SYS:QUEST] DAILY · {n}' in lp for n in names), 'the AI is asked for the quest windows')
+    check('[SYS:NOTICE] DAY · ' in lp, 'and the new-day window')
+    check('[SYS:CLEAR]' in lp, 'and told how to show a clear')
+
+    # --- the scene: windows drawn, an invented one left as text, the quests open with a small notice
+    reply = '<p>Morning light.<br>[SYS:NOTICE] DAY · ' + ('2일차' if ko else 'Day 2') + '<br>' + '<br>'.join(f'[SYS:QUEST] DAILY · {n}' for n in names) + '<br>[SYS:QUEST] DAILY · Win a free car<br>"Again?"</p>'
+    turn(page, 'I wake up.', reply)
+    last = "document.querySelector('#chat .mes:last-child')"
+    check(ev(page, f"{last}.querySelectorAll('.sblink-qblock.sblink-qb-daily').length") == 1, 'the daily windows share one block')
+    check(ev(page, f"{last}.querySelectorAll('.sblink-qb-daily .sblink-qbrow').length") == len(names), 'only the real quests in it')
+    check(ev(page, f"{last}.querySelector('.sblink-qplain')?.textContent.includes('Win a free car')"), 'an invented quest stays plain text')
+    check(ev(page, f"!!{last}.querySelector('.sblink-qb-n-day')"), 'the new-day window')
+    check(not ev(page, room_js("r.quests.filter(q => q.kind === 'daily' && q.day === r.day).some(q => q.veil && !(q.toldKeys || []).length)")), 'the quests are told')
+    check(ev(page, "!!document.querySelector('.sblink-toast-more')"), 'a small notice with "See ›"')
+    shot(page, f'{lang}_070_03_scene')
+    page.click('.sblink-toast-more .sblink-toastmore'); page.wait_for_timeout(500)
+    check(ev(page, "!!document.querySelector('#sblink-pop .sblink-poplines')"), '"See ›" opens the big popup')
+    close_pops(page)
+    page.click('#sblink-fab'); page.click('#sblink-win [data-tab="quests"]'); page.wait_for_timeout(200)
+    check(not ev(page, "!!document.querySelector('#sblink-win .sblink-incoming')") and ev(page, f"document.querySelector('#sblink-win').textContent.includes({names[0]!r})"), 'Quests tab shows them now')
+    page.click('#sblink-win [data-act="close"]'); page.wait_for_timeout(200)
+    # the MutationObserver must not loop over the plain line
+    n0 = ev(page, f"{last}.querySelectorAll('.sblink-qplain').length")
+    page.wait_for_timeout(400)
+    check(n0 == 1 and ev(page, f"{last}.querySelectorAll('.sblink-qplain').length") == 1, 'the plain line stays put (no redraw loop)')
+
+    # --- the reply that brought them is deleted: hidden again, the next reply brings them (even without the lines)
+    ev(page, 'window.__fakeST.deleteLast()'); page.wait_for_timeout(500)
+    check(ev(page, room_js("r.quests.filter(q => q.kind === 'daily' && q.day === r.day).every(q => q.veil)")) and ev(page, "(async () => { const e = await import('/src/engine.js'); const r = e.chatView && (await import('/src/store.js')).room(); return r.quests.filter(q => q.kind === 'daily' && q.day === r.day).every(q => e.veiled(r, q)); })()"), 'deleting the scene hides them again')
+    check(all(f'[SYS:QUEST] DAILY · {n}' in live() for n in names), 'and asks for the lines again')
+    turn(page, 'Again.', 'She just yawns.')  # the AI left the lines out
+    check(ev(page, "(async () => { const e = await import('/src/engine.js'); const r = (await import('/src/store.js')).room(); return r.quests.filter(q => q.kind === 'daily' && q.day === r.day).every(q => !e.veiled(r, q)); })()"), 'a reply without the lines still opens them')
+
+    # --- CLEAR windows: confirmed by the check / not confirmed / invented
+    ev(page, f"window.__yes([{names[0]!r}])")
+    turn(page, 'I do it.', f'<p>Done.<br>[SYS:CLEAR] {names[0]}<br>[SYS:CLEAR] Won the lottery</p>')
+    page.wait_for_timeout(600)
+    check(ev(page, f"!!{last}.querySelector('.sblink-qb-clear.sblink-cl-ok')"), 'a clear the check confirmed: ✓')
+    check(ev(page, f"({last}.querySelector('.sblink-qb-clear .sblink-qbpts')?.textContent || '').includes('P')"), 'with its points')
+    check(ev(page, f"({last}.querySelector('.sblink-qplain')?.textContent || '').includes('Won the lottery')") and ev(page, f"{last}.querySelectorAll('.sblink-qb-clear').length") == 1, 'an invented clear stays plain text (one window only)')
+    ev(page, "window.__yes([])")
+    turn(page, 'And this.', f'<p>Maybe.<br>[SYS:CLEAR] {names[1]}</p>')
+    page.wait_for_timeout(600)
+    check(ev(page, f"!!{last}.querySelector('.sblink-qb-clear.sblink-cl-hold')"), 'a clear the check did not confirm: dim, no points')
+    shot(page, f'{lang}_070_04_clear')
+    # a swipe takes the confirmed clear's reply away; its window there goes too, the points with it
+    check(ev(page, room_js(f"r.ledger.some(e => e.questId === r.quests.find(q => q.name === {names[1]!r}).id)")) is False, 'no points for the unconfirmed one')
+
+    # --- notices as big popups (setting)
+    setv('genreAlert', "'popup'"); page.wait_for_timeout(200)
+    page.click('#sblink-fab'); page.click('#sblink-win [data-tab="status"]'); page.click('[data-act="nextDay"]'); page.click('[data-modal="yes"]'); page.wait_for_timeout(900)
+    close_pops(page)
+    if ev(page, "!!document.getElementById('sblink-win')"):
+        page.click('#sblink-win [data-act="close"]'); page.wait_for_timeout(200)
+    turn(page, 'Next morning.', 'Light again.')
+    page.wait_for_timeout(500)
+    check(ev(page, "!!document.querySelector('#sblink-pop .sblink-poplines')"), 'big-popup setting: the arrival popup comes with the scene')
+    close_pops(page)
+    setv('genreAlert', "'toast'")
+
+    # --- a new chat with this character: the guide first (someone new), then the question with [Begin as a story]
+    ev(page, f"{S}.guideSeen = false")
+    ev(page, "document.getElementById('send_textarea').value = 'my draft'")
+    ev(page, "window.__fakeST.openChat('Brand new')"); page.wait_for_timeout(1300)
+    txt = lambda: ev(page, "document.querySelector('#sblink-pop')?.textContent || ''")
+    check(('처음 오셨나요' if ko else 'First time here') in txt(), f'new user: the guide comes before the wake question ({txt()[:30]})')
+    page.click('#sblink-pop [data-pop="second"]'); page.wait_for_timeout(700)
+    check(ev(page, "!!document.querySelector('#sblink-pop [data-pop=\"top\"]')") and (('깨어나려' if ko else 'about to awaken') in txt() or 'AWAKEN' in txt()), 'then the wake question, with [Begin as a story]')
+    shot(page, f'{lang}_070_05_wake_q')
+    n_before = ev(page, 'SillyTavern.getContext().chat.length')
+    page.click('#sblink-pop [data-pop="top"]'); page.wait_for_timeout(2000)
+    check(ev(page, room_js('r.on')), 'woken')
+    calls = ev(page, 'window.__generateCalls || []')
+    check(len(calls) == 1 and calls[0]['opts'].get('automatic_trigger') is True, f'one story reply asked for, without a message of mine ({calls})')
+    check(ev(page, 'SillyTavern.getContext().chat.length') == n_before + 1 and not ev(page, 'SillyTavern.getContext().chat.at(-1).is_user'), 'the scene came as an AI reply')
+    check('[SYS:NOTICE] AWAKEN' in sent() and '[SYS:NOTICE] TUTORIAL' in sent(), 'it was told the awakening and the first tutorial step')
+    check(ev(page, "document.getElementById('send_textarea').value") == 'my draft', 'what I had typed stays in the box')
+    close_pops(page)
+
+    # --- genre mode off: told firmly for a while not to copy the old windows
+    setv('genreMode', 'false'); page.wait_for_timeout(200)
+    turn(page, 'Ok.', 'Fine.')
+    check('Genre mode is off now' in sent(), 'switched off: the AI is told not to write System windows')
+    check('This is a System story' not in rules(), 'the genre rules are gone')
+    check(not errors, f'no errors {errors[:3]}')
     page.close()
 
 

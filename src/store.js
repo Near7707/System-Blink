@@ -3,7 +3,7 @@
 
 export const MODULE = 'systemBlink';
 export const FORMAT = 2;
-export const VERSION = '0.6.11';
+export const VERSION = '0.7.0';
 export const TONES = ['game', 'star', 'threat'];
 export const DIFFS = ['off', 'easy', 'normal', 'hard', 'hell'];
 
@@ -24,6 +24,8 @@ const DEFAULTS = Object.freeze({
     suddenRest: 5,          // replies to rest after a sudden quest: 3 | 5 | 10
     hiddenOn: true,         // hidden quests can be found
     storyQuest: false,      // 0.6.0: the AI writes a [SYS:QUEST] line in the story when a quest arrives
+    genreMode: false,       // 0.7.0: genre mode — the System is the story's core: the AI writes System windows, characters react
+    genreAlert: 'toast',    // 0.7.0: in genre mode, arrivals / clears come as small notices (toast) or the big popups as before (popup)
     goalSuggest: 'manual',  // (before 0.6.2) auto | manual | off — replaced by goalAuto, kept unused
     goalAuto: true,         // 0.6.2: the System sets the main goal by itself (once per chat, after the tutorial)
     autoWake: {},           // 0.6.2: character / group key -> true (new chats wake by themselves) | false (switched off for it)
@@ -66,7 +68,7 @@ export function settings() {
 const ONE_OF = {
     tone: TONES, specMode: ['light', 'rich'], dayBasis: ['story', 'real'], judgeEvery: ['every', 'three', 'manual'],
     visibility: ['me', 'all'], questChance: ['off', 'some', 'more'], lang: ['en', 'ko'],
-    suddenFreq: ['off', 'rare', 'normal', 'often'], goalSuggest: ['auto', 'manual', 'off'], toastPos: ['column', 'input', 'screen'],
+    suddenFreq: ['off', 'rare', 'normal', 'often'], goalSuggest: ['auto', 'manual', 'off'], toastPos: ['column', 'input', 'screen'], genreAlert: ['toast', 'popup'],
 };
 
 /**
@@ -74,7 +76,7 @@ const ONE_OF = {
  * (null = follows the shared settings), so branching, backups and deleting a chat take it along.
  */
 export const ROOM_KEYS = Object.freeze(['pointRate', 'dayBasis', 'judgeEvery', 'visibility', 'questChance',
-    'suddenFreq', 'suddenRest', 'hiddenOn', 'storyQuest', 'goalAuto', 'specOn', 'specMode', 'specGift',
+    'suddenFreq', 'suddenRest', 'hiddenOn', 'storyQuest', 'genreMode', 'goalAuto', 'specOn', 'specMode', 'specGift',
     'useDefaults', 'oddities', 'profileId']);
 
 /**
@@ -178,7 +180,8 @@ export function newRoom() {
         spend: [],              // { id, what, pts, at }
         bag: [],                // { id, name, desc, rarity, icon, kind, count }
         uses: [],               // { id, name, rarity, icon, desc, at, key (my message) | null }
-        notes: [],              // one-time notes for the AI: { id, text, at, deliveredKey }
+        notes: [],              // one-time notes for the AI: { id, text, at, deliveredKey, dk: [AI replies it went with] }
+                                // 0.7.0: + gtext / line — the genre-mode wording and the exact System window line
         lifeLog: [],            // every daily-life change, kept for good: { key, t, life, lifeFrom }
         checks: [],             // { key, t, quests: [{ questId, reason }], life: {}, days, dayReason, nextTime, dismissed }
         shop: { standing: [], dailyDay: 0, daily: [] },
@@ -199,6 +202,8 @@ export function newRoom() {
         suddenRest: 0,          // replies left before another sudden quest may come
         sinceCheck: 0,          // AI replies since the last check (for "every 3rd")
         lastCheckKey: '',
+        genreWas: '',           // 0.7.0: genre mode as the last story lines saw it: '' (not yet) | 'on' | 'off' (to notice a switch)
+        genreOffAt: -1,         // 0.7.0: chat length when genre mode was switched off (the AI is told firmly for a while)
     };
 }
 
@@ -237,7 +242,7 @@ function fixOwn(o) {
     if ('suddenRest' in o && ![3, 5, 10].includes(Number(o.suddenRest))) delete o.suddenRest;
     for (const k of ['pointRate', 'suddenRest']) if (k in o) o[k] = Number(o[k]);
     if ('profileId' in o && typeof o.profileId !== 'string') delete o.profileId;
-    for (const k of ['hiddenOn', 'storyQuest', 'goalAuto', 'specOn', 'specGift', 'useDefaults', 'oddities']) if (k in o && typeof o[k] !== 'boolean') delete o[k];
+    for (const k of ['hiddenOn', 'storyQuest', 'genreMode', 'goalAuto', 'specOn', 'specGift', 'useDefaults', 'oddities']) if (k in o && typeof o[k] !== 'boolean') delete o[k];
 }
 
 let saveFailedOnce = false;

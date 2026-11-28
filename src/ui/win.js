@@ -8,7 +8,7 @@ import {
     standingItems, dailyReady, stockDaily, restockStanding, RESTOCK_COST, buy, useItem, tutorialStep, skipTutorial, switchOn, rate, bus,
     goalNow, condsOf, suddenLeft, setGoal, editGoal, nextStage, isMakingStage, goalLocked, isGivingGoal, goalGiveFailed, giveGoal,
     diffOf, penaltyFor, debuffsNow, priceOf, penaltyQuests, toneOf, warnFor, warnCount, WARN_MAX,
-    skillsOf, hiddenOpen, seeSkill, useSkill, openGacha, isDrawing, gradeRarity,
+    skillsOf, hiddenOpen, seeSkill, useSkill, openGacha, isDrawing, gradeRarity, veiled,
 } from '../engine.js';
 import { runCheck, isChecking, cancelCheck } from '../ai.js';
 import { gearHtml, setValue, runButton, toggleGroup, openGroup, ROWS, getValue, setScope } from '../prefs.js';
@@ -256,7 +256,7 @@ function statusTab(r) {
     const tut = r.tutorial;
     const tutDone = tut.done.filter(Boolean).length;
     const sub = tut.state === 'active' ? t('tut_progress', { n: tutDone }) : t('day_n', { n: r.day });
-    const list = todays(r);
+    const list = todays(r).filter(q => !veiled(r, q, view));
     const done = list.filter(q => questState(r, q, view).status === 'done').length;
     const life = lifeNow(r, view);
     const cell = (k, ic) => `<div class="sblink-lifecell">${icon(ic)}<div class="sblink-code">${esc(t(`life_${k}`))}</div><div class="sblink-lifeval sblink-ell">${esc(k === 'date' ? (life.date || t('day_n', { n: r.day })) : (life[k] || '—'))}</div></div>`;
@@ -530,6 +530,10 @@ function goalBlock(r, view) {
           <button type="button" class="sblink-btn sblink-btn-sm" data-act="goalNew"><span class="sblink-ell">${esc(t('goal_set'))}</span></button></div>`;
     }
     const g = goalNow(r, view);
+    // 0.7.0 genre mode: a goal (or stage) the story has not brought in yet
+    if (g.current && veiled(r, g.current, view)) {
+        return sec(t('main_goal'), '', 'sblink-goalhead') + incomingBox();
+    }
     let now = '';
     if (g.complete) now = `<span class="sblink-code sblink-clear">CLEAR</span> <span class="sblink-ell">${esc(t('goal_complete'))}</span>`;
     else if (g.current) now = `<span class="sblink-code">${esc(t('stage_now'))} ▸</span> <span class="sblink-ell">${esc(g.current.name)}</span><b class="sblink-pts">+${rate(g.current.reward)}P</b>`;
@@ -541,6 +545,9 @@ function goalBlock(r, view) {
             <div class="sblink-goalnow">${now}<span>▸</span></div>
           </button>`;
 }
+
+/** 0.7.0: something is on its way (genre mode: shown once the story brings it in). */
+const incomingBox = () => `<div class="sblink-incoming"><span class="sblink-incdots"><i></i><i></i><i></i></span><span class="sblink-ell">${esc(t('incoming'))}</span></div>`;
 
 function questsTab(r) {
     const view = chatView();
@@ -554,15 +561,20 @@ function questsTab(r) {
                <div class="sblink-tutnext"><span class="sblink-code">${next >= 0 ? 'NEXT' : 'CLEAR'}</span> ▸ <span class="sblink-ell">${esc(next >= 0 ? t(`tut_${next}`) : '')}</span></div>`;
     }
     body += goalBlock(r, view);
-    const shown = (q) => q.day === r.day || ['active', 'offered'].includes(questState(r, q, view).status);
+    const seen = (q) => !veiled(r, q, view);
+    const shown = (q) => seen(q) && (q.day === r.day || ['active', 'offered'].includes(questState(r, q, view).status));
+    // a hidden / penalty quest on its way: only "something is coming" (not what kind)
+    if (r.quests.some(q => (q.kind === 'hidden' || q.kind === 'penalty') && !seen(q) && questState(r, q, view).status === 'active')) body += incomingBox();
     const sudden = r.quests.filter(q => q.kind === 'sudden' && shown(q));
     if (sudden.length) body += sec(t('sudden_quests')) + sudden.map(q => questRow(r, q, view)).join('');
-    const pq = penaltyQuests(r);
+    const pq = penaltyQuests(r).filter(seen);
     if (pq.length) body += sec(t('penalty_quests'), '', 'sblink-penhead') + pq.map(q => questRow(r, q, view)).join('');
-    const list = todays(r);
+    const all = todays(r);
+    const list = all.filter(seen);
     const done = list.filter(q => questState(r, q, view).status === 'done').length;
     body += sec(t(toneOf(r) === 'threat' ? 'daily_quests_threat' : 'daily_quests'), `<span class="sblink-code">${esc(t('day_n', { n: r.day }))} · ${done} / ${list.length}</span>`);
-    if (!list.length) body += `<div class="sblink-hint sblink-center">${esc(t('no_quests'))}</div>`;
+    if (list.length < all.length) body += incomingBox();
+    else if (!list.length) body += `<div class="sblink-hint sblink-center">${esc(t('no_quests'))}</div>`;
     body += list.map(q => questRow(r, q, view)).join('');
     const hidden = r.quests.filter(q => q.kind === 'hidden' && shown(q));
     if (hidden.length) body += sec(t('hidden_quests')) + hidden.map(q => questRow(r, q, view)).join('');

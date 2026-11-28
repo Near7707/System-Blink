@@ -212,6 +212,22 @@ const EN = {
     shop_title_game: "Today's Shop", shop_title_star: "Goblin's Bundle", shop_title_threat: 'Shady Black Market',
     skill_from_spectator: 'Spectator gift', pop_skill_spectator: '[A spectator sent you a skill]', skill_from_star: 'Constellation gift', pop_skill_star: '[A constellation sent you a skill]', log_cheer_star: 'Constellation', card_tip: 'Sponsor · {name}',
     log_cheer: 'Spectator', log_warn: '+1 warning', log_big: 'Big event (warnings full)', log_erase: 'Warning erased',
+    // 0.7.0 genre mode
+    grp_genre: 'Genre mode',
+    set_genreMode: 'Genre mode (a System story)',
+    set_genreMode_hint: 'The System becomes the core of the story: the AI writes System windows into its replies and the characters see them and react. ⚠ So the story\'s mood and direction may change — System talk the character card never had may come up, and even a slice-of-life story may turn into a System story. No extra AI calls; each reply sends a little more text. Switching it off goes back to quiet from the next reply (what is already written stays).',
+    set_genreAlert: 'Notices in genre mode', set_genreAlert_hint: 'Arrivals, clears and new skills: a small notice (its "See ›" opens the big popup), or the big popups as before. Sudden quests, failures and waking up always use the big popup.',
+    opt_genreAlert_toast: 'Small notices', opt_genreAlert_popup: 'Big popups',
+    genre_on_q: '[Switch genre mode on?]',
+    guide_genre: '[Genre mode]', guide_genre_body: 'Off by default. Switched on, the System becomes the heart of the story: System windows appear in the replies and the characters react to them. The story\'s mood and direction may change, so try it in a chat where you want a System story.',
+    wake_story: '[Begin as a story]', see_more: 'See ›',
+    toast_quests_in: 'Quests arrived · {n}', toast_goal_given: 'Main goal · {title}', toast_stage_clear: 'Stage cleared · {name}',
+    toast_hidden: 'Hidden quest · {name}', toast_skill: 'Skill gained · {name}', toast_tut_done: 'Tutorial complete',
+    incoming: '[Something is arriving…]', panel_incoming: 'Incoming',
+    qb_clear_game: '[Quest complete]', qb_clear_star: '[Scenario cleared]', qb_clear_threat: '[Task accomplished]',
+    qb_clear_wait: 'Checking…', qb_clear_ok: 'Confirmed', qb_clear_hold: 'Not confirmed · clear it by hand in the Quests tab',
+    qb_n_awaken: '[The System has awakened]', qb_n_tutorial: '[Tutorial]', qb_n_item: '[Item used]', qb_n_skill: '[Skill activated]', qb_n_day: '[A new day begins]',
+    qb_day_line: 'Day {n}',
 };
 
 const KO = {
@@ -416,6 +432,22 @@ const KO = {
     shop_title_game: '오늘의 상점', shop_title_star: '도깨비 보따리', shop_title_threat: '수상한 암시장',
     skill_from_spectator: '구경꾼 선물', pop_skill_spectator: '[구경꾼이 스킬을 선물했습니다]', skill_from_star: '성좌 선물', pop_skill_star: '[성좌가 스킬을 선물했습니다]', log_cheer_star: '성좌', card_tip: '후원 · {name}',
     log_cheer: '구경꾼', log_warn: '경고 +1', log_big: '큰 사건 (경고 누적)', log_erase: '경고 지움',
+    // 0.7.0 장르 모드
+    grp_genre: '장르 모드',
+    set_genreMode: '장르 모드 (시스템물)',
+    set_genreMode_hint: '시스템이 이야기의 중심 설정이 돼요. AI가 본문에 시스템창을 직접 쓰고, 캐릭터가 시스템을 보고 반응해요. ⚠ 그래서 이야기 분위기와 전개 방향이 달라질 수 있어요 — 캐릭터 카드에 없던 시스템 이야기가 생기고, 일상물도 시스템물처럼 흘러갈 수 있어요. 따로 부르는 AI 호출은 늘지 않고, 답장마다 보내는 글이 조금 늘어요. 끄면 다음 답장부터 조용히 돌아가요(이미 쓰인 본문은 그대로).',
+    set_genreAlert: '장르 모드 알림', set_genreAlert_hint: '퀘스트 도착·깸·스킬 얻음을 작은 알림으로(알림의 "보기 ›"를 누르면 큰 팝업), 또는 예전처럼 큰 팝업으로. 돌발 퀘스트·실패·깨우기는 늘 큰 팝업이에요.',
+    opt_genreAlert_toast: '작은 알림', opt_genreAlert_popup: '큰 팝업 그대로',
+    genre_on_q: '[장르 모드를 켤까요?]',
+    guide_genre: '[장르 모드]', guide_genre_body: '처음엔 꺼져 있어요. 켜면 시스템이 이야기의 중심이 돼요: 답장 본문에 시스템창이 뜨고 캐릭터가 거기에 반응해요. 분위기와 전개 방향이 달라질 수 있으니, 시스템물로 즐기고 싶은 채팅방에서 켜 보세요.',
+    wake_story: '[이야기로 시작]', see_more: '보기 ›',
+    toast_quests_in: '퀘스트 도착 · {n}개', toast_goal_given: '메인 목표 · {title}', toast_stage_clear: '단계 완료 · {name}',
+    toast_hidden: '히든 퀘스트 · {name}', toast_skill: '스킬 획득 · {name}', toast_tut_done: '튜토리얼 완료',
+    incoming: '[무언가 도착하고 있습니다…]', panel_incoming: '수신 중',
+    qb_clear_game: '[퀘스트를 완료했습니다]', qb_clear_star: '[시나리오를 클리어했습니다]', qb_clear_threat: '[과제를 완수했습니다]',
+    qb_clear_wait: '판정 중…', qb_clear_ok: '확인됨', qb_clear_hold: '판정 보류 · 직접 완료는 퀘스트 탭에서',
+    qb_n_awaken: '[시스템이 깨어났습니다]', qb_n_tutorial: '[튜토리얼]', qb_n_item: '[아이템을 사용했습니다]', qb_n_skill: '[스킬이 발동되었습니다]', qb_n_day: '[새로운 하루가 시작되었습니다]',
+    qb_day_line: '{n}일차',
 };
 
 const DICT = { en: EN, ko: KO };

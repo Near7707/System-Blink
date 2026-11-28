@@ -995,3 +995,29 @@
 /* 0.6.9: "this chat only" at the top; no skills yet = the hint alone, centred */
 .sblink-ownrow { margin-top: 4px; padding-bottom: 2px; border-bottom: 1px solid rgba(var(--sb-acc-rgb), 0.15); }
 .sblink-skillnone { margin: 14px 0 6px; text-align: center; }
+
+/* ---------- 0.7.0 genre mode ---------- */
+/* a quest cleared in the story: the extension's judgment shows on the window */
+.sblink-qblock.sblink-qb-clear .sblink-qbdia { font-size: 12px; font-weight: 800; }
+.sblink-qblock.sblink-cl-wait { opacity: 0.6; box-shadow: none; }
+.sblink-qblock.sblink-cl-wait .sblink-qbpts { letter-spacing: 0.2em; }
+.sblink-qblock.sblink-cl-ok { box-shadow: 0 0 18px rgba(var(--qb-rgb), 0.35); }
+.sblink-qblock.sblink-cl-hold { opacity: 0.5; filter: saturate(0.35); box-shadow: none; border-style: dashed; }
+/* plain System lines the extension could not match: left as text */
+.sblink-qplain { font-style: inherit; }
+/* a small notice with "See ›" (the big popup it stands for) */
+.sblink-toast.sblink-toast-more { pointer-events: auto; }
+.sblink-toastmore { flex: none; margin-left: auto; min-height: 28px; padding: 0 8px; background: rgba(var(--sb-acc-rgb), 0.14); border: 1px solid var(--sb-acc-dim); color: var(--sb-acc); font-size: 12px; font-weight: 700; white-space: nowrap; cursor: pointer; clip-path: var(--sb-cut-s); touch-action: manipulation; }
+/* [Begin as a story]: one wide button above the others */
+.sblink-btn.sblink-btn-top { display: flex; width: 100%; justify-content: center; margin: 12px 0 0; min-height: 44px; font-size: 15px; }
+.sblink-btn-top + .sblink-popbtns { margin-top: 8px; }
+/* something is on its way (shown once the story brings it in) */
+.sblink-incoming { display: flex; align-items: center; gap: 8px; margin: 6px 0; padding: 9px 10px; border: 1px dashed rgba(var(--sb-acc-rgb), 0.45); color: var(--sb-acc); background: rgba(var(--sb-acc-rgb), 0.05); font-size: 13px; }
+.sblink-incoming > .sblink-ell { flex: 1 1 auto; min-width: 0; }
+.sblink-incdots { display: inline-flex; gap: 3px; flex: none; }
+.sblink-incdots i { width: 5px; height: 5px; background: var(--sb-acc); transform: rotate(45deg); opacity: 0.35; }
+.sblink-moving .sblink-incdots i { animation: sblink-incdot 1.2s infinite; }
+.sblink-moving .sblink-incdots i:nth-child(2) { animation-delay: 0.2s; }
+.sblink-moving .sblink-incdots i:nth-child(3) { animation-delay: 0.4s; }
+@keyframes sblink-incdot { 30% { opacity: 1; } }
+.sblink-qp-in .sblink-qp-name, .sblink-qp-incoming { color: var(--sb-acc); opacity: 0.85; }

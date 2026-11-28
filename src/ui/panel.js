@@ -5,7 +5,7 @@
 
 import { t } from '../i18n.js';
 import { settings, room, currentChatId, device, saveDevice } from '../store.js';
-import { active, chatView, todays, questState, condsOf, penaltyQuests, goalNow, suddenLeft, rate, toneOf } from '../engine.js';
+import { active, chatView, todays, questState, condsOf, penaltyQuests, goalNow, suddenLeft, rate, toneOf, veiled } from '../engine.js';
 import { esc, $id, viewport, safeInsets, isPhone, inputTop, motionOn } from './util.js';
 
 const W = 248;          // the PC panel's width
@@ -32,32 +32,35 @@ function savePc(p) { const d = device(); d.panel = p; saveDevice(d); }
 
 /** What is in progress now, in the order the panel shows it. */
 function rows(r, view) {
-    const out = { goal: null, sudden: [], penalty: [], hidden: [], daily: [], dailyDone: 0, tut: null };
+    const out = { goal: null, sudden: [], penalty: [], hidden: [], daily: [], dailyDone: 0, tut: null, incoming: 0 };
+    // 0.7.0 genre mode: quests not in the story yet only show that something is on its way
+    const hid = (q) => { if (!veiled(r, q, view)) return false; out.incoming += 1; return true; };
     if (r.tutorial?.state === 'active') {
         const next = r.tutorial.done.findIndex(x => !x);
         if (next >= 0) out.tut = { n: r.tutorial.done.filter(Boolean).length, text: t(`tut_${next}`) };
     }
     if (r.goal) {
         const g = goalNow(r, view);
-        if (g.current && !g.complete) {
+        if (g.current && !g.complete && !hid(g.current)) {
             const st = questState(r, g.current, view);
             const c = condsOf(g.current);
             out.goal = { q: g.current, done: g.done, total: g.total, title: r.goal.title, conds: c ? `${st.condDone.filter(Boolean).length} / ${c.length}` : '' };
         }
     }
     for (const q of r.quests) {
-        if (q.kind !== 'sudden' && q.kind !== 'hidden') continue;
+        if ((q.kind !== 'sudden' && q.kind !== 'hidden') || hid(q)) continue;
         const st = questState(r, q, view).status;
         if (q.kind === 'sudden' && (st === 'active' || st === 'offered')) out.sudden.push({ q, st, left: suddenLeft(q, view) });
         if (q.kind === 'hidden' && st === 'active') out.hidden.push({ q });
     }
-    for (const q of penaltyQuests(r)) if (questState(r, q, view).status === 'active') out.penalty.push({ q });
+    for (const q of penaltyQuests(r)) if (!hid(q) && questState(r, q, view).status === 'active') out.penalty.push({ q });
     for (const q of todays(r)) {
+        if (hid(q)) continue;
         const st = questState(r, q, view).status;
         if (st === 'done') out.dailyDone += 1;
         out.daily.push({ q, st });
     }
-    out.any = !!(out.tut || out.goal || out.sudden.length || out.penalty.length || out.hidden.length || out.daily.length);
+    out.any = !!(out.tut || out.goal || out.sudden.length || out.penalty.length || out.hidden.length || out.daily.length || out.incoming);
     return out;
 }
 
@@ -73,11 +76,13 @@ function summary(x) {
     if (x.daily.length) bits.push(esc(t('panel_daily', { n: x.dailyDone, all: x.daily.length })));
     if (!bits.length && x.tut) bits.push(esc(t('panel_tut', { n: x.tut.n })));
     if (!bits.length && x.hidden.length) bits.push(`<span class="sblink-qp-purple">${esc(t('panel_hidden'))}</span>`);
+    if (x.incoming) bits.push(`<span class="sblink-qp-incoming">${esc(t('panel_incoming'))}</span>`);
     return bits.join('<span class="sblink-qp-sep"> · </span>');
 }
 
 function listHtml(x) {
     let h = '';
+    if (x.incoming) h += `<div class="sblink-qp-row sblink-qp-in"><div class="sblink-qp-k">INCOMING</div><div class="sblink-qp-name sblink-ell">${esc(t('incoming'))}</div></div>`;
     if (x.tut) h += `<div class="sblink-qp-row" data-qp="tut"><div class="sblink-qp-k">TUTORIAL · ${x.tut.n} / 4</div><div class="sblink-qp-name sblink-ell">${esc(x.tut.text)}</div></div>`;
     if (x.goal) {
         const g = x.goal;

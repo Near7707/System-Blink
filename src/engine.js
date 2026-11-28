@@ -3,6 +3,7 @@
 // Purchases, manual clears and the tutorial reward always count.
 
 import { ctx, settings, conf, save, uid, room, currentChatId, ownerKey, DIFFS, TONES } from './store.js';
+import { t } from './i18n.js';
 import { standingDefaults, dailyPool, questPool, penaltyPool, parseCustomShop, shuffle, TUTORIAL_REWARD, GRADES, LOW_GRADES, skillPool, gachaOddPool, eraserItem, specLine, specNames } from './data.js';
 
 // ---------- a tiny event bus (engine → screens) ----------
@@ -71,6 +72,19 @@ function sameRoom(chatId, r) {
 
 // ---------- the room ----------
 export function active(r = room()) { return !!(conf().enabled && r?.on); }
+
+/** 0.7.0: genre mode in this chat — the System is the story's core (the AI writes its windows, characters react). */
+export const genreOn = (r = room()) => !!(r && active(r) && conf(r).genreMode);
+
+/**
+ * 0.7.0: in genre mode a quest the System hands out stays hidden (Quests tab, panel, arrival notice) until the
+ * reply that brings it into the story is there. It goes with that reply: a swipe, regenerate or delete of the
+ * reply hides it again, and the next reply brings it. A reply that left the line out still counts (it opens).
+ */
+export function veiled(r, q, view = chatView()) {
+    if (!q?.veil || !r || !conf(r).genreMode) return false;
+    return !(q.toldKeys || []).some(k => view.index.has(k));
+}
 
 export function ownerName(r = room()) {
     if (r?.name) return r.name;
@@ -275,11 +289,12 @@ export function goalNow(r = room(), view = chatView()) {
 /** Every quest that can still be cleared now (what the story check asks about). */
 export function openQuests(r = room(), view = chatView()) {
     if (!r) return [];
-    const out = todays(r).filter(q => questState(r, q, view).status === 'active');
-    for (const q of penaltyQuests(r)) if (questState(r, q, view).status === 'active') out.push(q);
-    for (const q of r.quests) if ((q.kind === 'sudden' || q.kind === 'hidden') && questState(r, q, view).status === 'active') out.push(q);
+    // 0.7.0: a quest still hidden (genre mode, not in the story yet) cannot be cleared yet
+    const out = todays(r).filter(q => questState(r, q, view).status === 'active' && !veiled(r, q, view));
+    for (const q of penaltyQuests(r)) if (questState(r, q, view).status === 'active' && !veiled(r, q, view)) out.push(q);
+    for (const q of r.quests) if ((q.kind === 'sudden' || q.kind === 'hidden') && questState(r, q, view).status === 'active' && !veiled(r, q, view)) out.push(q);
     const g = goalNow(r, view).current;
-    if (g) out.push(g);
+    if (g && !veiled(r, g, view)) out.push(g);
     return out;
 }
 
@@ -347,13 +362,13 @@ export function needsEveryCheck(r = room(), view = chatView()) {
 
 // ----- main goal -----
 /** Set (or replace) the main goal with its first stage. */
-export function setGoal({ title, total, stage }, chatId = currentChatId()) {
+export function setGoal({ title, total, stage }, chatId = currentChatId(), veil = false) {
     const r = room(chatId);
     if (!r) return null;
     // stages of an old goal stay only if they gave points (so points are not lost)
     r.quests = r.quests.filter(q => q.kind !== 'goal' || r.ledger.some(e => e.questId === q.id && !e.undone));
     r.goal = { id: uid('g'), title: String(title || '').slice(0, 80), total: Math.max(2, Math.min(5, Math.round(Number(total) || 4))), done: false };
-    addStage(r, 0, stage);
+    addStage(r, 0, stage, veil);
     save(); changed();
     return r.goal;
 }
@@ -378,7 +393,7 @@ export function editGoal({ title, total, stage }) {
 
 const stageReward = (v, i) => Math.min(300, Math.max(100, Math.round(Number(v) || (100 + i * 50))));
 
-function addStage(r, i, stage) {
+function addStage(r, i, stage, veil = false) {
     const conds = (stage?.conds || []).map(c => String(c || '').trim().slice(0, 80)).filter(Boolean).slice(0, 3);
     const diff = diffOf(r);
     const q = {
@@ -386,6 +401,7 @@ function addStage(r, i, stage) {
         reward: withMul(stageReward(stage?.reward, i), diff), day: r.day, failed: false, diff,
     };
     if (conds.length > 1) q.conds = conds;
+    if (veil) q.veil = true;
     r.quests = r.quests.filter(x => !(x.kind === 'goal' && x.goalId === r.goal.id && x.stage === i));
     r.quests.push(q);
     return q;
@@ -416,7 +432,7 @@ async function makeNextStage(chatId) {
     const rr = sameRoom(chatId, r);
     if (!rr?.goal || !made?.name) { changed(); return null; }
     if (goalNow(rr).list.length !== i) return null;
-    const q = addStage(rr, i, made);
+    const q = addStage(rr, i, made, genreOn(rr));
     save(); changed();
     if (chatId === currentChatId()) bus.emit('stageArrived', q);
     return q;
@@ -480,6 +496,7 @@ export function storeCheck(chatId, key, res) {
     if (res.hidden?.name && r.roll?.key === key && r.roll.hidden) {
         const diff = diffOf(r);
         const q = { id: uid('q'), kind: 'hidden', name: String(res.hidden.name).slice(0, 80), reward: withMul(Math.min(200, Math.max(50, Math.round(Number(res.hidden.reward) || 100))), diff), day: r.day, failed: false, why: String(res.hidden.why || '').slice(0, 120), fromKey: key, diff };
+        if (genreOn(r)) q.veil = true;
         r.quests.push(q);
         out.hidden = q;
     }
@@ -580,9 +597,9 @@ export async function nextDay(days = 1, nextTime = '') {
     if (worst === 'hell') lost = loseItem(r);
     const life = lifeNow(r, view);
     r.lifeBase = { ...life, time: nextTime || '', at: now };
-    r.notes.push({ id: uid('n'), text: days === 1 ? 'One day has passed in the story. It is now a new day.' : `${days} days have passed in the story.`, at: now, deliveredKey: null });
-    if (lost) r.notes.push({ id: uid('n'), text: `As a penalty, the System took "${lost.name}" from ${ownerName(r)}'s bag. It is gone.`, at: now, deliveredKey: null });
-    if (r.notes.length > 10) r.notes.splice(0, r.notes.length - 10);
+    addNote(r, days === 1 ? 'One day has passed in the story. It is now a new day.' : `${days} days have passed in the story.`,
+        { kind: 'DAY', text: t('qb_day_line', { n: r.day }) });
+    if (lost) addNote(r, `As a penalty, the System took "${lost.name}" from ${ownerName(r)}'s bag. It is gone.`);
     r.shop.daily = []; r.shop.dailyDay = 0;
     save(); changed();
     bus.emit('dayMoved', { days, failed, pen, debuff, lost, chatId });
@@ -616,6 +633,7 @@ export async function newQuests(chatId = currentChatId(), { replaceOpen = false,
     if (replaceOpen) r.quests = r.quests.filter(q => q.kind !== 'daily' || q.day !== r.day || keep.includes(q));
     const diff = diffOf(r);
     const tone = toneOf(r);
+    const veil = genreOn(r);
     let made = null;
     try { made = await askFor(chatId, 'quests', { count: want, avoid: keep.map(q => q.name), diff, penalty, tone }); } catch (e) { console.warn('[System Blink] quests', e); }
     const rr = sameRoom(chatId, r);
@@ -624,6 +642,7 @@ export async function newQuests(chatId = currentChatId(), { replaceOpen = false,
     let list = Array.isArray(aiList) && aiList.length ? aiList : fallbackQuests(want, keep.map(q => q.name), diff, rr);
     list = list.slice(0, want).map(q => {
         const o = { id: uid('q'), kind: 'daily', name: String(q.name).slice(0, 80), reward: withMul(Math.min(30, Math.max(10, Math.round(Number(q.reward) || 10))), diff), day: rr.day, failed: false, diff, tone };
+        if (veil) o.veil = true;
         const conds = cleanConds(q.conds, diff);
         if (conds) o.conds = conds;
         return o;
@@ -632,6 +651,7 @@ export async function newQuests(chatId = currentChatId(), { replaceOpen = false,
     if (penalty) {
         const name = made?.penalty?.name || shuffle(penaltyPool(langOf()))[0].name;
         const pq = { id: uid('q'), kind: 'penalty', name: String(name).slice(0, 80), reward: 0, day: rr.day, failed: false };
+        if (veil) pq.veil = true;
         rr.quests.push(pq);
         const d = [...rr.debuffs].reverse().find(x => x.day === rr.day && !x.questId);
         if (d) d.questId = pq.id;
@@ -824,7 +844,7 @@ export const STORY_KIND = { daily: 'DAILY', sudden: 'SUDDEN', hidden: 'HIDDEN', 
 
 /** Quests running now that the story has not shown yet (a re-rolled reply shows them again). */
 export function questsToTell(r = room(), view = chatView(), redoKey = null) {
-    if (!r || !conf(r).storyQuest) return [];
+    if (!r || !(conf(r).storyQuest || conf(r).genreMode)) return [];
     const list = [];
     const g = r.goal ? goalNow(r, view) : null;
     if (g?.current) list.push(g.current);
@@ -838,12 +858,18 @@ export function questsToTell(r = room(), view = chatView(), redoKey = null) {
     return list.filter(q => q.told !== 'old' && !(q.toldKeys || []).some(k => k !== redoKey && view.index.has(k)));
 }
 
-/** These quest lines went out with this AI reply. */
+/**
+ * These quest lines went out with this AI reply. Returns the quests this reply brought out of hiding (genre mode).
+ * 0.7.0: up to 20 replies kept per quest (was 6: swiping 7 times and going back showed a line twice).
+ */
 export function markTold(key, ids) {
     const r = room();
-    if (!r || !key || !ids?.length) return;
-    for (const q of r.quests) if (ids.includes(q.id)) q.toldKeys = [...(q.toldKeys || []).filter(k => k !== key), key].slice(-6);
+    if (!r || !key || !ids?.length) return [];
+    const view = chatView();
+    const was = new Set(r.quests.filter(q => ids.includes(q.id) && veiled(r, q, view)).map(q => q.id));
+    for (const q of r.quests) if (ids.includes(q.id)) q.toldKeys = [...(q.toldKeys || []).filter(k => k !== key), key].slice(-20);
     save();
+    return r.quests.filter(q => was.has(q.id) && !veiled(r, q, view));
 }
 
 /** Turning the setting on: quests already running are not shown all at once in the next reply. */
@@ -858,13 +884,51 @@ export function skipOldTold(chatId = null) {
     save();
 }
 
-/** Notes went out with this AI reply. */
+/** Notes went out with this AI reply (each reply kept, like the quest lines: a swipe sends them again). */
 export function markDelivered(key, sentIds) {
     const r = room();
     if (!r || !key || !sentIds?.length) return;
-    for (const n of r.notes) if (sentIds.includes(n.id)) n.deliveredKey = key;
+    for (const n of r.notes) if (sentIds.includes(n.id)) { n.deliveredKey = key; n.dk = [...(n.dk || []).filter(k => k !== key), key].slice(-20); }
     save();
 }
+
+/** A note waits to go out: none of the replies it went with is there (the one being replaced does not count). */
+export function noteDue(n, view = chatView(), redoKey = null) {
+    const keys = n.dk?.length ? n.dk : n.deliveredKey ? [n.deliveredKey] : [];
+    return !keys.some(k => k !== redoKey && view.index.has(k));
+}
+
+/**
+ * A one-time note for the next story reply. `win` (0.7.0, genre mode): the exact System window line
+ * ({ kind: AWAKEN | TUTORIAL | DAY, text }) and the genre wording `gtext` used instead of `text`.
+ */
+export function addNote(r, text, win = null, gtext = '') {
+    const n = { id: uid('n'), text, at: Date.now(), deliveredKey: null };
+    if (win) n.line = `[SYS:NOTICE] ${win.kind} · ${String(win.text).replace(/[\r\n]+/g, ' ')}`;
+    if (gtext) n.gtext = gtext;
+    r.notes.push(n);
+    if (r.notes.length > 10) r.notes.splice(0, r.notes.length - 10);
+    return n;
+}
+
+/**
+ * 0.7.0: genre mode as this chat's story lines see it. Switched on: quests already running are not all shown at
+ * once. Switched off: for a while the AI is told firmly not to copy the System windows of earlier replies.
+ */
+export function genreSync(r, view = chatView()) {
+    if (!r) return;
+    const now = conf(r).genreMode ? 'on' : 'off';
+    if (r.genreWas === now) return;
+    if (r.genreWas === 'off' && now === 'on') {
+        if (!conf(r).storyQuest) for (const q of r.quests) if (!q.toldKeys?.length) q.told = 'old';
+        r.genreOffAt = -1;
+    }
+    if (r.genreWas === 'on' && now === 'off') r.genreOffAt = view.length;
+    r.genreWas = now;
+    save();
+}
+/** Replies since genre mode was switched off are still few: the "no System windows" line is firm. */
+export const genreJustOff = (r, view = chatView()) => !!r && !conf(r).genreMode && r.genreOffAt >= 0 && view.length - r.genreOffAt < 12;
 
 // ---------- tutorial ----------
 export function tutorialStep(r, n) {
@@ -873,7 +937,19 @@ export function tutorialStep(r, n) {
     for (let i = 0; i < n; i++) if (!t.done[i]) return; // in order
     t.done[n] = true;
     if (t.done.every(Boolean)) finishTutorial(r);
-    else bus.emit('tutorialStep', n);
+    else { tutorialNote(r); bus.emit('tutorialStep', n); }
+}
+
+/** 0.7.0 genre mode: the tutorial's next step comes as a System window in the next reply. */
+function tutorialNote(r) {
+    if (!genreOn(r) || r.tutorial?.state !== 'active') return;
+    const i = r.tutorial.done.findIndex(x => !x);
+    if (i < 0) return;
+    r.notes = r.notes.filter(n => !n.tut); // only the step now
+    const step = t(`tut_${i}`);
+    const n = addNote(r, '', { kind: 'TUTORIAL', text: `${i + 1}/4 · ${step}` },
+        `The System's tutorial goes on: ${ownerName(r)}'s next step is "${step}". Show the System telling ${ownerName(r)} so.`);
+    n.tut = true;
 }
 
 function finishTutorial(r) {
@@ -919,10 +995,23 @@ export async function switchOn(tut = '') {
         if (tut) r.tutorial.state = tut === 'start' ? 'active' : 'skipped';
         else if (settings().tutorialAuto) { r.tutorial.state = 'active'; bus.emit('awaken'); }
         else r.tutorial.state = 'skipped';
+        awakenNote(r);
         save();
         await newQuests(chatId);
         goalSoon(chatId);
     }
+}
+
+/**
+ * 0.7.0: the System has just appeared — the next reply shows the moment it is first noticed (in a quiet chat
+ * without System windows; in genre mode as the awakening window, with the tutorial's first step).
+ */
+function awakenNote(r) {
+    const who = ownerName(r);
+    addNote(r, `The System has just appeared to ${who} for the first time. Show the moment ${who}'s character first notices it (a sound, a glimpse at the edge of sight, a strange feeling). Keep it short: it is only the first glimpse.`,
+        { kind: 'AWAKEN', text: t('pop_awaken').replace(/^\[|\]$/g, '') },
+        `The System has just awakened for ${who}: this is the first time ${who} sees it. Make it a real moment in the story.`);
+    tutorialNote(r);
 }
 
 export function switchOff() {
@@ -967,7 +1056,7 @@ export async function giveGoal(chatId = currentChatId(), force = false) {
         return null;
     }
     const total = [3, 4, 5].includes(Math.round(made.total)) ? Math.round(made.total) : 4;
-    const g = setGoal({ title: made.title, total, stage: made.stage }, chatId);
+    const g = setGoal({ title: made.title, total, stage: made.stage }, chatId, genreOn(rr));
     rr.goalAuto = true; save(); changed();
     bus.emit('goalGiven', { goal: g, stage: goalNow(rr).current });
     return g;

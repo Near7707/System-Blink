@@ -5,7 +5,7 @@
 
 import { t, setLanguage, lang } from './src/i18n.js';
 import { ctx, settings, save, uiLang, room, currentChatId, chatName, onChatRenamed, onChatDeleted, onCharRenamed, copyFromParent, settleRoom, VERSION } from './src/store.js';
-import { bus, storeCheck, bindUses, markDelivered, markTold, active, checkRealDay, setLangGetter, skipTutorial, rate, lastReply, chatView, nextStage, tidy, answerSudden, msgKey, penaltyFor, rewardSkill, warnFor, checkBig, spectate, toneOf, wantsWake, declineWake, giveGoal, switchOn } from './src/engine.js';
+import { bus, storeCheck, bindUses, markDelivered, markTold, active, checkRealDay, setLangGetter, skipTutorial, rate, lastReply, chatView, nextStage, tidy, answerSudden, msgKey, penaltyFor, rewardSkill, warnFor, checkBig, spectate, toneOf, wantsWake, declineWake, giveGoal, switchOn, genreOn, veiled } from './src/engine.js';
 import { runCheck } from './src/ai.js';
 import { buildPrompt } from './src/prompt.js';
 import { panelHtml, panelChange, runButton, setPrefsHooks, setScope } from './src/prefs.js';
@@ -17,23 +17,31 @@ import {
     removeCards, clearPopups, dropPopups, popupWaiting, popupFront, pausePops, placeToasts, questsPopup, suddenPopup, hiddenPopup, stagePopup, goalDonePopup, goalGivenPopup, failPopup, skillPopup, unlockPopup, bigPopup,
 } from './src/ui/pop.js';
 import { esc, isPhone } from './src/ui/util.js';
+import { hasPlainSys } from './src/ui/qblock.js';
 import { renderPanel, placePanel, setPanelHidden, setPanelHooks, foldPanel, unmountPanel, endPanelDrag } from './src/ui/panel.js';
 
 export { VERSION };
 const PROMPT_KEY = 'system_blink';
+const RULES_KEY = 'system_blink_rules'; // 0.7.0: the lines that stay the same, near the top of the prompt (kept by the prompt cache)
 let lastPrompt = '';
 let sentNoteIds = [];
 let sentTellIds = [];
 let generating = false;
+let checkingKey = null; // 0.7.0: the AI reply being checked now (its CLEAR windows show "checking")
 
 // ---------- the lines for the AI ----------
 function updatePrompt(genType = 'normal', live = false) {
     let text = '';
+    let rules = '';
     let ids = [];
     let tells = [];
-    try { ({ text, noteIds: ids, tellIds: tells = [] } = buildPrompt(genType)); } catch (e) { console.error('[System Blink] prompt', e); }
-    if (live) { sentNoteIds = ids; sentTellIds = tells; lastPrompt = text; }
-    try { ctx().setExtensionPrompt(PROMPT_KEY, text, 1, 1, false, 0); } catch (e) { console.error('[System Blink] prompt', e); }
+    try { ({ rules = '', text, noteIds: ids, tellIds: tells = [] } = buildPrompt(genType)); } catch (e) { console.error('[System Blink] prompt', e); }
+    if (live) { sentNoteIds = ids; sentTellIds = tells; lastPrompt = rules ? `${rules}\n\n${text}` : text; }
+    try {
+        // 0 = in the prompt (after the story string), 1 = in the chat at depth 1; role 0 = system
+        ctx().setExtensionPrompt(RULES_KEY, rules, 0, 0, false, 0);
+        ctx().setExtensionPrompt(PROMPT_KEY, text, 1, 1, false, 0);
+    } catch (e) { console.error('[System Blink] prompt', e); }
 }
 
 // ---------- redraw ----------
@@ -73,7 +81,7 @@ function turnedOff() {
     guideBack = -1; pausePops(false);
     closeWindow(); clearPopups(); unmountFab(); removeCards(); unmountPanel();
     document.getElementById('sblink-strip')?.remove();
-    try { ctx().setExtensionPrompt(PROMPT_KEY, '', 1, 1, false, 0); } catch { /* ignore */ }
+    try { ctx().setExtensionPrompt(RULES_KEY, '', 0, 0, false, 0); ctx().setExtensionPrompt(PROMPT_KEY, '', 1, 1, false, 0); } catch { /* ignore */ }
     mountPanel(); mountWand();
 }
 
@@ -85,7 +93,10 @@ function checkSoon(force = false) {
         if (generating) return;
         const chatId = currentChatId();
         let res = null;
+        checkingKey = lastReply()?.key || null;
+        renderCards();
         try { res = await runCheck({ force }); } catch (e) { console.error('[System Blink] check', e); }
+        checkingKey = null;
         if (!res || currentChatId() !== chatId) {
             redrawSoon();
             // no check this time: the spectators may still react to the reply
@@ -107,6 +118,36 @@ async function cheer(chatId, key, ev) {
     if (!c || currentChatId() !== chatId || generating) return;
     if (c.pts) notice(c.text, 'gold', `+${c.pts}P`);
     else notice(c.text, 'spec');
+}
+
+// ---------- 0.7.0: genre mode — the story shows it, so the screen says it quietly ----------
+/** In genre mode (unless set to the big popups): a small notice whose "See ›" opens the big popup. */
+const quietAlerts = () => genreOn() && settings().genreAlert !== 'popup';
+function alertOr(text, show, right = '') {
+    if (quietAlerts()) notice(text, '', right, show);
+    else show();
+}
+const questLines = (list) => list.map(q => ({ name: q.name, pts: q.kind === 'penalty' ? 0 : rate(q.reward), penalty: q.kind === 'penalty', conds: q.conds || null, diff: q.diff }));
+function arrival(list) {
+    if (!list.length) return;
+    alertOr(t('toast_quests_in', { n: list.length }), () => questsPopup(questLines(list)));
+}
+function goalAlert(goal, stage) {
+    alertOr(t('toast_goal_given', { title: goal.title }), () => goalGivenPopup(goal, stage, stage ? rate(stage.reward) : 0));
+}
+function stageClearAlert(q) { alertOr(t('toast_stage_clear', { name: q.name }), () => stagePopup(q, rate(q.reward)), `+${rate(q.reward)}P`); }
+/** Quests the reply just brought into the story (genre mode): now their notices come. */
+function revealed(list) {
+    if (!list?.length) return;
+    const r = room();
+    arrival(list.filter(q => q.kind === 'daily' || q.kind === 'penalty'));
+    for (const q of list) {
+        if (q.kind === 'goal') {
+            if (q.stage === 0 && r?.goal && q.goalId === r.goal.id) goalAlert(r.goal, q);
+            else notice(t('toast_stage_new', { name: q.name }));
+        }
+        if (q.kind === 'hidden') alertOr(t('toast_hidden', { name: q.name }), () => hiddenPopup(q, rate(q.reward)));
+    }
 }
 
 const clearedNotice = (c) => notice(c.q.kind === 'penalty' ? t('toast_lifted', { name: c.q.name }) : t('toast_cleared', { pts: c.pts, name: c.q.name }));
@@ -132,8 +173,9 @@ function afterCheck(out, chatId) {
         else notice(t('toast_sudden_failed', { name: q.name }), 'warn');
     }
     if (out.failed.some(q => warnFor(q))) checkBig(chatId);
-    for (const q of out.stages) { stagePopup(q, rate(q.reward)); nextStage(chatId); }
-    if (out.hidden) hiddenPopup(out.hidden, rate(out.hidden.reward));
+    for (const q of out.stages) { stageClearAlert(q); nextStage(chatId); }
+    // genre mode: a found hidden quest waits for the reply that brings it in
+    if (out.hidden && !veiled(room(chatId), out.hidden)) hiddenPopup(out.hidden, rate(out.hidden.reward));
     if (out.sudden) suddenPopup(out.sudden, rate(out.sudden.reward), (yes) => answered(out.sudden.id, yes));
 }
 
@@ -143,12 +185,35 @@ const tutSteps = () => `<div class="sblink-tutsteps">${[0, 1, 2, 3].map(i => `<d
 
 /** Woken by hand: the System is already awake; start or skip the tutorial. */
 function awakenPopup() {
+    const chatId = currentChatId();
     popup({
         kind: 'awaken', code: 'SYS.NOTICE // AWAKEN', title: t('pop_awaken'),
         lines: [esc(t('pop_awaken_2')), esc(t('pop_awaken_3'))],
-        body: tutSteps(), second: t('skip'), ok: t('start'),
-        onClose: (act) => { if (act === 'second') skipTutorial(); else openWindow('quests'); },
+        body: tutSteps(), top: t('wake_story'), second: t('skip'), ok: t('start'),
+        onClose: (act) => {
+            if (act === 'second') skipTutorial();
+            else if (act === 'top') storyStart(chatId);
+            else if (!genreOn()) openWindow('quests'); // genre mode: the story shows the System first
+        },
     });
+}
+
+/**
+ * 0.7.0 [Begin as a story]: the AI writes the scene where the System appears right away, without a message of
+ * mine (like sending an empty message: one story reply). Whatever I had typed stays in the box.
+ */
+async function storyStart(chatId) {
+    if (currentChatId() !== chatId || generating || !room(chatId)?.on) return;
+    const c = ctx();
+    const ta = document.getElementById('send_textarea');
+    const keep = ta?.value || '';
+    try {
+        if (typeof c.generate === 'function') await c.generate('normal', { automatic_trigger: true });
+        else if (typeof c.executeSlashCommandsWithOptions === 'function') await c.executeSlashCommandsWithOptions('/trigger');
+    } catch (e) { console.warn('[System Blink] story start', e); }
+    finally {
+        if (keep && ta && !ta.value) { ta.value = keep; ta.dispatchEvent(new Event('input', { bubbles: true })); }
+    }
 }
 
 /**
@@ -162,18 +227,22 @@ function askWake(chatId) {
     const answer = async (act) => {
         if (currentChatId() !== chatId || !settings().enabled || room(chatId)?.on) return;
         if (act === 'link') { declineWake(chatId); mountPanel(); return; }
-        if (!tut) { await switchOn('skip'); mountPanel(); return; }
+        if (!tut) { await switchOn('skip'); mountPanel(); if (act === 'top') storyStart(chatId); return; }
         await switchOn(act === 'second' ? 'skip' : 'start');
         mountPanel();
-        if (act !== 'second') openWindow('quests');
+        if (act === 'top') storyStart(chatId);
+        else if (act !== 'second' && !genreOn()) openWindow('quests'); // genre mode: the story shows the System first
     };
+    // 0.7.0: someone new gets the settings guide first, then this question (then the tutorial)
+    const s = settings();
+    if (!s.guideSeen) { s.guideSeen = true; save(); guideHi(); }
     popup(tut ? {
         kind: 'awaken', code: 'SYS.NOTICE // AWAKEN', title: t('pop_awaken_ask'), wakeFor: chatId,
         lines: [esc(t('pop_awaken_2')), esc(t('pop_awaken_3'))],
-        body: tutSteps(), second: t('skip'), ok: t('start'), link: t('wake_decline'), onClose: answer,
+        body: tutSteps(), top: t('wake_story'), second: t('skip'), ok: t('start'), link: t('wake_decline'), onClose: answer,
     } : {
         kind: 'awaken', code: 'SYS.NOTICE // AWAKEN', title: t('pop_wake_q'), wakeFor: chatId,
-        lines: [esc(t('wake_q_body'))], ok: t('room_on'), link: t('wake_decline'), onClose: answer,
+        lines: [esc(t('wake_q_body'))], top: t('wake_story'), ok: t('room_on'), link: t('wake_decline'), onClose: answer,
     });
 }
 
@@ -181,6 +250,7 @@ function askWake(chatId) {
 const GUIDE = [
     { title: 'guide_1', body: 'guide_1_body', group: 'system', tones: true },
     { title: 'guide_world', body: 'guide_world_body', group: 'room' },
+    { title: 'guide_genre', body: 'guide_genre_body', group: 'genre' },
     { title: 'guide_2', body: 'guide_2_body', group: 'spectators' },
     { title: 'guide_3', body: 'guide_3_body', group: 'button' },
     { title: 'guide_4', body: 'guide_4_body', group: 'make' },
@@ -227,13 +297,14 @@ function wireBus() {
     bus.on('checkNow', () => checkSoon(true));
     bus.on('checkFailed', () => notice(t('check_failed'), 'warn'));
     bus.on('cleared', (list) => { for (const c of list) { if (c.q.kind !== 'goal') clearedNotice(c); if (c.q.kind === 'hidden') rewardSkill(currentChatId(), 'hidden', c.q); } });
-    bus.on('skillGained', ({ skill, from }) => skillPopup(skill, from));
-    bus.on('stageCleared', (q) => { stagePopup(q, rate(q.reward)); nextStage(); });
-    bus.on('stageArrived', (q) => notice(t('toast_stage_new', { name: q.name })));
+    bus.on('skillGained', ({ skill, from }) => alertOr(t('toast_skill', { name: skill.name }), () => skillPopup(skill, from)));
+    bus.on('stageCleared', (q) => { stageClearAlert(q); nextStage(); });
+    // 0.7.0 genre mode: what is still hidden comes with the reply that brings it in (see `revealed`)
+    bus.on('stageArrived', (q) => { if (!veiled(room(), q)) notice(t('toast_stage_new', { name: q.name })); });
     bus.on('goalDone', (g) => goalDonePopup(g));
-    bus.on('goalGiven', ({ goal, stage }) => goalGivenPopup(goal, stage, stage ? rate(stage.reward) : 0));
+    bus.on('goalGiven', ({ goal, stage }) => { if (!stage || !veiled(room(), stage)) goalAlert(goal, stage); });
     bus.on('goalFailed', () => notice(t('goal_give_failed'), 'warn'));
-    bus.on('questsArrived', (list) => questsPopup(list.map(q => ({ name: q.name, pts: q.kind === 'penalty' ? 0 : rate(q.reward), penalty: q.kind === 'penalty', conds: q.conds || null, diff: q.diff }))));
+    bus.on('questsArrived', (list) => { const r = room(); arrival(list.filter(q => !veiled(r, q))); });
     bus.on('sudden', ({ id, yes }) => answered(id, yes));
     bus.on('dayMoved', ({ days, failed, pen = [], debuff, lost, chatId }) => {
         notice(days === 1 ? t('toast_day') : t('toast_days', { n: days }));
@@ -245,7 +316,7 @@ function wireBus() {
     bus.on('woke', () => { const s = settings(); if (!s.guideSeen) { s.guideSeen = true; save(); guideHi(); } });
     bus.on('awaken', () => { dropPopups(p => !!p.wakeFor); awakenPopup(); }); // woken by hand: an open "wake?" question is moot
     bus.on('tutorialStep', () => redrawSoon());
-    bus.on('tutorialDone', () => popup({ tag: 'CLEAR', code: 'SYS.NOTICE // TUTORIAL', title: t('pop_tut_done'), lines: [`<span class="sblink-dia">◆</span><span class="sblink-ell">${esc(t('tut_reward'))}</span>`] }));
+    bus.on('tutorialDone', () => alertOr(t('toast_tut_done'), () => popup({ tag: 'CLEAR', code: 'SYS.NOTICE // TUTORIAL', title: t('pop_tut_done'), lines: [`<span class="sblink-dia">◆</span><span class="sblink-ell">${esc(t('tut_reward'))}</span>`] })));
 }
 
 // ---------- settings panel & wand ----------
@@ -353,7 +424,7 @@ function registerEvents() {
         const view = chatView();
         const m = view.list[Number(mesId)];
         if (m && !m.is_user && sentNoteIds.length) { markDelivered(view.keys[Number(mesId)], sentNoteIds); sentNoteIds = []; }
-        if (m && !m.is_user && sentTellIds.length) { markTold(view.keys[Number(mesId)], sentTellIds); sentTellIds = []; }
+        if (m && !m.is_user && sentTellIds.length) { revealed(markTold(view.keys[Number(mesId)], sentTellIds)); sentTellIds = []; }
     });
     for (const name of [ev.GENERATION_ENDED, ev.GENERATION_STOPPED]) {
         on(name, () => {
@@ -467,8 +538,9 @@ function watchScreen() {
                 }
                 const el = m.target.nodeType === 1 ? m.target : m.target.parentElement;
                 if (!el || el.closest('.sblink-qblock, .sblink-card')) continue;
+                if (el.closest('.sblink-qplain')) continue;
                 const mt = el.closest('.mes_text');
-                if (mt && mt.textContent.includes('[SYS:QUEST]')) { const mes = mt.closest('.mes'); if (mes) now.add(mes); }
+                if (mt && hasPlainSys(mt)) { const mes = mt.closest('.mes'); if (mes) now.add(mes); }
             }
             if (now.size) {
                 if (generating) { clearTimeout(textTimer); textTimer = setTimeout(renderCards, 300); }
@@ -492,7 +564,7 @@ async function init() {
         off: () => { settings().questPanel = false; save(); notice(t('panel_off_toast')); redrawAll(); },
     });
     setFabHooks({ open: () => openWindow() });
-    setPopHooks({ openTab: (tab) => openWindow(tab), openSkill: (id) => openWindow('status', { skill: id }), badge });
+    setPopHooks({ openTab: (tab) => openWindow(tab), openSkill: (id) => openWindow('status', { skill: id }), badge, checking: () => checkingKey });
     mountPanel();
     if (!mountWand()) { let n = 0; const w = setInterval(() => { if (mountWand() || ++n > 30) clearInterval(w); }, 1000); }
     if (settings().enabled) mountFab();

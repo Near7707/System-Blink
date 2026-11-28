@@ -30,6 +30,11 @@ export const SCHEMA = [
         { k: 'visibility', kind: 'choice', opts: ['me', 'all'] },
         { k: 'questChance', kind: 'choice', opts: ['off', 'some', 'more'] },
     ] },
+    // 0.7.0: genre mode — the System becomes the story's core (each chat can keep its own, like the quests' settings)
+    { group: 'genre', rows: [
+        { k: 'genreMode', kind: 'toggle' },
+        { k: 'genreAlert', kind: 'choice', opts: ['toast', 'popup'], common: true },
+    ] },
     { group: 'quests', rows: [
         { k: 'suddenFreq', kind: 'choice', opts: ['off', 'rare', 'normal', 'often'] },
         { k: 'suddenRest', kind: 'choice', opts: [3, 5, 10], needs: 'suddenFreq' },
@@ -140,8 +145,9 @@ export async function setValue(k, v, where = 'gear') {
     if (useOwn(k, where)) {
         const id = currentChatId();
         if (k === 'pointRate' || k === 'suddenRest') v = Number(v);
-        if (k === 'storyQuest' && v && !conf().storyQuest) skipOldTold(id);
-        setRoomSetting(id, k, ['hiddenOn', 'storyQuest', 'goalAuto', 'specOn', 'specGift', 'useDefaults', 'oddities'].includes(k) ? !!v : v);
+        if (k === 'genreMode' && v && !conf().genreMode && !(await genreAsk())) { hooks.redrawAll(); return; }
+        if ((k === 'storyQuest' || k === 'genreMode') && v && !conf().storyQuest && !conf().genreMode) skipOldTold(id);
+        setRoomSetting(id, k, ['hiddenOn', 'storyQuest', 'genreMode', 'goalAuto', 'specOn', 'specGift', 'useDefaults', 'oddities'].includes(k) ? !!v : v);
         if (k === 'goalAuto' && v) giveGoal();
         bus.emit('change');
         hooks.redrawAll();
@@ -184,7 +190,14 @@ export async function setValue(k, v, where = 'gear') {
         case 'btnShape': { const d = device(); if (['hex', 'hexb', 'tab', 'badge'].includes(v)) { d.shape = v; saveDevice(d); } break; }
         case 'pointRate': s.pointRate = Number(v); save(); break;
         case 'suddenRest': s.suddenRest = Number(v); save(); break;
-        case 'storyQuest': if (v && !s.storyQuest) skipOldTold(); s.storyQuest = !!v; save(); break;
+        case 'storyQuest': if (v && !s.storyQuest && !s.genreMode) skipOldTold(); s.storyQuest = !!v; save(); break;
+        case 'genreMode':
+            // 0.7.0: it changes where the story goes — said once more before it is switched on
+            if (v && !s.genreMode) {
+                if (!(await genreAsk())) break;
+                if (!s.storyQuest) skipOldTold();
+            }
+            s.genreMode = !!v; save(); break;
         default: s[k] = v; save();
     }
     bus.emit('change');
@@ -250,9 +263,12 @@ function doImport() {
     inp.click();
 }
 
+/** 0.7.0: switching genre mode on: what changes (the story's mood and direction may), asked once. */
+function genreAsk() { return confirmBox(`${t('genre_on_q')}\n\n${t('set_genreMode_hint')}`); }
+
 export async function confirmBox(text) {
     const c = globalThis.SillyTavern?.getContext?.();
-    if (typeof c?.callGenericPopup === 'function' && c.POPUP_TYPE) return !!(await c.callGenericPopup(esc(text), c.POPUP_TYPE.CONFIRM));
+    if (typeof c?.callGenericPopup === 'function' && c.POPUP_TYPE) return !!(await c.callGenericPopup(esc(text).replace(/\n/g, '<br>'), c.POPUP_TYPE.CONFIRM));
     return window.confirm(text);
 }
 
