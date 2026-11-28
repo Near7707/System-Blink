@@ -3,7 +3,7 @@
 
 export const MODULE = 'systemBlink';
 export const FORMAT = 2;
-export const VERSION = '0.6.10';
+export const VERSION = '0.6.11';
 export const TONES = ['game', 'star', 'threat'];
 export const DIFFS = ['off', 'easy', 'normal', 'hard', 'hell'];
 
@@ -46,6 +46,7 @@ const DEFAULTS = Object.freeze({
     profileId: '',          // connection profile for checks and making things ('' = current API)
     chats: {},              // chatId -> room state
     branchDone: {},         // branch chatId -> parent chatId
+    claimed: {},            // 0.6.11: a chat name from before 0.6.11 -> the chat (owner/name) that took its data
 });
 
 let ctxGetter = () => globalThis.SillyTavern?.getContext?.();
@@ -143,7 +144,7 @@ export function migrate(s) {
     s.pointRate = Number(s.pointRate);
     if (![3, 5, 10].includes(Number(s.suddenRest))) s.suddenRest = 5;
     s.suddenRest = Number(s.suddenRest);
-    for (const k of ['chats', 'branchDone', 'autoWake']) if (!s[k] || typeof s[k] !== 'object' || Array.isArray(s[k])) s[k] = {};
+    for (const k of ['chats', 'branchDone', 'autoWake', 'claimed']) if (!s[k] || typeof s[k] !== 'object' || Array.isArray(s[k])) s[k] = {};
     if (typeof s.customShop !== 'string') s.customShop = '';
     if (typeof s.profileId !== 'string') s.profileId = '';
     // 0.6.9: "tell the AI the daily-life fields" became each chat's own: chats keep the shared value they had
@@ -259,13 +260,96 @@ export function uid(prefix = 'b') {
     return `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
 }
 
-export function currentChatId() {
+// ---------- which chat (0.6.11) ----------
+// A character chat's id is its file name, and two characters can have chats with the same name. So a chat's
+// data is kept under "owner/name": owner = c:<character card file> or g:<group id>. Data saved before 0.6.11
+// is under the bare name (no "/"): it is given to the chat it belongs to when that chat is opened (settleRoom).
+
+/** c:<card file> for a character, g:<group id> for a group, or null. */
+export function ownerKey() {
+    try {
+        const c = ctx();
+        if (c.groupId) return `g:${c.groupId}`;
+        const ch = c.characters?.[c.characterId];
+        return ch?.avatar ? `c:${ch.avatar}` : null;
+    } catch { return null; }
+}
+
+/** The open chat's own name (SillyTavern's id), for showing; null outside a chat. */
+export function chatName() {
     try {
         const c = ctx();
         if (c.characterId === undefined && !c.groupId) return null;
         const id = c.getCurrentChatId?.();
         return id ? String(id) : null;
     } catch { return null; }
+}
+
+export const roomKey = (owner, name) => `${owner}/${name}`;
+const nameOf = (key) => String(key).slice(String(key).indexOf('/') + 1);
+
+/** The open chat's key (owner/name), or null. */
+export function currentChatId() {
+    const name = chatName();
+    const owner = name && ownerKey();
+    return owner ? roomKey(owner, name) : null;
+}
+
+/** Every message key a chat's data points at (its replies, my messages). */
+function keysOf(r) {
+    const out = [r.lastCheckKey, r.specKey, r.roll?.key];
+    for (const c of r.checks || []) out.push(c?.key);
+    for (const l of r.ledger || []) out.push(l?.key);
+    for (const l of r.lifeLog || []) out.push(l?.key);
+    for (const u of r.uses || []) out.push(u?.key);
+    for (const n of r.notes || []) out.push(n?.deliveredKey);
+    for (const c of r.cheers || []) out.push(c?.key);
+    for (const k of r.skills || []) out.push(k?.hidden?.key);
+    for (const q of r.quests || []) out.push(q?.fromKey, q?.acceptKey, ...(q?.toldKeys || []), ...(q?.seen || []));
+    return out.filter(k => typeof k === 'string' && k);
+}
+
+/** Does this data belong to the open chat? (Some of its message keys are in it.) */
+function partOfOpenChat(r, msgKeyOf) {
+    const keys = keysOf(r);
+    if (!keys.length) return null; // nothing to tell by
+    const mine = new Set((ctx().chat || []).map(msgKeyOf));
+    return keys.some(k => mine.has(k));
+}
+
+/**
+ * 0.6.11: the open chat (once loaded) takes its data saved before 0.6.11 under its bare name:
+ * - that data, if its messages are in this chat (or it has none to tell by): moved over;
+ * - data another character's chat of the same name already took, if its messages are in this chat too
+ *   (the two chats shared it): this chat gets its own copy.
+ * Anything else stays where it is. Run when a chat is opened (after it is loaded). Returns true if it changed.
+ */
+export function settleRoom(msgKeyOf) {
+    const s = settings();
+    const key = currentChatId();
+    if (!key || s.chats[key]) return false;
+    const name = nameOf(key);
+    const c = ctx();
+    if (!Array.isArray(c.chat) || !c.chat.length) return false;
+    const old = s.chats[name];
+    if (old && typeof old === 'object') {
+        if (partOfOpenChat(old, msgKeyOf) === false) return false;
+        s.chats[key] = old;
+        delete s.chats[name];
+        s.claimed[name] = key;
+        for (const [k, v] of Object.entries(s.branchDone)) if (v === name) s.branchDone[k] = key;
+        if (s.branchDone[name]) { s.branchDone[key] = s.branchDone[name]; delete s.branchDone[name]; }
+        save();
+        return true;
+    }
+    const took = s.claimed[name];
+    const other = took && took !== key ? s.chats[took] : null;
+    if (other && partOfOpenChat(other, msgKeyOf) === true) {
+        s.chats[key] = fixRoom(structuredClone(other));
+        save();
+        return true;
+    }
+    return false;
 }
 
 /** State for a chat. With `create` false, returns null when the chat has nothing yet. */
@@ -281,36 +365,101 @@ export function room(chatId = currentChatId(), create = false) {
 
 const stripExt = (n) => String(n || '').replace(/\.jsonl$/i, '');
 
-export function onChatRenamed(oldName, newName) {
+/**
+ * A chat was renamed. Its data follows it — never over data already under the new name (both are kept).
+ * `owner` from the event (the character card / group); data from before 0.6.11 (bare name) follows by name.
+ * Returns 'moved', 'blocked' (something already there; nothing changed) or ''.
+ */
+export function onChatRenamed(oldName, newName, owner = ownerKey()) {
     const s = settings();
-    const from = stripExt(oldName), to = stripExt(newName);
-    if (!from || !to || from === to || !s.chats[from]) return;
+    const a = stripExt(oldName), b = stripExt(newName);
+    if (!a || !b || a === b) return '';
+    let from = owner ? roomKey(owner, a) : '', to = owner ? roomKey(owner, b) : '';
+    if (!from || !s.chats[from]) {
+        if (!s.chats[a]) return '';
+        from = a; to = b; // not opened since 0.6.11: stays under the bare name
+    }
+    if (s.chats[to]) return 'blocked';
     s.chats[to] = s.chats[from];
     delete s.chats[from];
     for (const [k, v] of Object.entries(s.branchDone)) if (v === from) s.branchDone[k] = to;
     if (s.branchDone[from]) { s.branchDone[to] = s.branchDone[from]; delete s.branchDone[from]; }
+    for (const [k, v] of Object.entries(s.claimed)) if (v === from) s.claimed[k] = to;
     save();
+    return 'moved';
 }
 
-export function onChatDeleted(name) {
+/**
+ * 0.6.11: a character was renamed — SillyTavern gives it a new card file, so its chats' data moves to the new
+ * owner. Never over data already there (that one is kept where it is). Returns how many chats moved.
+ */
+export function onCharRenamed(oldAvatar, newAvatar) {
+    const s = settings();
+    if (!oldAvatar || !newAvatar || oldAvatar === newAvatar) return 0;
+    const from = `c:${oldAvatar}/`, to = `c:${newAvatar}/`;
+    const swap = (k) => (typeof k === 'string' && k.startsWith(from) ? to + k.slice(from.length) : k);
+    let n = 0;
+    for (const key of Object.keys(s.chats)) {
+        if (!key.startsWith(from)) continue;
+        const nk = swap(key);
+        if (s.chats[nk]) continue;
+        s.chats[nk] = s.chats[key];
+        delete s.chats[key];
+        n++;
+    }
+    if (!n) return 0;
+    for (const k of Object.keys(s.branchDone)) {
+        const v = swap(s.branchDone[k]), nk = swap(k);
+        if (nk !== k && s.chats[nk] && !s.branchDone[nk]) { s.branchDone[nk] = v; delete s.branchDone[k]; } else s.branchDone[k] = v;
+    }
+    for (const k of Object.keys(s.claimed)) s.claimed[k] = swap(s.claimed[k]);
+    const ok = `c:${oldAvatar}`, nk = `c:${newAvatar}`;
+    if (s.autoWake[ok] !== undefined && s.autoWake[nk] === undefined) { s.autoWake[nk] = s.autoWake[ok]; delete s.autoWake[ok]; }
+    save();
+    return n;
+}
+
+/**
+ * A chat was deleted. SillyTavern only says its name (not whose), so each chat of that name is dropped only
+ * when its owner is known to have no chat of that name any more. When unsure, the data is kept.
+ * `stillThere(owner, name)` → true / false / null (could not tell).
+ */
+export async function onChatDeleted(name, stillThere) {
     const s = settings();
     const id = stripExt(name);
-    let changed = false;
-    if (s.chats[id]) { delete s.chats[id]; changed = true; }
-    if (s.branchDone[id]) { delete s.branchDone[id]; changed = true; }
-    if (changed) save();
+    if (!id) return 0;
+    let n = 0;
+    for (const key of Object.keys(s.chats)) {
+        if (!key.includes('/') || nameOf(key) !== id) continue;
+        const owner = key.slice(0, key.indexOf('/'));
+        let there = null;
+        try { there = await stillThere(owner, id); } catch { there = null; }
+        if (there !== false || !s.chats[key]) continue;
+        delete s.chats[key];
+        delete s.branchDone[key];
+        for (const [k, v] of Object.entries(s.claimed)) if (v === key) delete s.claimed[k];
+        n++;
+    }
+    if (n) save();
+    return n;
 }
 
 /** A new branch chat starts with a copy of its parent's system (points, bag, quests, tutorial). */
-export function copyFromParent() {
+export function copyFromParent(msgKeyOf) {
     const s = settings();
     const id = currentChatId();
-    if (!id || s.chats[id] || s.branchDone[id]) return false;
+    if (!id || s.chats[id] || s.branchDone[id] || s.branchDone[nameOf(id)]) return false;
     let parent = '';
     try { parent = stripExt(ctx().chatMetadata?.main_chat || ''); } catch { /* ignore */ }
-    if (!parent || parent === id || !s.chats[parent]) return false;
-    s.chats[id] = fixRoom(structuredClone(s.chats[parent]));
-    s.branchDone[id] = parent;
+    if (!parent || parent === nameOf(id)) return false;
+    // the parent is the same character's chat; data from before 0.6.11 under its bare name counts if its messages are here
+    let from = roomKey(id.slice(0, id.indexOf('/')), parent);
+    if (!s.chats[from]) {
+        if (s.chats[parent] && msgKeyOf && partOfOpenChat(s.chats[parent], msgKeyOf) === true) from = parent;
+        else return false;
+    }
+    s.chats[id] = fixRoom(structuredClone(s.chats[from]));
+    s.branchDone[id] = from;
     save();
     return true;
 }

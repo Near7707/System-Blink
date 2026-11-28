@@ -2,7 +2,7 @@
 // counts while that AI reply is still there, so re-rolling or deleting the reply takes it back.
 // Purchases, manual clears and the tutorial reward always count.
 
-import { ctx, settings, conf, save, uid, room, currentChatId, DIFFS, TONES } from './store.js';
+import { ctx, settings, conf, save, uid, room, currentChatId, ownerKey, DIFFS, TONES } from './store.js';
 import { standingDefaults, dailyPool, questPool, penaltyPool, parseCustomShop, shuffle, TUTORIAL_REWARD, GRADES, LOW_GRADES, skillPool, gachaOddPool, eraserItem, specLine, specNames } from './data.js';
 
 // ---------- a tiny event bus (engine → screens) ----------
@@ -964,14 +964,7 @@ export async function giveGoal(chatId = currentChatId(), force = false) {
 }
 
 /** Who this chat is with: a character (by its card file) or a group. */
-export function charKey() {
-    try {
-        const c = ctx();
-        if (c.groupId) return `g:${c.groupId}`;
-        const ch = c.characters?.[c.characterId];
-        return ch?.avatar ? `c:${ch.avatar}` : null;
-    } catch { return null; }
-}
+export function charKey() { return ownerKey(); }
 
 /**
  * A brand-new chat (nothing saved for it, at most the greeting) with a character whose chats were woken before:

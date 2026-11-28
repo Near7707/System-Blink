@@ -3,7 +3,7 @@
 // Only makes a new file to download — the chat file itself is never touched.
 
 import { t } from './i18n.js';
-import { room, currentChatId, VERSION } from './store.js';
+import { room, chatName, VERSION } from './store.js';
 import { chatView, condsOf, rate, ownerName, questState, penaltyFor, warnFor } from './engine.js';
 
 const time = (ms) => { try { return new Date(ms).toLocaleString(); } catch { return String(ms); } };
@@ -100,7 +100,7 @@ export function buildLog(format = 'txt') {
     const r = room();
     const view = chatView();
     const { byKey, loose } = systemEvents(r, view);
-    const chatId = currentChatId() || '';
+    const chatId = chatName() || '';
     if (format === 'json') {
         return JSON.stringify({
             systemBlink: VERSION, chat: chatId, exportedAt: new Date().toISOString(), user: ownerName(r),
@@ -126,7 +126,7 @@ export function buildLog(format = 'txt') {
 }
 
 export function logFileName(format) {
-    const id = String(currentChatId() || 'chat').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80);
+    const id = String(chatName() || 'chat').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80);
     return `${id} - System Blink.${format === 'json' ? 'json' : 'txt'}`;
 }
 

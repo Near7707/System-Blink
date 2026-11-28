@@ -69,7 +69,7 @@ def close_pops(page, n=5):
 
 
 def points(page):
-    return ev(page, "(() => { const s = SillyTavern.getContext().extensionSettings.systemBlink; const r = s.chats[SillyTavern.getContext().getCurrentChatId()]; if (!r) return -1; const keys = new Set(SillyTavern.getContext().chat.map(m => 'd:' + m.send_date)); let e = 0; for (const l of r.ledger) if (!l.undone && (l.key == null || keys.has(l.key))) e += l.pts; return e - r.spend.reduce((a, x) => a + x.pts, 0); })()")
+    return ev(page, "(() => { const s = SillyTavern.getContext().extensionSettings.systemBlink; const r = s.chats[__sbKey()]; if (!r) return -1; const keys = new Set(SillyTavern.getContext().chat.map(m => 'd:' + m.send_date)); let e = 0; for (const l of r.ledger) if (!l.undone && (l.key == null || keys.has(l.key))) e += l.pts; return e - r.spend.reduce((a, x) => a + x.pts, 0); })()")
 
 
 def epoints(page):
@@ -120,6 +120,8 @@ def main():
             v069(browser, 'en')
             v0610(browser, 'ko')
             v0610(browser, 'en')
+            v0611(browser, 'ko')
+            v0611(browser, 'en')
             browser.close()
     finally:
         srv.terminate()
@@ -181,7 +183,7 @@ def flow(browser, lang):
     page.click('.sblink-cell >> nth=1')  # energy drink 20P
     shot(page, L('09_shop_pick'))
     check(ev(page, "document.querySelector('[data-act=\"buy\"]').disabled"), 'buy locked when points are short')
-    ev(page, "(() => { const r = SillyTavern.getContext().extensionSettings.systemBlink.chats[SillyTavern.getContext().getCurrentChatId()]; r.ledger.push({id:'t',questId:'x',pts:300,key:null}); })()")
+    ev(page, "(() => { const r = SillyTavern.getContext().extensionSettings.systemBlink.chats[__sbKey()]; r.ledger.push({id:'t',questId:'x',pts:300,key:null}); })()")
     page.click('[data-side="daily"]'); page.click('[data-side="standing"]')
     page.click('.sblink-cell >> nth=1')
     page.click('[data-act="buy"]')
@@ -220,7 +222,7 @@ def flow(browser, lang):
     page.click('[data-strip="go"]')
     page.wait_for_timeout(800)
     close_pops(page)
-    day = ev(page, "SillyTavern.getContext().extensionSettings.systemBlink.chats[SillyTavern.getContext().getCurrentChatId()].day")
+    day = ev(page, "SillyTavern.getContext().extensionSettings.systemBlink.chats[__sbKey()].day")
     check(day == 3, f'two days on, settled once (day {day})')
     check('2 days have passed' in ev(page, 'window.__fakeST.livePrompt'), 'the AI is told days passed')
     check(not ev(page, "!!document.getElementById('sblink-strip')"), 'strip gone after answering')
@@ -286,7 +288,7 @@ def flow(browser, lang):
 
 
 def room_js(expr):
-    return "(() => { const r = SillyTavern.getContext().extensionSettings.systemBlink.chats[SillyTavern.getContext().getCurrentChatId()]; return " + expr + "; })()"
+    return "(() => { const r = SillyTavern.getContext().extensionSettings.systemBlink.chats[__sbKey()]; return " + expr + "; })()"
 
 
 def quests2(browser, lang):
@@ -441,7 +443,7 @@ def difficulty(browser, lang):
     cut = ev(page, "[...document.querySelectorAll('.sblink-radiodesc')].filter(x => x.scrollWidth > x.clientWidth + 1).length")
     check(cut == 0, f'difficulty descriptions fit on a phone ({cut} cut)')
     # tutorial: no difficulty
-    tut = ev(page, """(async () => { const m = await import('/src/engine.js'); const r = SillyTavern.getContext().extensionSettings.systemBlink.chats[SillyTavern.getContext().getCurrentChatId()];
+    tut = ev(page, """(async () => { const m = await import('/src/engine.js'); const r = SillyTavern.getContext().extensionSettings.systemBlink.chats[__sbKey()];
         const was = r.tutorial.state; r.tutorial.state = 'active'; const d = m.diffOf(r); r.tutorial.state = was; return d; })()""")
     check(tut == 'off', 'no difficulty during the tutorial')
     page.click('[data-act="back"]')
@@ -936,7 +938,7 @@ def long_chat(browser):
     page.click('[data-act="close"]')
     # lots of records: 1500 clears, 1000 daily-life changes, 600 item uses, on old and new messages
     ev(page, """(() => {
-        const c = SillyTavern.getContext(); const r = c.extensionSettings.systemBlink.chats[c.getCurrentChatId()];
+        const c = SillyTavern.getContext(); const r = c.extensionSettings.systemBlink.chats[__sbKey()];
         const keys = c.chat.map(m => 'd:' + m.send_date);
         const q = r.quests[0];
         for (let i = 0; i < 1500; i++) r.ledger.push({ id: 'L' + i, questId: q.id, cond: null, pts: 0, key: keys[(i * 2) % 3000], reason: 'old line ' + i, at: i });
@@ -1422,7 +1424,7 @@ def goal062(browser, lang):
     check(ev(page, f"{S}.autoWake['c:mira.png']") is True, 'waking remembers the character')
 
     # finish the tutorial: the goal arrives by itself
-    ev(page, "(async () => { const m = await import('/src/engine.js'); const r = " + S + ".chats[SillyTavern.getContext().getCurrentChatId()]; r.tutorial.done = [true, true, true, false]; m.tutorialStep(r, 3); })()")
+    ev(page, "(async () => { const m = await import('/src/engine.js'); const r = " + S + ".chats[__sbKey()]; r.tutorial.done = [true, true, true, false]; m.tutorialStep(r, 3); })()")
     page.wait_for_timeout(900)
     check(calls() == 1, f'tutorial done: one goal request ({calls()})')
     check(ev(page, room_js('!!r.goal && r.goalAuto')), 'the goal is set')
@@ -1443,14 +1445,14 @@ def goal062(browser, lang):
     # an old chat never woken stays asleep
     ev(page, "window.__fakeST.chats['Mira - old'] = [{is_user:false,name:'Mira',mes:'Hi.',send_date:'2025-01-01T00:00:00Z'},{is_user:true,name:'Ari',mes:'Hey.',send_date:'2025-01-01T00:01:00Z'},{is_user:false,name:'Mira',mes:'Hm?',send_date:'2025-01-01T00:02:00Z'}]")
     ev(page, "window.__fakeST.openChat('Mira - old')"); page.wait_for_timeout(1100)
-    check(not ev(page, f"!!{S}.chats['Mira - old']"), 'an old chat is not woken')
+    check(not ev(page, f"!!{S}.chats['c:mira.png/Mira - old']"), 'an old chat is not woken')
     # another character's new chat stays asleep
     ev(page, "window.__fakeST.openCharChat(1, 'Juno - new')"); page.wait_for_timeout(1100)
-    check(not ev(page, f"!!{S}.chats['Juno - new']"), "another character's new chat is not woken")
+    check(not ev(page, f"!!{S}.chats['c:juno.png/Juno - new']"), "another character's new chat is not woken")
     # a brand-new chat with Mira: asks first — nothing is made and no AI is called until the answer
     q0 = ev(page, 'window.__calls.quests')
     ev(page, "window.__fakeST.openCharChat(0, 'Mira - new')"); page.wait_for_timeout(1300)
-    check(not ev(page, f"!!{S}.chats['Mira - new']"), 'new chat: not awake before the answer')
+    check(not ev(page, f"!!{S}.chats['c:mira.png/Mira - new']"), 'new chat: not awake before the answer')
     check(ev(page, 'window.__calls.quests') == q0, 'no quest request before the answer')
     check(ev(page, "!!document.querySelector('#sblink-pop [data-pop=\"second\"]') && !!document.querySelector('#sblink-pop [data-pop=\"link\"]')"), 'the popup: start / skip / don\'t wake')
     page.wait_for_timeout(1500); shot(page, f'{lang}_062_05_ask')
@@ -1458,16 +1460,16 @@ def goal062(browser, lang):
     ev(page, "window.__fakeST.openCharChat(0, 'Mira - new')"); page.wait_for_timeout(1100)
     check(ev(page, "document.querySelectorAll('#sblink-pop').length") == 1 and ev(page, "(async () => (await import('/src/ui/pop.js')).waiting())()") == 1, 'asked once')
     page.click('#sblink-pop [data-pop="second"]'); page.wait_for_timeout(900)  # skip
-    check(ev(page, f"!!{S}.chats['Mira - new']?.on"), 'answered: the chat wakes')
+    check(ev(page, f"!!{S}.chats['c:mira.png/Mira - new']?.on"), 'answered: the chat wakes')
     check(ev(page, 'window.__calls.quests') == q0 + 1, 'daily quests made after the answer')
     check(calls() == 2, f'skipped: the goal comes at once ({calls()})')
-    check(ev(page, f"!!{S}.chats['Mira - new'].goal"), 'goal set in the new chat')
+    check(ev(page, f"!!{S}.chats['c:mira.png/Mira - new'].goal"), 'goal set in the new chat')
     close_pops(page)
     # "don't wake this chat": stays asleep, no AI, not asked again
     q1 = ev(page, 'window.__calls.quests')
     ev(page, "window.__fakeST.openCharChat(0, 'Mira - skipme')"); page.wait_for_timeout(1300)
     page.click('#sblink-pop [data-pop="link"]'); page.wait_for_timeout(500)
-    check(ev(page, f"{S}.chats['Mira - skipme']?.on") is False and ev(page, 'window.__calls.quests') == q1, "don't wake: asleep, no AI call")
+    check(ev(page, f"{S}.chats['c:mira.png/Mira - skipme']?.on") is False and ev(page, 'window.__calls.quests') == q1, "don't wake: asleep, no AI call")
     ev(page, "window.__fakeST.openCharChat(1, 'Juno - new')"); page.wait_for_timeout(300)
     ev(page, "window.__fakeST.openCharChat(0, 'Mira - skipme')"); page.wait_for_timeout(1300)
     check(not ev(page, "!!document.getElementById('sblink-pop')"), 'not asked again')
@@ -1476,7 +1478,7 @@ def goal062(browser, lang):
     ev(page, "window.__fakeST.openCharChat(1, 'Juno - new')"); page.wait_for_timeout(400)
     check(not ev(page, "!!document.getElementById('sblink-pop')"), 'left the chat: the question goes away')
     ev(page, "window.__fakeST.openCharChat(0, 'Mira - later')"); page.wait_for_timeout(1300)
-    check(ev(page, "!!document.querySelector('#sblink-pop [data-pop=\"link\"]')") and not ev(page, f"!!{S}.chats['Mira - later']"), 'back: asked again')
+    check(ev(page, "!!document.querySelector('#sblink-pop [data-pop=\"link\"]')") and not ev(page, f"!!{S}.chats['c:mira.png/Mira - later']"), 'back: asked again')
     page.click('#sblink-pop [data-pop="link"]'); page.wait_for_timeout(300)
     ev(page, "window.__fakeST.openCharChat(0, 'Mira - new')"); page.wait_for_timeout(1100)
 
@@ -1492,7 +1494,7 @@ def goal062(browser, lang):
     check(ev(page, f"{S}.autoWake['c:mira.png']") is False, 'yes: new chats no longer wake')
     page.click('[data-act="close"]')
     ev(page, "window.__fakeST.openCharChat(0, 'Mira - newer')"); page.wait_for_timeout(1100)
-    check(not ev(page, f"!!{S}.chats['Mira - newer']"), 'the next new chat stays asleep')
+    check(not ev(page, f"!!{S}.chats['c:mira.png/Mira - newer']"), 'the next new chat stays asleep')
     # waking by hand again does not turn it back on (it was switched off for this character)
     ev(page, "(async () => (await import('/src/engine.js')).switchOn())()"); page.wait_for_timeout(500)
     check(ev(page, f"{S}.autoWake['c:mira.png']") is False, 'waking by hand keeps it off')
@@ -1505,7 +1507,7 @@ def goal062(browser, lang):
     ev(page, "window.__fakeST.openCharChat(1, 'Juno - three')"); page.wait_for_timeout(1300)
     check(ev(page, "!!document.querySelector('#sblink-pop [data-pop=\"link\"]') && !document.querySelector('#sblink-pop [data-pop=\"second\"]')"), 'tutorial off: "wake?" with [Wake] and don\'t wake')
     page.click('#sblink-pop [data-pop="ok"]'); page.wait_for_timeout(900)
-    check(ev(page, f"{S}.chats['Juno - three']?.on && {S}.chats['Juno - three'].tutorial.state === 'skipped'"), 'woken with the tutorial skipped')
+    check(ev(page, f"{S}.chats['c:juno.png/Juno - three']?.on && {S}.chats['c:juno.png/Juno - three'].tutorial.state === 'skipped'"), 'woken with the tutorial skipped')
     close_pops(page)
     ev(page, f"delete {S}.autoWake['c:juno.png']")
     ev(page, "window.__fakeST.openCharChat(1, 'Juno - two')"); page.wait_for_timeout(700)
@@ -1521,7 +1523,7 @@ def goal062(browser, lang):
     close_pops(page)
 
     # an older chat (awake, tutorial done, no goal) gets one when entered; with the setting off, none
-    ev(page, f"{S}.chats['Mira - 2026-01-01'].goal = null; {S}.chats['Mira - 2026-01-01'].goalAuto = false; {S}.chats['Mira - 2026-01-01'].quests = {S}.chats['Mira - 2026-01-01'].quests.filter(q => q.kind !== 'goal')")
+    ev(page, f"{S}.chats['c:mira.png/Mira - 2026-01-01'].goal = null; {S}.chats['c:mira.png/Mira - 2026-01-01'].goalAuto = false; {S}.chats['c:mira.png/Mira - 2026-01-01'].quests = {S}.chats['c:mira.png/Mira - 2026-01-01'].quests.filter(q => q.kind !== 'goal')")
     ev(page, f"{S}.goalAuto = false")
     n = calls()
     ev(page, "window.__fakeST.openCharChat(0, 'Mira - 2026-01-01')"); page.wait_for_timeout(1100)
@@ -1942,7 +1944,7 @@ def v069(browser, lang):
     check(first == 'roomOwn', f'with tabs: the switch right under them ({first})')
     shot(page, f'{lang}_069_gear')
     # update from 0.6.8: a chat takes the shared value it had; daily-life mode switched back on
-    got = ev(page, """(async () => { const st = await import('/src/store.js'); const s = st.settings(); const r = s.chats[SillyTavern.getContext().getCurrentChatId()];
+    got = ev(page, """(async () => { const st = await import('/src/store.js'); const s = st.settings(); const r = s.chats[__sbKey()];
         delete r.lifeToAI; r.lifeMode = false; s.lifeToAI = false; st.migrate(s); return [r.lifeToAI, r.lifeMode]; })()""")
     check(got == [False, True], f'update: chats keep the shared value, daily life on ({got})')
     check(not errors, f'no errors ({errors[:3]})')
@@ -1960,7 +1962,7 @@ def v0610(browser, lang):
     close_pops(page)
     if ev(page, "!!document.getElementById('sblink-win')"):
         page.click('[data-act="close"]'); page.wait_for_timeout(200)
-    E = "const e = await import('/src/engine.js'); const st = await import('/src/store.js'); const id = SillyTavern.getContext().getCurrentChatId(); const r = st.room(id);"
+    E = "const e = await import('/src/engine.js'); const st = await import('/src/store.js'); const id = __sbKey(); const r = st.room(id);"
     # 1. a place seen once stays after more than 12 quiet checks
     got = ev(page, "(async () => { " + E + """
         const ctx = SillyTavern.getContext(); const key = (m) => e.msgKey(m);
@@ -2025,6 +2027,116 @@ def v0610(browser, lang):
         await e.newQuests('other-chat');
         return [(window.__calls.skill || 0) - before, !!sk && o.skills.some(k => k.id === sk.id), window.__calls.quests - qBefore, o.quests.length > 0]; })()""")
     check(got == [0, True, 0, True], f'other chat: no AI asked, built-in list used there ({got})')
+    check(not errors, f'no errors ({errors[:3]})')
+    page.close()
+
+
+def v0611(browser, lang):
+    """0.6.11: chat data kept per character (owner/name); data from before is given to the chat it belongs to."""
+    print(f'--- 0.6.11 chats per character ({lang})')
+    page, errors = open_page(browser, f'fresh&lang={lang}')
+    S = "SillyTavern.getContext().extensionSettings.systemBlink"
+    M, J = 'c:mira.png/', 'c:juno.png/'
+    def wake():
+        if ev(page, "!!document.getElementById('sblink-win')"):
+            page.click('[data-act="close"]'); page.wait_for_timeout(200)
+        if ev(page, f"!!{S}.chats[__sbKey()]?.on"):
+            return
+        page.click('#sblink-fab'); page.click('[data-act="roomOn"]'); page.wait_for_timeout(500)
+        page.click('#sblink-pop [data-pop="second"]'); page.wait_for_timeout(500)
+        close_pops(page)
+        if ev(page, "!!document.getElementById('sblink-win')"):
+            page.click('[data-act="close"]'); page.wait_for_timeout(200)
+    def open_chat(cid, name):
+        ev(page, f"window.__fakeST.openCharChat({cid}, {name!r})"); page.wait_for_timeout(900); close_pops(page)
+    def give(key, pts):  # some points tied to no message, so they always count
+        ev(page, f"{S}.chats[{key!r}].ledger.push({{ id: 'gift{pts}', questId: 'test', cond: null, pts: {pts}, key: null, reason: '', at: Date.now() }})")
+    def legacy(name):  # put a chat's data back where 0.6.10 kept it (the bare name)
+        ev(page, f"(() => {{ const s = {S}; s.chats[{name!r}] = s.chats[{(M + name)!r}]; delete s.chats[{(M + name)!r}]; s.claimed = {{}}; }})()")
+
+    # the open chat's data is under owner/name
+    wake(); turn(page, 'hello', 'Hi there.')
+    key = ev(page, '__sbKey()')
+    check(key.startswith(M) and ev(page, f"!!{S}.chats[{key!r}]"), f'saved under owner/name ({key})')
+    check(ev(page, "(async () => (await import('/src/export.js')).logFileName('txt'))()").find('mira.png') < 0, 'export file name: the chat name only')
+    pts = epoints(page)
+
+    # A. data from before: taken back when the chat is opened (its messages are here)
+    legacy('Mira - 2026-01-01')
+    open_chat(0, 'Mira - 2026-01-01')
+    got = ev(page, f"[!!{S}.chats[{key!r}], !!{S}.chats['Mira - 2026-01-01'], {S}.claimed['Mira - 2026-01-01']]")
+    check(got == [True, False, key], f'old data moved to owner/name ({got})')
+    check(epoints(page) == pts and not ev(page, "!!document.getElementById('sblink-pop')"), 'points the same, no wake question')
+
+    # B. another character's chat with the same name is not given that data
+    ev(page, "window.__fakeST.chats['Story'] = [{ is_user: false, name: 'Mira', mes: 'Story starts.', send_date: 'st1' }, { is_user: true, name: 'Ari', mes: 'Go.', send_date: 'st2' }, { is_user: false, name: 'Mira', mes: 'On we go.', send_date: 'st3' }]")
+    open_chat(0, 'Story'); wake(); give(M + 'Story', 77)
+    ev(page, f"{S}.chats['{M}Story'].lastCheckKey = 'd:st3'")
+    legacy('Story')
+    open_chat(1, 'Story')  # Juno's own new chat named Story
+    got = ev(page, f"[!!{S}.chats['Story'], !!{S}.chats['{J}Story']]")
+    check(got == [True, False], f"not Juno's: the old data stays, Juno's chat starts empty ({got})")
+    open_chat(0, 'Story')
+    check(ev(page, f"!!{S}.chats['{M}Story'] && !{S}.chats['Story']"), "Mira's chat takes it")
+
+    # C. both characters' chats really shared it (same messages): the second one gets its own copy
+    ev(page, "window.__fakeST.chats['1|Story'] = structuredClone(window.__fakeST.chats['Story'])")
+    open_chat(1, 'Story')
+    got = ev(page, f"[!!{S}.chats['{J}Story'], {S}.chats['{J}Story'] !== {S}.chats['{M}Story']]")
+    check(got == [True, True], f'shared before: a copy of its own ({got})')
+    give(J + 'Story', 5)
+    check(ev(page, f"{S}.chats['{M}Story'].ledger.some(l => l.id === 'gift5')") is False, 'the copy is separate')
+
+    # D. renaming onto a name another character uses: nothing is overwritten
+    ev(page, "window.__fakeST.chats['1|Plan'] = [{ is_user: false, name: 'Juno', mes: 'Plans.', send_date: 'pl1' }]")
+    open_chat(1, 'Plan'); wake(); give(J + 'Plan', 33)
+    ev(page, "window.__fakeST.chats['Draft'] = [{ is_user: false, name: 'Mira', mes: 'Draft.', send_date: 'dr1' }]")
+    open_chat(0, 'Draft'); wake(); give(M + 'Draft', 44)
+    ev(page, "window.__fakeST.rename('Plan')"); page.wait_for_timeout(400)
+    got = ev(page, f"[{S}.chats['{J}Plan'].ledger.some(l => l.id === 'gift33'), {S}.chats['{M}Plan']?.ledger.some(l => l.id === 'gift44'), !!{S}.chats['{M}Draft']]")
+    check(got == [True, True, False], f"rename: Juno's data kept, Mira's moved ({got})")
+
+    # E. renaming onto data already there (same character): blocked, both kept
+    ev(page, f"{S}.chats['{M}Taken'] = structuredClone({S}.chats['{M}Plan']); {S}.chats['{M}Taken'].ledger.push({{ id: 'keepme', questId: 't', cond: null, pts: 1, key: null, at: 1 }})")
+    ev(page, "window.__fakeST.rename('Taken')"); page.wait_for_timeout(400)
+    got = ev(page, f"[!!{S}.chats['{M}Plan'], {S}.chats['{M}Taken'].ledger.some(l => l.id === 'keepme')]")
+    check(got == [True, True], f'rename blocked: nothing overwritten ({got})')
+
+    # F. deleting: only the chat that is really gone
+    ev(page, "window.__fakeST.chats['1|Twin'] = [{ is_user: false, name: 'Juno', mes: 'Twin.', send_date: 'tw1' }]; window.__fakeST.chats['Twin'] = [{ is_user: false, name: 'Mira', mes: 'Twin.', send_date: 'tw2' }]")
+    open_chat(1, 'Twin'); wake(); open_chat(0, 'Twin'); wake()
+    ev(page, "window.__chatListFail = true"); ev(page, "window.__fakeST.deleteChat(1, 'Twin')"); page.wait_for_timeout(400)
+    check(ev(page, f"!!{S}.chats['{J}Twin']"), 'could not check the chat list: data kept')
+    ev(page, "window.__chatListFail = false; window.__fakeST.chats['1|Twin'] = [{ is_user: false, name: 'Juno', mes: 'Twin.', send_date: 'tw1' }]")
+    ev(page, "window.__fakeST.deleteChat(1, 'Twin')"); page.wait_for_timeout(400)
+    got = ev(page, f"[!!{S}.chats['{J}Twin'], !!{S}.chats['{M}Twin']]")
+    check(got == [False, True], f"delete Juno's: only Juno's data goes ({got})")
+    ev(page, f"{S}.chats['Orphan'] = {S}.chats['{M}Twin']")
+    ev(page, "window.__fakeST.deleteChat(0, 'Orphan')"); page.wait_for_timeout(300)
+    check(ev(page, f"!!{S}.chats['Orphan']"), 'data from before (owner unknown) is kept')
+
+    # G. a branch of a chat whose data is still from before
+    open_chat(0, 'Mira - 2026-01-01')
+    legacy('Mira - 2026-01-01')
+    ev(page, "window.__fakeST.metas['Mira - 2026-01-01'] = {}")
+    ev(page, 'window.__fakeST.branch()'); page.wait_for_timeout(600); close_pops(page)
+    bk = ev(page, '__sbKey()')
+    check(ev(page, f"!!{S}.chats[{bk!r}]") and epoints(page) == pts, f'branch copies the old parent data ({bk})')
+
+    # H. an imported backup from before 0.6.11 (bare names): taken when the chat is opened
+    ev(page, f"""(async () => {{ const st = await import('/src/store.js'); const b = st.exportData(); const s = b.settings;
+        s.chats = {{ 'Mira - 2026-01-01': s.chats['Mira - 2026-01-01'] || s.chats['{M}Mira - 2026-01-01'] }}; s.claimed = {{}}; s.branchDone = {{}}; st.importData(b); }})()""")
+    open_chat(0, 'Mira - 2026-01-01')
+    check(ev(page, f"!!{S}.chats['{M}Mira - 2026-01-01'] && !{S}.chats['Mira - 2026-01-01']"), 'old backup: taken back on opening')
+
+    # I. a renamed character (new card file): its chats' data follows, and so does "wake new chats"
+    ev(page, f"{S}.autoWake['c:mira.png'] = true")
+    ev(page, "window.__fakeST.renameChar(0, 'mira2.png')"); page.wait_for_timeout(300)
+    got = ev(page, f"[!!{S}.chats['c:mira2.png/Mira - 2026-01-01'], Object.keys({S}.chats).some(k => k.startsWith('c:mira.png/')), {S}.autoWake['c:mira2.png']]")
+    check(got == [True, False, True], f'character renamed: data follows ({got})')
+    open_chat(0, 'Mira - 2026-01-01')
+    check(ev(page, "__sbKey()") == 'c:mira2.png/Mira - 2026-01-01' and epoints(page) >= 0 and ev(page, f"!!{S}.chats[__sbKey()].on"), 'the chat opens with its data')
+    ev(page, "window.__fakeST.renameChar(0, 'mira.png')"); page.wait_for_timeout(300)
     check(not errors, f'no errors ({errors[:3]})')
     page.close()
 

@@ -10,7 +10,7 @@
         USER_MESSAGE_RENDERED: 'user_message_rendered', CHARACTER_MESSAGE_RENDERED: 'character_message_rendered',
         MORE_MESSAGES_LOADED: 'more_messages_loaded', GENERATION_STARTED: 'generation_started',
         GENERATION_ENDED: 'generation_ended', GENERATION_STOPPED: 'generation_stopped',
-        CHAT_RENAMED: 'chat_renamed', CHAT_DELETED: 'chat_deleted', GROUP_CHAT_DELETED: 'group_chat_deleted',
+        CHAT_RENAMED: 'chat_renamed', CHARACTER_RENAMED: 'character_renamed', CHAT_DELETED: 'chat_deleted', GROUP_CHAT_DELETED: 'group_chat_deleted',
     };
     const eventSource = {
         on(n, f) { (listeners[n] ||= []).push(f); },
@@ -27,16 +27,18 @@
     const chats = {};
     const metas = {};
     const stamp = () => new Date(state.clock += 60_000).toISOString();
+    // chats are kept per character (the first character keeps bare names, as before)
+    const ck = (cid = state.characterId, name = state.chatName) => (cid === 0 || cid === undefined ? name : `${cid}|${name}`);
     function chat() {
-        if (!chats[state.chatName]) {
-            chats[state.chatName] = [{ is_user: false, is_system: false, name: characters[state.characterId]?.name || 'Mira', mes: 'Morning! The café just opened. Want your usual?', send_date: stamp() }];
+        if (!chats[ck()]) {
+            chats[ck()] = [{ is_user: false, is_system: false, name: characters[state.characterId]?.name || 'Mira', mes: 'Morning! The café just opened. Want your usual?', send_date: stamp() }];
             // a long chat for speed checks: made-up lines only
             const n = Number(params.get('long') || 0);
-            for (let i = 1; i < n; i++) chats[state.chatName].push(i % 2
+            for (let i = 1; i < n; i++) chats[ck()].push(i % 2
                 ? { is_user: true, is_system: false, name: 'Ari', mes: `Line ${i}. I walk a little further down the street.`, send_date: stamp() }
                 : { is_user: false, is_system: false, name: 'Mira', mes: `Line ${i}. The street is quiet; a bell rings somewhere.`, send_date: stamp() });
         }
-        return chats[state.chatName];
+        return chats[ck()];
     }
     // like SillyTavern: only the newest messages are drawn on screen
     const SHOWN = 100;
@@ -142,6 +144,19 @@
         generateRaw: async ({ systemPrompt, prompt }) => fakeAI(systemPrompt, prompt),
     };
     window.SillyTavern = { getContext: () => ctx };
+    // the data key System Blink uses for the open chat (0.6.11: owner/name)
+    window.__sbKey = () => { const n = ctx.getCurrentChatId(); return n ? `c:${characters[state.characterId].avatar}/${n}` : n; };
+    // SillyTavern's chat list of a character (used after a delete)
+    const realFetch = window.fetch.bind(window);
+    window.fetch = async (url, opts) => {
+        if (url === '/api/characters/chats') {
+            if (window.__chatListFail) return new Response('', { status: 500 });
+            const avatar = JSON.parse(opts.body).avatar_url;
+            const cid = characters.findIndex(c => c.avatar === avatar);
+            return new Response(JSON.stringify(window.__fakeST.chatNames(cid).map(n => ({ file_name: `${n}.jsonl` }))), { status: 200 });
+        }
+        return realFetch(url, opts);
+    };
 
     function render() {
         const box = document.getElementById('chat');
@@ -207,19 +222,25 @@
         async branch() {
             const from = state.chatName;
             state.chatName = `${from} Branch`;
-            chats[state.chatName] = structuredClone(chats[from]);
+            chats[ck()] = structuredClone(chats[ck(state.characterId, from)]);
             metas[state.chatName] = { main_chat: from };
             render();
             await eventSource.emit(eventTypes.CHAT_CHANGED, state.chatName);
         },
         async rename(to) {
             const from = state.chatName;
-            chats[to] = chats[from]; delete chats[from]; state.chatName = to;
-            await eventSource.emit(eventTypes.CHAT_RENAMED, { oldFileName: `${from}.jsonl`, newFileName: `${to}.jsonl` });
+            chats[ck(state.characterId, to)] = chats[ck()]; delete chats[ck()]; state.chatName = to;
+            // like SillyTavern: avatarId = the character's card file
+            await eventSource.emit(eventTypes.CHAT_RENAMED, { avatarId: characters[state.characterId]?.avatar, groupId: null, oldFileName: `${from}.jsonl`, newFileName: `${to}.jsonl` });
             await eventSource.emit(eventTypes.CHAT_CHANGED, to);
         },
         // another character's chat (a new name = a brand-new chat with only the greeting)
         async openCharChat(charId, name) { state.characterId = charId; state.chatName = name; render(); await eventSource.emit(eventTypes.CHAT_CHANGED, name); },
+        // delete a chat of a character (like SillyTavern: the event says only the name)
+        async deleteChat(charId, name) { delete chats[ck(charId, name)]; await eventSource.emit(eventTypes.CHAT_DELETED, name); },
+        chatNames: (charId) => Object.keys(chats).filter(k => (charId === 0 ? !k.includes('|') : k.startsWith(`${charId}|`))).map(k => k.replace(/^\d+\|/, '')),
+        // rename a character: like SillyTavern, a new card file, chats move with it
+        async renameChar(charId, avatar) { const old = characters[charId].avatar; characters[charId].avatar = avatar; await eventSource.emit(eventTypes.CHARACTER_RENAMED, old, avatar); },
         async openChat(name) { state.chatName = name; render(); await eventSource.emit(eventTypes.CHAT_CHANGED, name); },
         async closeChat() { state.keep = state.characterId; state.characterId = undefined; render(); await eventSource.emit(eventTypes.CHAT_CHANGED, undefined); },
         async reopenChat() { state.characterId = state.keep ?? 0; render(); await eventSource.emit(eventTypes.CHAT_CHANGED, state.chatName); },

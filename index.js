@@ -4,8 +4,8 @@
 // extension settings (and the floating button's place in this device's localStorage).
 
 import { t, setLanguage, lang } from './src/i18n.js';
-import { ctx, settings, save, uiLang, room, currentChatId, onChatRenamed, onChatDeleted, copyFromParent, VERSION } from './src/store.js';
-import { bus, storeCheck, bindUses, markDelivered, markTold, active, checkRealDay, setLangGetter, skipTutorial, rate, lastReply, chatView, nextStage, tidy, answerSudden, penaltyFor, rewardSkill, warnFor, checkBig, spectate, toneOf, wantsWake, declineWake, giveGoal, switchOn } from './src/engine.js';
+import { ctx, settings, save, uiLang, room, currentChatId, onChatRenamed, onChatDeleted, onCharRenamed, copyFromParent, settleRoom, VERSION } from './src/store.js';
+import { bus, storeCheck, bindUses, markDelivered, markTold, active, checkRealDay, setLangGetter, skipTutorial, rate, lastReply, chatView, nextStage, tidy, answerSudden, msgKey, penaltyFor, rewardSkill, warnFor, checkBig, spectate, toneOf, wantsWake, declineWake, giveGoal, switchOn } from './src/engine.js';
 import { runCheck } from './src/ai.js';
 import { buildPrompt } from './src/prompt.js';
 import { panelHtml, panelChange, runButton, setPrefsHooks, setScope } from './src/prefs.js';
@@ -337,7 +337,7 @@ function registerEvents() {
     // while switched off nothing runs, except keeping saved data with renamed / deleted chats
     const on = (name, fn, always = false) => { if (name) eventSource.on(name, (...a) => { try { if (always || settings().enabled) return fn(...a); } catch (e) { console.error('[System Blink]', e); } }); };
 
-    on(ev.CHAT_CHANGED, () => { const id = currentChatId(); dropPopups(p => p.wakeFor && p.wakeFor !== id); copyFromParent(); mountPanel(); if (!settings().enabled) return; generating = false; hold(false); checkRealDay(); redrawSoon(); enteredSoon(); }, true);
+    on(ev.CHAT_CHANGED, () => { const id = currentChatId(); dropPopups(p => p.wakeFor && p.wakeFor !== id); settleRoom(msgKey); copyFromParent(msgKey); mountPanel(); if (!settings().enabled) return; generating = false; hold(false); checkRealDay(); redrawSoon(); enteredSoon(); }, true);
     for (const name of [ev.MESSAGE_DELETED, ev.MESSAGE_SWIPED, ev.MESSAGE_EDITED, ev.MESSAGE_UPDATED,
         ev.USER_MESSAGE_RENDERED, ev.CHARACTER_MESSAGE_RENDERED, ev.MORE_MESSAGES_LOADED, ev.CHAT_LOADED]) {
         on(name, () => { renderCardsSoon(); redrawSoon(); });
@@ -363,10 +363,38 @@ function registerEvents() {
             if (active() && lastReply()) checkSoon();
         });
     }
-    on(ev.CHAT_RENAMED, (data) => { onChatRenamed(data?.oldFileName, data?.newFileName); redrawSoon(); }, true);
-    on(ev.CHAT_DELETED, (name) => onChatDeleted(name), true);
-    on(ev.GROUP_CHAT_DELETED, (name) => onChatDeleted(name), true);
-    on(ev.APP_READY, () => { mountWand(); if (!settings().enabled) return; mountFab(); checkRealDay(); redraw(); enteredSoon(); }, true);
+    on(ev.CHAT_RENAMED, (data) => {
+        // 0.6.11: whose chat it is comes with the event (card file or group); never moved over other data
+        const owner = data?.groupId ? `g:${data.groupId}` : data?.avatarId ? `c:${data.avatarId}` : undefined;
+        if (onChatRenamed(data?.oldFileName, data?.newFileName, owner) === 'blocked') globalThis.toastr?.warning?.(t('rename_blocked'), 'System Blink');
+        settleRoom(msgKey);
+        redrawSoon();
+    }, true);
+    // 0.6.11: a renamed character gets a new card file: its chats' data follows
+    on(ev.CHARACTER_RENAMED, (oldAvatar, newAvatar) => { onCharRenamed(oldAvatar, newAvatar); }, true);
+    on(ev.CHAT_DELETED, (name) => { onChatDeleted(name, charStillHas).catch(e => console.warn('[System Blink] delete', e)); }, true);
+    on(ev.GROUP_CHAT_DELETED, (name) => { onChatDeleted(name, groupStillHas).catch(e => console.warn('[System Blink] delete', e)); }, true);
+    on(ev.APP_READY, () => { settleRoom(msgKey); mountWand(); if (!settings().enabled) return; mountFab(); checkRealDay(); redraw(); enteredSoon(); }, true);
+}
+
+// 0.6.11: after a delete, does this owner still have a chat of that name? true / false / null (could not tell → data kept)
+async function charStillHas(owner, name) {
+    if (!owner.startsWith('c:')) return null;
+    const c = ctx();
+    const res = await fetch('/api/characters/chats', {
+        method: 'POST',
+        headers: c.getRequestHeaders?.() || { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ avatar_url: owner.slice(2) }),
+    });
+    if (!res.ok) return null;
+    const list = Object.values((await res.json()) || {});
+    if (!list.every(x => x && typeof x.file_name === 'string')) return null;
+    return list.some(x => x.file_name.replace(/\.jsonl$/i, '') === name);
+}
+async function groupStillHas(owner, name) {
+    if (!owner.startsWith('g:')) return null;
+    const g = (ctx().groups || []).find(x => String(x.id) === owner.slice(2));
+    return g && Array.isArray(g.chats) ? g.chats.includes(name) : null;
 }
 
 function watchScreen() {
@@ -432,6 +460,7 @@ function watchScreen() {
 
 async function init() {
     settings();
+    settleRoom(msgKey); // 0.6.11: a chat already open when the extension starts
     setLanguage(uiLang());
     setLangGetter(lang);
     wireBus();
